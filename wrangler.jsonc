@@ -1,0 +1,92 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "tuvu",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2026-07-09",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"assets": {
+		"directory": "./dist/client",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"APP_NAME": "Tuvu",
+		"PUBLIC_APP_URL": "http://localhost:8787"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "tuvu-dev",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "migrations"
+		},
+		{
+			"binding": "tuvu",
+			"database_name": "tuvu",
+			"database_id": "2661d67f-4cfa-434b-b3e5-b65ba0fa3b68",
+			"remote": true
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "USER_UPLOADS",
+			"bucket_name": "tuvu-user-uploads-dev"
+		}
+	],
+	"env": {
+		"staging": {
+			"name": "tuvu-staging",
+			"vars": {
+				"ENVIRONMENT": "staging",
+				"APP_NAME": "Tuvu",
+				"PUBLIC_APP_URL": "https://staging.example.com"
+			},
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "tuvu-staging",
+					"database_id": "2661d67f-4cfa-434b-b3e5-b65ba0fa3b68",
+					"migrations_dir": "migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "USER_UPLOADS",
+					"bucket_name": "tuvu-user-uploads-staging"
+				}
+			]
+		},
+		"production": {
+			"name": "tuvu",
+			"vars": {
+				"ENVIRONMENT": "production",
+				"APP_NAME": "Tuvu",
+				"PUBLIC_APP_URL": "https://tuvu.example.com"
+			},
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "tuvu",
+					"database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
+					"migrations_dir": "migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "USER_UPLOADS",
+					"bucket_name": "tuvu-user-uploads"
+				}
+			]
+		}
+	}
+}

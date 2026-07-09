@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => ({
   },
   server: {
     port: 5173,
+    // TEMP: Added to test on other devices.
+    allowedHosts: ['.ngrok-free.app'],
   },
   resolve: {
     alias: {

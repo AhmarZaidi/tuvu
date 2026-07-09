@@ -121,24 +121,26 @@ Use free/public APIs carefully and cache responses.
 
 ### Navigation and Layout
 
-- Mobile-first app shell with TV Time-like bottom tabs:
-  - Shows
+- Mobile-first app shell with bottom tabs:
+  - Books
+  - Games
   - Movies
-  - Explore
+  - Shows
   - Profile
 - Desktop layout should use a left rail or top navigation while preserving the same core routes.
-- Anime, Games, and Books should be accessible through Explore and Library filters in v1. They do not need permanent bottom tabs in v1.
+- Profile is the mobile hub for secondary app areas such as Explore, Messages, Settings, and TV Time import so no feature is desktop-only.
+- Anime should be accessible through Explore and shared library filters in v1.
 - Use the provided `app-icon.png` as the initial app icon and favicon source.
 - UI should feel close to TV Time: poster grids, progress bars, compact cards, clear status chips, dark-friendly theme, quick mark-watched actions.
 - Do not create a marketing landing page as the first screen. Logged-in users should land in the tracking app. Logged-out users should see a compact auth screen with product identity and login choices.
 
 ### Auth and Account
 
-Use passkeys plus OAuth in v1.
+Use portable username/password auth as the v1 baseline, with OAuth and passkeys as optional enhancements.
 
-- Passkey registration/login should be the preferred account flow.
+- Username/password registration/login should be the default account flow so users can register on one device and log in from another, including through an HTTPS ngrok test URL.
+- Passkeys may be kept as an optional enhancement, but they must not be required for Phase 2 acceptance because passkey availability and syncing vary by device, browser, and relying-party hostname.
 - OAuth should be available for convenience. Start with one provider if needed, but design for more.
-- Do not implement email/password in v1 unless explicitly requested later.
 - Sessions must use secure, HTTP-only cookies.
 - Store sessions in D1, not in JWT-only client state.
 - Add rate limits for auth endpoints.
@@ -402,6 +404,7 @@ Core tables:
 - `users`
 - `user_profiles`
 - `sessions`
+- `auth_passwords`
 - `oauth_accounts`
 - `webauthn_credentials`
 - `media_items`
@@ -599,7 +602,7 @@ Implementation details:
   - D1 as primary database.
   - Supabase Storage for user uploads.
   - TMDB/RAWG/Open Library provider choices.
-  - Passkeys plus OAuth auth strategy.
+  - Password-first auth baseline with optional passkeys/OAuth.
 
 Testing gate:
 
@@ -625,6 +628,8 @@ Implementation details:
 - Create route structure:
   - `/`
   - `/auth`
+  - `/books`
+  - `/games`
   - `/shows`
   - `/movies`
   - `/explore`
@@ -636,8 +641,9 @@ Implementation details:
   - `/import/tv-time`
 - Implement logged-out auth screen.
 - Implement logged-in app shell.
-- Add bottom mobile navigation.
+- Add bottom mobile navigation for Books, Games, Movies, Shows, and Profile.
 - Add desktop navigation.
+- Add Profile entry points for Explore, Messages, Settings, and Import on mobile.
 - Add media card, poster grid, progress bar, status chip, empty state, skeleton, modal, toast, tabs, segmented controls, and icon button components.
 - Add dark/light/system theme support if cheap; otherwise ship a polished dark-first theme with later theme toggle.
 - Add app icon and favicon from `app-icon.png`.
@@ -666,10 +672,12 @@ Implementation details:
   - users
   - profiles
   - sessions
+  - password credentials
   - OAuth accounts
   - WebAuthn credentials
   - uploads
-- Implement passkey registration and login.
+- Implement username/password registration and login as the default cross-device flow.
+- Keep passkey registration and login optional if already present, but do not make passkeys the only way to satisfy acceptance.
 - Implement OAuth login with one provider first, keeping provider abstraction extensible.
 - Store sessions in D1.
 - Use HTTP-only secure cookies.
@@ -690,13 +698,14 @@ Testing gate:
 - Unit tests for session creation, expiry, and lookup.
 - Integration tests for auth-protected routes.
 - WebAuthn flow tested with mocked/controlled challenge handling.
+- Password register/login tested across independent requests.
 - OAuth callback tested with mocked provider response.
 - Upload route rejects invalid file types and oversized files.
 - Profile update validation tests pass.
 
 Acceptance gate:
 
-- A user can register/login, stay logged in, edit profile, upload avatar/banner, and log out.
+- A user can register/login from different devices/browsers, stay logged in, edit profile, upload avatar/banner, see those uploads after refresh, and log out.
 
 ### Phase 3: Core Media and Library Model
 
@@ -1080,7 +1089,7 @@ Acceptance gate:
 
 V1 is complete when:
 
-- User can register/login with passkey or OAuth.
+- User can register/login with username/password, with OAuth/passkeys available as optional enhancements when configured.
 - User can edit profile, avatar, and banner.
 - User can import the provided TV Time exports with validated counts.
 - Imported shows, episodes, movies, favorites, statuses, watched dates, specials, and rewatch counts are preserved.

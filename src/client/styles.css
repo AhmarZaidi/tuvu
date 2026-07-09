@@ -167,7 +167,7 @@ a {
   left: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   min-height: 4.6rem;
   border-top: 1px solid rgba(255, 255, 255, 0.09);
   background: rgba(16, 17, 18, 0.94);
@@ -528,6 +528,58 @@ a {
   flex: 1 1 12rem;
 }
 
+.auth-form,
+.settings-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.auth-form label,
+.settings-form label {
+  display: grid;
+  gap: 0.35rem;
+  color: #d6d8d2;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.auth-form input,
+.settings-form input,
+.settings-form textarea,
+.settings-form select {
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.45rem;
+  outline: 0;
+  background: rgba(255, 255, 255, 0.07);
+  padding: 0.65rem 0.75rem;
+  color: #f8f7f2;
+}
+
+.settings-form textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.settings-form {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.055);
+  padding: 1rem;
+}
+
+.file-row {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.form-message {
+  margin: 0;
+  color: #aeb1ac;
+  font-size: 0.88rem;
+}
+
 .profile-hero {
   overflow: hidden;
   border-radius: 0.5rem;
@@ -537,7 +589,11 @@ a {
 
 .profile-banner {
   min-height: 9rem;
-  background: linear-gradient(135deg, #ffbf47, #35556d 50%, #161819);
+  background:
+    linear-gradient(135deg, rgba(255, 191, 71, 0.84), rgba(53, 85, 109, 0.86) 50%, rgba(22, 24, 25, 0.9)),
+    #161819;
+  background-position: center;
+  background-size: cover;
 }
 
 .profile-row {
@@ -548,6 +604,7 @@ a {
 }
 
 .avatar {
+  overflow: hidden;
   display: grid;
   width: 4rem;
   height: 4rem;
@@ -558,6 +615,39 @@ a {
   background: #ffcf5c;
   color: #1d1505;
   font-weight: 900;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.profile-action {
+  display: flex;
+  align-items: center;
+  min-height: 3.5rem;
+  gap: 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0.8rem;
+  color: #f8f7f2;
+  font-weight: 850;
+}
+
+.profile-action svg {
+  color: #ffcf5c;
+}
+
+.settings-preview {
+  display: block;
 }
 
 .detail-layout {
@@ -594,14 +684,16 @@ a {
   inset: 0;
   z-index: 40;
   display: grid;
-  place-items: center;
+  align-items: end;
   background: rgba(0, 0, 0, 0.62);
-  padding: 1rem;
+  padding: 1rem 0 0;
 }
 
 .modal {
-  width: min(100%, 30rem);
-  border-radius: 0.5rem;
+  width: 100%;
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  border-radius: 0.75rem 0.75rem 0 0;
   background: #171819;
   padding: 1rem;
 }
@@ -689,5 +781,15 @@ a {
 
   .toast {
     bottom: 1rem;
+  }
+
+  .modal-backdrop {
+    place-items: center;
+    padding: 1rem;
+  }
+
+  .modal {
+    width: min(100%, 30rem);
+    border-radius: 0.5rem;
   }
 }

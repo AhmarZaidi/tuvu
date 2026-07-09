@@ -23,6 +23,12 @@ export default defineConfig(({ mode }) => ({
     port: 5173,
     // TEMP: Added to test on other devices.
     allowedHosts: ['.ngrok-free.app'],
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: false,
+      },
+    },
   },
   resolve: {
     alias: {

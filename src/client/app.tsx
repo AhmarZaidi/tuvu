@@ -28,7 +28,8 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, FormEvent, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
 
 type MediaType = "show" | "movie" | "anime" | "game" | "book";
@@ -44,6 +45,33 @@ type MediaCardItem = {
   tone: StatusTone;
   accent: string;
 };
+
+type MePayload = {
+  user: {
+    id: string;
+    email: string | null;
+    username: string;
+    displayName: string;
+  };
+  profile: {
+    bio: string;
+    visibility: "public" | "connections" | "private";
+    preferredLanguage: string;
+    preferredRegion: string;
+    avatarUploadId: string | null;
+    bannerUploadId: string | null;
+    avatarUrl: string | null;
+    bannerUrl: string | null;
+  };
+  csrfToken: string;
+};
+
+type AuthState = {
+  me: MePayload;
+  refresh: () => Promise<void>;
+};
+
+const AuthContext = createContext<AuthState | null>(null);
 
 const mediaItems: MediaCardItem[] = [
   {
@@ -99,13 +127,15 @@ const mediaItems: MediaCardItem[] = [
 ];
 
 const navItems = [
-  { to: "/shows", label: "Shows", icon: Tv },
+  { to: "/books", label: "Books", icon: BookOpen },
+  { to: "/games", label: "Games", icon: Gamepad2 },
   { to: "/movies", label: "Movies", icon: Film },
-  { to: "/explore", label: "Explore", icon: Compass },
+  { to: "/shows", label: "Shows", icon: Tv },
   { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
 const utilityNav = [
+  { to: "/explore", label: "Explore", icon: Compass },
   { to: "/messages", label: "Messages", icon: Mail },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/import/tv-time", label: "Import", icon: Upload },
@@ -123,8 +153,10 @@ export function App() {
   return (
     <Routes>
       <Route path="/auth" element={<AuthPage />} />
-      <Route element={<AppShell />}>
+      <Route element={<ProtectedShell />}>
         <Route index element={<Navigate to="/shows" replace />} />
+        <Route path="/books" element={<BooksPage />} />
+        <Route path="/games" element={<GamesPage />} />
         <Route path="/shows" element={<ShowsPage />} />
         <Route path="/movies" element={<MoviesPage />} />
         <Route path="/explore" element={<ExplorePage />} />
@@ -182,7 +214,7 @@ function AppShell() {
 
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <NavLink to="/shows" className={compact ? "brand brand-compact" : "brand"} aria-label="Tuvu home">
+    <NavLink to="/" className={compact ? "brand brand-compact" : "brand"} aria-label="Tuvu home">
       <img src="/app-icon.png" alt="" />
       <span>Tuvu</span>
     </NavLink>
@@ -209,6 +241,57 @@ function ShellNavLink({
 }
 
 function AuthPage() {
+  const { me, loading } = useMe();
+  const [username, setUsername] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"register" | "login">("register");
+  const [message, setMessage] = useState("Create an account or log in from any device.");
+  const [busy, setBusy] = useState(false);
+
+  if (!loading && me) {
+    return <Navigate to="/shows" replace />;
+  }
+
+  async function handlePasswordAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("Contacting auth service...");
+
+    try {
+      if (mode === "register") {
+        await apiJson("/api/auth/password/register", {
+          method: "POST",
+          body: JSON.stringify({ username: username.trim(), displayName: displayName.trim(), password }),
+        });
+        setMessage("Registered. Opening your profile...");
+      } else {
+        await apiJson("/api/auth/password/login", {
+          method: "POST",
+          body: JSON.stringify({ username: username.trim(), password }),
+        });
+        setMessage("Logged in. Opening your profile...");
+      }
+
+      window.location.assign("/profile");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Auth failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOAuth() {
+    setBusy(true);
+    try {
+      const result = await apiJson<{ authorizationUrl: string }>("/api/auth/oauth/github/start");
+      window.location.assign(result.authorizationUrl);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "OAuth start failed.");
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="auth-page">
       <section className="auth-panel" aria-labelledby="auth-heading">
@@ -218,18 +301,71 @@ function AuthPage() {
         <p className="auth-copy">
           Keep shows, movies, anime, games, and books in one quiet place.
         </p>
-        <div className="auth-actions">
-          <button className="primary-button">
-            <ShieldCheck size={18} aria-hidden="true" />
-            Continue with passkey
-          </button>
-          <button className="secondary-button">
-            <Sparkles size={18} aria-hidden="true" />
-            Continue with OAuth
-          </button>
-        </div>
+        <form className="auth-form" onSubmit={handlePasswordAuth}>
+          <label>
+            Username
+            <input value={username} placeholder="your_username" autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
+          </label>
+          {mode === "register" ? (
+            <label>
+              Display name
+              <input value={displayName} placeholder="Your display name" autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} />
+            </label>
+          ) : null}
+          <label>
+            Password
+            <input value={password} placeholder="At least 8 characters" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} onChange={(event) => setPassword(event.target.value)} />
+          </label>
+          <div className="segmented-control" aria-label="Auth mode">
+            <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
+              Register
+            </button>
+            <button type="button" className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
+              Login
+            </button>
+          </div>
+          <div className="auth-actions">
+            <button className="primary-button" disabled={busy}>
+              <ShieldCheck size={18} aria-hidden="true" />
+              {mode === "register" ? "Create account" : "Log in"}
+            </button>
+            <button className="secondary-button" type="button" onClick={handleOAuth} disabled={busy}>
+              <Sparkles size={18} aria-hidden="true" />
+              Continue with OAuth
+            </button>
+          </div>
+        </form>
+        <p className="form-message" role="status">{message}</p>
       </section>
     </main>
+  );
+}
+
+function ProtectedShell() {
+  const { me, refresh, loading } = useMe();
+  const value = useMemo(() => (me ? { me, refresh } : null), [me, refresh]);
+
+  if (loading) {
+    return (
+      <main className="auth-page">
+        <section className="auth-panel" aria-live="polite">
+          <img src="/app-icon.png" alt="" className="auth-icon" />
+          <p className="eyebrow">Checking session</p>
+          <h1>Tuvu</h1>
+          <p className="auth-copy">Opening your library...</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (!value) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  return (
+    <AuthContext.Provider value={value}>
+      <AppShell />
+    </AuthContext.Provider>
   );
 }
 
@@ -283,6 +419,36 @@ function MoviesPage() {
   );
 }
 
+function BooksPage() {
+  return (
+    <AppPage eyebrow="Books" title="Book library" description="Books are placeholder-first in this phase, with tracking coming in Phase 7.">
+      <PosterGrid>
+        {mediaItems
+          .filter((item) => item.type === "book")
+          .map((item) => (
+            <MediaCard key={item.id} item={item} />
+          ))}
+      </PosterGrid>
+      <EmptyState icon={<BookOpen size={24} />} title="Books are ready for tracking" message="Search, reading status, and progress arrive after the core media model." />
+    </AppPage>
+  );
+}
+
+function GamesPage() {
+  return (
+    <AppPage eyebrow="Games" title="Game library" description="Games are placeholder-first in this phase, with tracking coming in Phase 7.">
+      <PosterGrid>
+        {mediaItems
+          .filter((item) => item.type === "game")
+          .map((item) => (
+            <MediaCard key={item.id} item={item} />
+          ))}
+      </PosterGrid>
+      <EmptyState icon={<Gamepad2 size={24} />} title="Games are ready for tracking" message="Platform, play status, and progress notes arrive after the core media model." />
+    </AppPage>
+  );
+}
+
 function ExplorePage() {
   return (
     <AppPage eyebrow="Explore" title="Find something good" description="Search and discovery will connect to cached local results first, then provider APIs later.">
@@ -305,19 +471,33 @@ function ExplorePage() {
 
 function ProfilePage() {
   const { username } = useParams();
+  const { me } = useAuth();
 
   return (
     <AppPage eyebrow="Profile" title={username ? `@${username}` : "Your profile"} description="Stats, recent activity, favorites, and public lists will gather here.">
       <section className="profile-hero">
-        <div className="profile-banner" />
+        <div className="profile-banner" style={me.profile.bannerUrl ? { backgroundImage: `url(${me.profile.bannerUrl})` } : undefined} />
         <div className="profile-row">
-          <div className="avatar">AZ</div>
+          <div className="avatar">{me.profile.avatarUrl ? <img src={me.profile.avatarUrl} alt="" /> : initials(me.user.displayName)}</div>
           <div>
-            <h2>Ahmar Zaidi</h2>
-            <p>@ahmar</p>
+            <h2>{me.user.displayName}</h2>
+            <p>@{me.user.username}</p>
           </div>
         </div>
       </section>
+      <section className="profile-actions" aria-label="Profile tools">
+        {utilityNav.map(({ to, label, icon: Icon }) => (
+          <NavLink className="profile-action" key={to} to={to}>
+            <Icon size={20} aria-hidden="true" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </section>
+      <EmptyState
+        icon={<ShieldCheck size={24} />}
+        title="Session active"
+        message={`Profile visibility is ${me.profile.visibility}.`}
+      />
       <DashboardStats />
     </AppPage>
   );
@@ -373,11 +553,24 @@ function MessagesPage() {
 }
 
 function SettingsPage() {
+  const { me, refresh } = useAuth();
+
   return (
     <AppPage eyebrow="Settings" title="Preferences" description="Profile, theme, privacy, region, and provider settings will live here.">
+      <section className="profile-hero settings-preview" aria-label="Current profile media">
+        <div className="profile-banner" style={me.profile.bannerUrl ? { backgroundImage: `url(${me.profile.bannerUrl})` } : undefined} />
+        <div className="profile-row">
+          <div className="avatar">{me.profile.avatarUrl ? <img src={me.profile.avatarUrl} alt="" /> : initials(me.user.displayName)}</div>
+          <div>
+            <h2>{me.user.displayName}</h2>
+            <p>@{me.user.username}</p>
+          </div>
+        </div>
+      </section>
+      <ProfileSettingsForm me={me} onSaved={refresh} />
       <section className="settings-list">
         <SettingRow icon={<Moon size={20} />} title="Theme" value="System" />
-        <SettingRow icon={<User size={20} />} title="Profile visibility" value="Private" />
+        <SettingRow icon={<User size={20} />} title="Profile visibility" value={me?.profile.visibility ?? "Private"} />
         <SettingRow icon={<Library size={20} />} title="Library defaults" value="Personal" />
       </section>
     </AppPage>
@@ -590,4 +783,174 @@ function SettingRow({ icon, title, value }: { icon: ReactNode; title: string; va
       <ChevronDown size={18} aria-hidden="true" />
     </article>
   );
+}
+
+function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Promise<void> }) {
+  const [displayName, setDisplayName] = useState(me.user.displayName);
+  const [username, setUsername] = useState(me.user.username);
+  const [bio, setBio] = useState(me.profile.bio);
+  const [visibility, setVisibility] = useState(me.profile.visibility);
+  const [message, setMessage] = useState("Profile changes use CSRF-protected requests.");
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      await apiJson("/api/me/profile", {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ displayName, username, bio, visibility }),
+      });
+      await onSaved();
+      setMessage("Profile saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Profile save failed.");
+    }
+  }
+
+  async function uploadImage(kind: "avatar" | "banner", file: File | undefined) {
+    if (!file) return;
+    const form = new FormData();
+    form.set("kind", kind);
+    form.set("file", file);
+    try {
+      await apiJson("/api/uploads/profile", {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: form,
+        contentType: null,
+      });
+      await onSaved();
+      setMessage(`${kind} uploaded.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `${kind} upload failed.`);
+    }
+  }
+
+  async function logout() {
+    try {
+      await apiJson("/api/auth/logout", { method: "POST", csrfToken: me.csrfToken });
+      window.location.assign("/auth");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Logout failed.");
+    }
+  }
+
+  return (
+    <form className="settings-form" onSubmit={saveProfile}>
+      <label>
+        Display name
+        <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+      </label>
+      <label>
+        Username
+        <input value={username} onChange={(event) => setUsername(event.target.value)} />
+      </label>
+      <label>
+        Bio
+        <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
+      </label>
+      <label>
+        Visibility
+        <select value={visibility} onChange={(event) => setVisibility(event.target.value as MePayload["profile"]["visibility"])}>
+          <option value="private">Private</option>
+          <option value="connections">Connections</option>
+          <option value="public">Public</option>
+        </select>
+      </label>
+      <div className="file-row">
+        <label>
+          Avatar
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => void uploadImage("avatar", event.target.files?.[0])} />
+        </label>
+        <label>
+          Banner
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => void uploadImage("banner", event.target.files?.[0])} />
+        </label>
+      </div>
+      <div className="action-row">
+        <button className="primary-button">Save profile</button>
+        <button className="secondary-button" type="button" onClick={() => void logout()}>
+          Log out
+        </button>
+      </div>
+      <p className="form-message" role="status">{message}</p>
+    </form>
+  );
+}
+
+function useMe() {
+  const [me, setMe] = useState<MePayload | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function refresh() {
+    try {
+      setMe(await apiJson<MePayload>("/api/me"));
+    } catch {
+      setMe(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  return { me, refresh, loading };
+}
+
+function useAuth() {
+  const value = useContext(AuthContext);
+  if (!value) {
+    throw new Error("Auth context is only available inside protected routes.");
+  }
+  return value;
+}
+
+async function apiJson<T = unknown>(
+  path: string,
+  options: {
+    method?: string;
+    body?: BodyInit;
+    csrfToken?: string;
+    contentType?: string | null;
+  } = {},
+): Promise<T> {
+  const headers = new Headers();
+  if (options.contentType !== null) {
+    headers.set("content-type", options.contentType ?? "application/json");
+  }
+  if (options.csrfToken) {
+    headers.set("x-csrf-token", options.csrfToken);
+  }
+
+  const response = await fetch(path, {
+    method: options.method ?? "GET",
+    body: options.body,
+    headers,
+  });
+  const text = await response.text();
+  let payload: { data?: T; error?: { message: string } };
+  try {
+    payload = text ? JSON.parse(text) as { data?: T; error?: { message: string } } : {};
+  } catch {
+    const contentType = response.headers.get("content-type") ?? "unknown content";
+    throw new Error(
+      `API did not return JSON (${response.status} ${contentType}). Start the Worker with npm run dev:worker, or run Vite together with Wrangler on port 8787.`,
+    );
+  }
+
+  if (!response.ok || !payload.data) {
+    throw new Error(payload.error?.message ?? "Request failed.");
+  }
+  return payload.data;
+}
+
+function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "TU";
 }

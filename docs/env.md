@@ -20,6 +20,7 @@ Worker development and `wrangler secret put` for Cloudflare environments.
 | `RAWG_API_KEY` | Phase 6 | RAWG games API key. |
 | `OPEN_LIBRARY_CONTACT_EMAIL` | Phase 6 | Contact email included in Open Library User-Agent/config. |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | Phase 2 | OAuth provider credentials. |
+| `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Phase 2 | GitHub OAuth app credentials. Preferred over generic OAuth names for the first provider. |
 | `SUPABASE_URL` | Phase 2 | Supabase project URL, for example `https://PROJECT_REF.supabase.co`. |
 | `SUPABASE_ANON_KEY` | Phase 2 | Supabase publishable/anon key if a signed client upload flow is used. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Phase 2 | Server-only Supabase key for Worker-mediated uploads. Never expose this to the browser. |

@@ -1,7 +1,43 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App, EmptyState, MediaCard, Modal, ProgressBar, StatusChip, Tabs } from "@client/app";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function mockSignedInUser() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            user: {
+              id: "usr_test",
+              email: null,
+              username: "test_user",
+              displayName: "Test User",
+            },
+            profile: {
+              bio: "",
+              visibility: "private",
+              preferredLanguage: "en",
+              preferredRegion: "US",
+              avatarUploadId: null,
+              bannerUploadId: null,
+              avatarUrl: null,
+              bannerUrl: null,
+            },
+            csrfToken: "csrf",
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      ),
+    ),
+  );
+}
 
 describe("Phase 1 app shell", () => {
   it("renders the logged-out auth screen", () => {
@@ -12,18 +48,21 @@ describe("Phase 1 app shell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Tuvu" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /continue with passkey/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create account/i })).toBeInTheDocument();
   });
 
-  it("renders shell navigation and the shows dashboard", () => {
+  it("renders shell navigation and the shows dashboard for signed-in users", async () => {
+    mockSignedInUser();
+
     render(
       <MemoryRouter initialEntries={["/shows"]}>
         <App />
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("heading", { name: "Watch next" })).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Shows" }).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Watch next" })).toBeInTheDocument();
+    expect(screen.getAllByRole("link", { name: "Books" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Profile" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("search")).toBeInTheDocument();
   });
 });

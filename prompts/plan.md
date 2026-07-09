@@ -632,13 +632,13 @@ Implementation details:
   - `/games`
   - `/shows`
   - `/movies`
-  - `/explore`
+  - `/profile/explore`
   - `/profile/:username?`
   - `/media/:type/:id`
   - `/lists/:id`
-  - `/messages`
-  - `/settings`
-  - `/import/tv-time`
+  - `/profile/messages`
+  - `/profile/settings`
+  - `/profile/import/tv-time`
 - Implement logged-out auth screen.
 - Implement logged-in app shell.
 - Add bottom mobile navigation for Books, Games, Movies, Shows, and Profile.
@@ -676,8 +676,9 @@ Implementation details:
   - OAuth accounts
   - WebAuthn credentials
   - uploads
-- Implement username/password registration and login as the default cross-device flow.
-- Keep passkey registration and login optional if already present, but do not make passkeys the only way to satisfy acceptance.
+- Implement email-based password registration and login as the default cross-device flow, validating passwords for decency and strength.
+- Prompt users to link a passkey to their device upon successful email/password register or login, allowing easy passwordless login next time.
+- Keep passkey registration and login optional, supporting both credential-tied and usernameless login prompts.
 - Implement OAuth login with one provider first, keeping provider abstraction extensible.
 - Store sessions in D1.
 - Use HTTP-only secure cookies.

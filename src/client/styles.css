@@ -12,6 +12,7 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html {
@@ -792,4 +793,35 @@ a {
     width: min(100%, 30rem);
     border-radius: 0.5rem;
   }
+}
+
+/* Form validation error styling */
+.input-error {
+  color: #ff6b6b;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+  font-weight: 500;
+  display: block;
+}
+
+/* Passkey prompt container styling */
+.passkey-prompt-content {
+  display: grid;
+  gap: 1.25rem;
+  padding: 1rem 0;
+  text-align: center;
+}
+
+.passkey-prompt-content p {
+  color: #aeb1ac;
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.passkey-prompt-content .prompt-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 0.5rem;
 }

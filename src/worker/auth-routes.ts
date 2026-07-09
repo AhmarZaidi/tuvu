@@ -20,9 +20,9 @@ import { hashPassword, randomId, randomToken, verifyPassword } from "./crypto";
 import { envString } from "./env";
 import { apiError, apiSuccess } from "./http";
 import { passkeyRpId, publicOrigin } from "./request-url";
-import type { AuthRepository, UserRecord } from "./repository";
+import type { AuthRepository, CredentialRecord, ProfileRecord, UserRecord } from "./repository";
 import { authPayload } from "./responses";
-import { clearSessionCookie, createSession, requireAuth, requireCsrf, setSessionCookie, type AppVariables } from "./session";
+import { clearSessionCookie, createSession, readAuthContext, requireAuth, requireCsrf, setSessionCookie, type AppVariables } from "./session";
 
 export function createAuthRoutes() {
   const auth = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -34,15 +34,20 @@ export function createAuthRoutes() {
     }
 
     const repository = c.get("repository");
-    const existing = await repository.findUserByUsername(body.data.username);
-    if (existing) {
+    const existingEmail = await repository.findUserByEmail(body.data.email);
+    if (existingEmail) {
+      return apiError(c, 409, "conflict", "That email address is already registered.");
+    }
+
+    const existingUsername = await repository.findUserByUsername(body.data.username);
+    if (existingUsername) {
       return apiError(c, 409, "conflict", "That username is already taken.");
     }
 
     const createdAt = new Date().toISOString();
     const user = {
       id: randomId("usr"),
-      email: null,
+      email: body.data.email,
       username: body.data.username,
       displayName: body.data.displayName,
       createdAt,
@@ -82,14 +87,14 @@ export function createAuthRoutes() {
     }
 
     const repository = c.get("repository");
-    const user = await repository.findUserByUsername(body.data.username);
+    const user = await repository.findUserByEmail(body.data.email);
     if (!user) {
-      return apiError(c, 401, "unauthorized", "Username or password is incorrect.");
+      return apiError(c, 401, "unauthorized", "Email address or password is incorrect.");
     }
 
     const credential = await repository.findPasswordCredentialByUserId(user.id);
     if (!credential || !(await verifyPassword(body.data.password, credential.passwordHash))) {
-      return apiError(c, 401, "unauthorized", "Username or password is incorrect.");
+      return apiError(c, 401, "unauthorized", "Email address or password is incorrect.");
     }
 
     const profile = await repository.findProfileByUserId(user.id);
@@ -104,15 +109,39 @@ export function createAuthRoutes() {
   });
 
   auth.post("/passkey/register/options", async (c) => {
-    const body = passkeyRegistrationOptionsSchema.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) {
-      return apiError(c, 400, "validation_failed", "Registration request is invalid.", body.error.flatten());
-    }
-
     const repository = c.get("repository");
-    const existing = await repository.findUserByUsername(body.data.username);
-    if (existing) {
-      return apiError(c, 409, "conflict", "That username is already taken.");
+    const auth = await readAuthContext(c, repository);
+
+    let username: string;
+    let displayName: string;
+    let userId: string | null = null;
+    let excludeCredentials: { id: string; type: "public-key" }[] = [];
+
+    const body = passkeyRegistrationOptionsSchema.safeParse(await c.req.json().catch(() => null));
+
+    if (auth) {
+      username = auth.user.username;
+      displayName = auth.user.displayName;
+      userId = auth.user.id;
+      const existingCredentials = await repository.findCredentialsByUserId(auth.user.id);
+      excludeCredentials = existingCredentials.map((cred) => ({
+        id: cred.credentialId,
+        type: "public-key" as const,
+      }));
+    } else {
+      if (!body.success) {
+        return apiError(c, 400, "validation_failed", "Registration request is invalid.", body.error.flatten());
+      }
+      if (!body.data.username || !body.data.displayName) {
+        return apiError(c, 400, "validation_failed", "Username and display name are required for new registration.");
+      }
+      username = body.data.username;
+      displayName = body.data.displayName;
+
+      const existing = await repository.findUserByUsername(username);
+      if (existing) {
+        return apiError(c, 409, "conflict", "That username is already taken.");
+      }
     }
 
     const now = new Date();
@@ -126,9 +155,10 @@ export function createAuthRoutes() {
     const publicKey = await generateRegistrationOptions({
       rpName: "Tuvu",
       rpID,
-      userName: body.data.username,
-      userDisplayName: body.data.displayName,
+      userName: username,
+      userDisplayName: displayName,
       attestationType: "none",
+      excludeCredentials,
       authenticatorSelection: {
         residentKey: "preferred",
         userVerification: "preferred",
@@ -136,10 +166,10 @@ export function createAuthRoutes() {
     });
     const challenge = {
       id: randomId("chl"),
-      userId: null,
+      userId,
       type: "passkey_registration" as const,
       challenge: publicKey.challenge,
-      metadata: body.data,
+      metadata: auth ? { userId } : body.success ? body.data : {},
       expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
       consumedAt: null,
       createdAt: now.toISOString(),
@@ -168,39 +198,57 @@ export function createAuthRoutes() {
       return apiError(c, 400, "bad_request", "Registration challenge is invalid or expired.");
     }
 
-    const metadata = passkeyRegistrationOptionsSchema.parse(challenge.metadata);
     const verification = await verifyRegistration(c.req, challenge.challenge, body.data.credential, c.req.header("x-tuvu-test-auth") === "true");
-    const existingUser = await repository.findUserByUsername(metadata.username);
     const existingCredential = await repository.findCredentialByCredentialId(verification.credentialId);
-    if (existingUser || existingCredential) {
-      return apiError(c, 409, "conflict", "That user or credential already exists.");
+    if (existingCredential) {
+      return apiError(c, 409, "conflict", "That credential already exists.");
+    }
+
+    const auth = await readAuthContext(c, repository);
+    let userRecord: UserRecord;
+    let profileRecord: ProfileRecord;
+
+    if (auth) {
+      userRecord = auth.user;
+      profileRecord = auth.profile;
+    } else {
+      const metadata = passkeyRegistrationOptionsSchema.parse(challenge.metadata);
+      if (!metadata.username || !metadata.displayName) {
+        return apiError(c, 400, "bad_request", "Challenge metadata is incomplete.");
+      }
+      const existingUser = await repository.findUserByUsername(metadata.username);
+      if (existingUser) {
+        return apiError(c, 409, "conflict", "That user already exists.");
+      }
+
+      const createdAt = now.toISOString();
+      const newUserId = randomId("usr");
+      userRecord = {
+        id: newUserId,
+        email: `passkey_${newUserId}@tuvu.local`,
+        username: metadata.username,
+        displayName: metadata.displayName,
+        createdAt,
+        updatedAt: createdAt,
+      };
+      profileRecord = {
+        userId: userRecord.id,
+        bio: "",
+        avatarUploadId: null,
+        bannerUploadId: null,
+        visibility: "private" as const,
+        preferredLanguage: "en",
+        preferredRegion: "US",
+        createdAt,
+        updatedAt: createdAt,
+      };
+      await repository.createUserWithProfile({ user: userRecord, profile: profileRecord });
     }
 
     const createdAt = now.toISOString();
-    const user = {
-      id: randomId("usr"),
-      email: null,
-      username: metadata.username,
-      displayName: metadata.displayName,
-      createdAt,
-      updatedAt: createdAt,
-    };
-    const profile = {
-      userId: user.id,
-      bio: "",
-      avatarUploadId: null,
-      bannerUploadId: null,
-      visibility: "private" as const,
-      preferredLanguage: "en",
-      preferredRegion: "US",
-      createdAt,
-      updatedAt: createdAt,
-    };
-
-    await repository.createUserWithProfile({ user, profile });
     await repository.createCredential({
       id: randomId("wac"),
-      userId: user.id,
+      userId: userRecord.id,
       credentialId: verification.credentialId,
       publicKey: verification.publicKey,
       counter: verification.counter,
@@ -210,25 +258,32 @@ export function createAuthRoutes() {
     });
     await repository.consumeChallenge(challenge.id, createdAt);
 
-    const { token, session } = await createSession(repository, user.id, c.req.header("user-agent") ?? null, now);
-    setSessionCookie(c, token);
+    if (!auth) {
+      const { token, session } = await createSession(repository, userRecord.id, c.req.header("user-agent") ?? null, now);
+      setSessionCookie(c, token);
+      return c.json(apiSuccess(await authPayload(repository, { session, user: userRecord, profile: profileRecord })));
+    }
 
-    return c.json(apiSuccess(await authPayload(repository, { session, user, profile })));
+    return c.json(apiSuccess({ ok: true }));
   });
 
   auth.post("/passkey/login/options", async (c) => {
     const body = passkeyLoginOptionsSchema.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) {
-      return apiError(c, 400, "validation_failed", "Login request is invalid.", body.error.flatten());
-    }
+    const input = body.success ? body.data : {};
+    const emailOrUsername = input.emailOrUsername || input.username;
 
     const repository = c.get("repository");
-    const user = await repository.findUserByUsername(body.data.username);
-    if (!user) {
-      return apiError(c, 404, "not_found", "No user exists for that username.");
+    let user: UserRecord | null = null;
+    let credentials: CredentialRecord[] = [];
+
+    if (emailOrUsername) {
+      user = (await repository.findUserByEmail(emailOrUsername)) || (await repository.findUserByUsername(emailOrUsername));
+      if (!user) {
+        return apiError(c, 404, "not_found", "No user exists for that email or username.");
+      }
+      credentials = await repository.findCredentialsByUserId(user.id);
     }
 
-    const credentials = await repository.findCredentialsByUserId(user.id);
     let rpID;
     try {
       rpID = passkeyRpId(c.req);
@@ -247,11 +302,11 @@ export function createAuthRoutes() {
     });
     const challenge = {
       id: randomId("chl"),
-      userId: user.id,
+      userId: user ? user.id : null,
       type: "passkey_login" as const,
       challenge: publicKey.challenge,
       metadata: {
-        username: user.username,
+        emailOrUsername: emailOrUsername || null,
         credentialIds: credentials.map((credential) => credential.credentialId),
       },
       expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString(),
@@ -285,7 +340,7 @@ export function createAuthRoutes() {
 
     const challenge = await repository.findChallenge(body.data.challengeId, "passkey_login", now.toISOString());
     const credential = await repository.findCredentialByCredentialId(credentialId);
-    if (!challenge || !credential || challenge.userId !== credential.userId) {
+    if (!challenge || !credential || (challenge.userId !== null && challenge.userId !== credential.userId)) {
       return apiError(c, 400, "bad_request", "Login challenge is invalid or expired.");
     }
 
@@ -428,7 +483,7 @@ async function upsertOAuthUser(repository: AuthRepository, oauthUser: GithubUser
     existingEmailUser ??
     ({
       id: randomId("usr"),
-      email: oauthUser.email,
+      email: oauthUser.email || `oauth_${oauthUser.providerAccountId}_github@tuvu.local`,
       username: await availableUsername(repository, oauthUser.username),
       displayName: oauthUser.displayName,
       createdAt: now,

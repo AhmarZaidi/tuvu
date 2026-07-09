@@ -67,13 +67,13 @@ test.describe("responsive app navigation", () => {
     await page.getByRole("link", { name: "Profile" }).first().click();
     await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
 
-    await page.goto("/messages");
+    await page.goto("/profile/messages");
     await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
 
-    await page.goto("/settings");
+    await page.goto("/profile/settings");
     await expect(page.getByRole("heading", { name: "Preferences" })).toBeVisible();
 
-    await page.goto("/import/tv-time");
+    await page.goto("/profile/import/tv-time");
     await expect(page.getByRole("heading", { name: "TV Time import" })).toBeVisible();
 
     await page.goto("/lists/default");
@@ -157,7 +157,7 @@ test.describe("responsive app navigation", () => {
     await expect(page.getByRole("heading", { name: "Watch next" })).toBeVisible();
     await page.goto("/movies");
     await expect(page.getByRole("heading", { name: "Movie library" })).toBeVisible();
-    await page.goto("/explore");
+    await page.goto("/profile/explore");
     await expect(page.getByRole("heading", { name: "Find something good" })).toBeVisible();
 
     const cls = await page.evaluate(() => window.__tuvuCls);

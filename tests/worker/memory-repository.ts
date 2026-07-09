@@ -23,6 +23,9 @@ export class MemoryAuthRepository implements AuthRepository {
   readonly uploads = new Map<string, UploadRecord>();
 
   async createUserWithProfile(input: CreateUserInput) {
+    if (input.user.email && [...this.users.values()].some((user) => user.email && user.email.toLowerCase() === input.user.email?.toLowerCase())) {
+      throw new Error("Email already exists.");
+    }
     if ([...this.users.values()].some((user) => user.username.toLowerCase() === input.user.username.toLowerCase())) {
       throw new Error("Username already exists.");
     }

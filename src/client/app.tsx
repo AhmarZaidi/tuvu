@@ -9,9 +9,7 @@ import {
   Film,
   Gamepad2,
   Heart,
-  Home,
   Library,
-  List,
   Mail,
   MessageSquare,
   Moon,
@@ -30,7 +28,8 @@ import {
 } from "lucide-react";
 import type { ComponentProps, FormEvent, ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { NavLink, Navigate, Outlet, Route, Routes, useParams } from "react-router-dom";
+import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation } from "react-router-dom";
+import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 
 type MediaType = "show" | "movie" | "anime" | "game" | "book";
 type StatusTone = "watching" | "planned" | "complete" | "paused" | "stopped";
@@ -134,11 +133,11 @@ const navItems = [
   { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
-const utilityNav = [
-  { to: "/explore", label: "Explore", icon: Compass },
-  { to: "/messages", label: "Messages", icon: Mail },
-  { to: "/settings", label: "Settings", icon: Settings },
-  { to: "/import/tv-time", label: "Import", icon: Upload },
+const profileNav = [
+  { to: "/profile/explore", label: "Explore", icon: Compass },
+  { to: "/profile/messages", label: "Messages", icon: Mail },
+  { to: "/profile/settings", label: "Settings", icon: Settings },
+  { to: "/profile/import/tv-time", label: "Import", icon: Upload },
 ] as const;
 
 const exploreFilters: Array<{ label: string; icon: LucideIcon }> = [
@@ -159,13 +158,13 @@ export function App() {
         <Route path="/games" element={<GamesPage />} />
         <Route path="/shows" element={<ShowsPage />} />
         <Route path="/movies" element={<MoviesPage />} />
-        <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/profile/explore" element={<ExplorePage />} />
+        <Route path="/profile/messages" element={<MessagesPage />} />
+        <Route path="/profile/settings" element={<SettingsPage />} />
+        <Route path="/profile/import/tv-time" element={<ImportPage />} />
         <Route path="/profile/:username?" element={<ProfilePage />} />
         <Route path="/media/:type/:id" element={<MediaDetailPage />} />
         <Route path="/lists/:id" element={<ListPage />} />
-        <Route path="/messages" element={<MessagesPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/import/tv-time" element={<ImportPage />} />
       </Route>
     </Routes>
   );
@@ -178,11 +177,6 @@ function AppShell() {
         <BrandMark />
         <nav className="rail-nav" aria-label="Primary">
           {navItems.map((item) => (
-            <ShellNavLink key={item.to} {...item} />
-          ))}
-        </nav>
-        <nav className="rail-nav rail-nav-secondary">
-          {utilityNav.map((item) => (
             <ShellNavLink key={item.to} {...item} />
           ))}
         </nav>
@@ -232,8 +226,28 @@ function ShellNavLink({
   icon: typeof Tv;
   compact?: boolean;
 }) {
+  const location = useLocation();
+  const currentPath = location.pathname;
+
+  let active = false;
+  if (to === "/books") {
+    active = currentPath === "/books" || currentPath.startsWith("/media/book/");
+  } else if (to === "/games") {
+    active = currentPath === "/games" || currentPath.startsWith("/media/game/");
+  } else if (to === "/movies") {
+    active = currentPath === "/movies" || currentPath.startsWith("/media/movie/");
+  } else if (to === "/shows") {
+    active = currentPath === "/shows" || 
+             currentPath.startsWith("/media/show/") || 
+             currentPath.startsWith("/media/anime/");
+  } else if (to === "/profile") {
+    active = currentPath.startsWith("/profile");
+  } else {
+    active = currentPath === to;
+  }
+
   return (
-    <NavLink to={to} className={({ isActive }) => (isActive ? "nav-link active" : "nav-link")}>
+    <NavLink to={to} className={active ? "nav-link active" : "nav-link"}>
       <Icon size={compact ? 21 : 19} aria-hidden="true" />
       <span>{label}</span>
     </NavLink>
@@ -242,12 +256,16 @@ function ShellNavLink({
 
 function AuthPage() {
   const { me, loading } = useMe();
+  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [mode, setMode] = useState<"register" | "login">("register");
   const [message, setMessage] = useState("Create an account or log in from any device.");
   const [busy, setBusy] = useState(false);
+  const [showPasskeyPrompt, setShowPasskeyPrompt] = useState(false);
+  const [registeredUser, setRegisteredUser] = useState<MePayload | null>(null);
 
   if (!loading && me) {
     return <Navigate to="/shows" replace />;
@@ -257,25 +275,106 @@ function AuthPage() {
     event.preventDefault();
     setBusy(true);
     setMessage("Contacting auth service...");
+    setErrors({});
 
     try {
+      let payload: MePayload;
       if (mode === "register") {
-        await apiJson("/api/auth/password/register", {
+        payload = await apiJson<MePayload>("/api/auth/password/register", {
           method: "POST",
-          body: JSON.stringify({ username: username.trim(), displayName: displayName.trim(), password }),
+          body: JSON.stringify({ email: email.trim(), username: username.trim(), displayName: displayName.trim(), password }),
         });
-        setMessage("Registered. Opening your profile...");
+        setMessage("Registered successfully!");
       } else {
-        await apiJson("/api/auth/password/login", {
+        payload = await apiJson<MePayload>("/api/auth/password/login", {
           method: "POST",
-          body: JSON.stringify({ username: username.trim(), password }),
+          body: JSON.stringify({ email: email.trim(), password }),
         });
-        setMessage("Logged in. Opening your profile...");
+        setMessage("Logged in successfully!");
       }
 
+      setRegisteredUser(payload);
+      if (window.PublicKeyCredential) {
+        setShowPasskeyPrompt(true);
+      } else {
+        window.location.assign("/profile");
+      }
+    } catch (error: any) {
+      if (error.code === "validation_failed" && error.details?.fieldErrors) {
+        setErrors(error.details.fieldErrors);
+        setMessage("Please fix the validation errors below.");
+      } else {
+        setMessage(error instanceof Error ? error.message : "Auth failed.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreatePasskey() {
+    if (!registeredUser) return;
+    setBusy(true);
+    setMessage("Generating passkey options...");
+    try {
+      const options = await apiJson<any>("/api/auth/passkey/register/options", {
+        method: "POST",
+        csrfToken: registeredUser.csrfToken,
+        body: JSON.stringify({}),
+      });
+
+      setMessage("Please complete the passkey prompt on your device...");
+      const credential = await startRegistration({ optionsJSON: options.publicKey });
+
+      await apiJson("/api/auth/passkey/register/verify", {
+        method: "POST",
+        csrfToken: registeredUser.csrfToken,
+        body: JSON.stringify({
+          challengeId: options.challengeId,
+          credential,
+        }),
+      });
+
+      setMessage("Passkey saved successfully! Redirecting...");
+      setTimeout(() => {
+        window.location.assign("/profile");
+      }, 1000);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Passkey registration failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleSkipPasskey() {
+    window.location.assign("/profile");
+  }
+
+  async function handlePasskeyLogin() {
+    setBusy(true);
+    setMessage("Initializing passkey login...");
+    setErrors({});
+    try {
+      const options = await apiJson<any>("/api/auth/passkey/login/options", {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+
+      setMessage("Please authenticate using your passkey...");
+      const credential = await startAuthentication({ optionsJSON: options.publicKey });
+
+      await apiJson("/api/auth/passkey/login/verify", {
+        method: "POST",
+        body: JSON.stringify({
+          challengeId: options.challengeId,
+          credentialId: credential.id,
+          credential,
+        }),
+      });
+
+      setMessage("Logged in successfully! Opening your profile...");
       window.location.assign("/profile");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Auth failed.");
+      setMessage(error instanceof Error ? error.message : "Passkey login failed.");
     } finally {
       setBusy(false);
     }
@@ -303,18 +402,28 @@ function AuthPage() {
         </p>
         <form className="auth-form" onSubmit={handlePasswordAuth}>
           <label>
-            Username
-            <input value={username} placeholder="your_username" autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
+            Email
+            <input value={email} type="email" placeholder="you@example.com" autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
+            {errors.email && <span className="input-error">{errors.email[0]}</span>}
           </label>
           {mode === "register" ? (
-            <label>
-              Display name
-              <input value={displayName} placeholder="Your display name" autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} />
-            </label>
+            <>
+              <label>
+                Username
+                <input value={username} placeholder="your_username" autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
+                {errors.username && <span className="input-error">{errors.username[0]}</span>}
+              </label>
+              <label>
+                Display name
+                <input value={displayName} placeholder="Your display name" autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} />
+                {errors.displayName && <span className="input-error">{errors.displayName[0]}</span>}
+              </label>
+            </>
           ) : null}
           <label>
             Password
             <input value={password} placeholder="At least 8 characters" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} onChange={(event) => setPassword(event.target.value)} />
+            {errors.password && <span className="input-error">{errors.password[0]}</span>}
           </label>
           <div className="segmented-control" aria-label="Auth mode">
             <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
@@ -329,6 +438,12 @@ function AuthPage() {
               <ShieldCheck size={18} aria-hidden="true" />
               {mode === "register" ? "Create account" : "Log in"}
             </button>
+            {mode === "login" && (
+              <button className="secondary-button" type="button" onClick={handlePasskeyLogin} disabled={busy}>
+                <ShieldCheck size={18} aria-hidden="true" />
+                Log in with Passkey
+              </button>
+            )}
             <button className="secondary-button" type="button" onClick={handleOAuth} disabled={busy}>
               <Sparkles size={18} aria-hidden="true" />
               Continue with OAuth
@@ -337,6 +452,22 @@ function AuthPage() {
         </form>
         <p className="form-message" role="status">{message}</p>
       </section>
+
+      <Modal title="Enable Passkey?" open={showPasskeyPrompt} onClose={handleSkipPasskey}>
+        <div className="passkey-prompt-content">
+          <p>
+            Create a passkey for this device. Next time, you can log in securely using your fingerprint, face scan, or device PIN instead of typing your password.
+          </p>
+          <div className="prompt-actions">
+            <button className="primary-button" onClick={handleCreatePasskey} disabled={busy}>
+              Create passkey
+            </button>
+            <button className="secondary-button" onClick={handleSkipPasskey} disabled={busy}>
+              Skip for now
+            </button>
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }
@@ -486,7 +617,7 @@ function ProfilePage() {
         </div>
       </section>
       <section className="profile-actions" aria-label="Profile tools">
-        {utilityNav.map(({ to, label, icon: Icon }) => (
+        {profileNav.map(({ to, label, icon: Icon }) => (
           <NavLink className="profile-action" key={to} to={to}>
             <Icon size={20} aria-hidden="true" />
             <span>{label}</span>
@@ -713,7 +844,7 @@ export function SkeletonGrid() {
   );
 }
 
-export function Modal({ title, children, open = true }: { title: string; children: ReactNode; open?: boolean }) {
+export function Modal({ title, children, open = true, onClose }: { title: string; children: ReactNode; open?: boolean; onClose?: () => void }) {
   if (!open) return null;
 
   return (
@@ -721,7 +852,7 @@ export function Modal({ title, children, open = true }: { title: string; childre
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header">
           <h2 id="modal-title">{title}</h2>
-          <IconButton label="Close modal">
+          <IconButton label="Close modal" onClick={onClose}>
             <X size={18} />
           </IconButton>
         </div>
@@ -941,7 +1072,11 @@ async function apiJson<T = unknown>(
   }
 
   if (!response.ok || !payload.data) {
-    throw new Error(payload.error?.message ?? "Request failed.");
+    const errorDetails = payload.error as any;
+    const error = new Error(errorDetails?.message ?? "Request failed.") as any;
+    error.code = errorDetails?.code;
+    error.details = errorDetails?.details;
+    throw error;
   }
   return payload.data;
 }

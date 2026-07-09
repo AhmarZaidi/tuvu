@@ -55,7 +55,7 @@ describe("auth and profile integration routes", () => {
       "/api/auth/password/register",
       {
         method: "POST",
-        body: JSON.stringify({ username: "portable_user", displayName: "Portable User", password: "correct-horse-42" }),
+        body: JSON.stringify({ email: "portable@example.com", username: "portable_user", displayName: "Portable User", password: "Correct-Horse-42" }),
         headers: { "content-type": "application/json" },
       },
       testEnv(),
@@ -67,7 +67,7 @@ describe("auth and profile integration routes", () => {
       "/api/auth/password/login",
       {
         method: "POST",
-        body: JSON.stringify({ username: "portable_user", password: "correct-horse-42" }),
+        body: JSON.stringify({ email: "portable@example.com", password: "Correct-Horse-42" }),
         headers: { "content-type": "application/json" },
       },
       testEnv(),
@@ -86,7 +86,7 @@ describe("auth and profile integration routes", () => {
       "/api/auth/password/register",
       {
         method: "POST",
-        body: JSON.stringify({ username: "wrong_password_user", displayName: "Wrong Password User", password: "correct-horse-42" }),
+        body: JSON.stringify({ email: "wrong_password_user@example.com", username: "wrong_password_user", displayName: "Wrong Password User", password: "Correct-Horse-42" }),
         headers: { "content-type": "application/json" },
       },
       testEnv(),
@@ -96,7 +96,7 @@ describe("auth and profile integration routes", () => {
       "/api/auth/password/login",
       {
         method: "POST",
-        body: JSON.stringify({ username: "wrong_password_user", password: "incorrect-password" }),
+        body: JSON.stringify({ email: "wrong_password_user@example.com", password: "incorrect-password" }),
         headers: { "content-type": "application/json" },
       },
       testEnv(),
@@ -104,7 +104,7 @@ describe("auth and profile integration routes", () => {
     const body = await response.json() as { error: { message: string } };
 
     expect(response.status).toBe(401);
-    expect(body.error.message).toBe("Username or password is incorrect.");
+    expect(body.error.message).toBe("Email address or password is incorrect.");
   });
 
   it("registers with a mocked passkey and keeps the user logged in", async () => {
@@ -286,7 +286,7 @@ describe("auth and profile integration routes", () => {
       "/api/auth/password/register",
       {
         method: "POST",
-        body: JSON.stringify({ username: "media_user", displayName: "Media User", password: "correct-horse-42" }),
+        body: JSON.stringify({ email: "media_user@example.com", username: "media_user", displayName: "Media User", password: "Correct-Horse-42" }),
         headers: { "content-type": "application/json" },
       },
       testEnv(),

@@ -81,13 +81,14 @@ Cloudflare Workers are a good target, but the app must respect free-tier style c
 
 - Workers Free currently lists 100,000 requests/day, 10 ms CPU time per HTTP request, 128 MB memory, 50 subrequests/request, and 3 MB Worker size.
 - D1 Free currently lists 500 MB maximum database size and 50 queries per Worker invocation.
-- R2 is appropriate for user-uploaded avatars/banners and optional cached image files.
+- Supabase Storage is appropriate for user-uploaded avatars/banners and optional cached image files while Cloudflare R2 is unavailable.
+- Supabase Free currently includes 1 GB storage and 5 GB egress, with a 50 MB maximum file size for Free projects. This is acceptable for a personal deployment if Tuvu enforces smaller limits such as 2 MB avatars, 5 MB banners, and an optional evictable media image cache.
 
 References:
 
 - Workers limits: https://developers.cloudflare.com/workers/platform/limits/
 - D1 limits: https://developers.cloudflare.com/d1/platform/limits/
-- R2 limits: https://developers.cloudflare.com/r2/platform/limits/
+- Supabase Storage limits and billing: https://supabase.com/docs/guides/platform/billing-on-supabase and https://supabase.com/docs/guides/storage/uploads/file-limits
 - Workers static assets: https://developers.cloudflare.com/workers/static-assets/
 
 Architectural implication:
@@ -96,7 +97,7 @@ Architectural implication:
 - Avoid server-side rendering for normal pages.
 - Avoid parsing large import files inside the Worker all at once.
 - Use route-level code splitting.
-- Cache metadata aggressively in D1/R2/Cache API.
+- Cache metadata aggressively in D1/Supabase Storage/Cache API.
 - Batch external API hydration and never fan out dozens of requests in one user request.
 
 ### External APIs
@@ -293,7 +294,7 @@ Lists:
 - Cloudflare Workers
 - Workers Static Assets
 - Cloudflare D1
-- Cloudflare R2
+- Supabase Storage
 - Wrangler
 
 ### Frontend
@@ -351,7 +352,7 @@ The app should be a static SPA plus API Worker:
 - Static assets: Vite-built client.
 - API Worker: Hono routes under `/api/*`.
 - D1: relational app data, normalized user data, cache index.
-- R2: user-uploaded avatars/banners and optional media image cache.
+- Supabase Storage: user-uploaded avatars/banners and optional media image cache. Store object metadata in D1 and keep Supabase service role credentials server-side only.
 - External APIs: called through backend only when secrets/API keys are required. Public/no-key endpoints may still go through backend for consistent caching.
 
 ### Performance Rules
@@ -590,13 +591,13 @@ Implementation details:
 - Add Vite React app.
 - Add Worker API package or app folder.
 - Add shared types/validation package if using a monorepo layout.
-- Add Wrangler config for Workers Static Assets, D1, and R2.
+- Add Wrangler config for Workers Static Assets and D1, plus Supabase Storage environment configuration.
 - Add environment variable documentation.
 - Add README with local dev, test, and deploy commands.
 - Add ADR notes for:
   - Static SPA plus Hono API instead of SSR.
   - D1 as primary database.
-  - R2 for user uploads.
+  - Supabase Storage for user uploads.
   - TMDB/RAWG/Open Library provider choices.
   - Passkeys plus OAuth auth strategy.
 
@@ -681,7 +682,7 @@ Implementation details:
   - avatar
   - banner
   - visibility
-- Add R2 upload flow for avatar/banner.
+- Add Supabase Storage upload flow for avatar/banner.
 - Add profile page and settings page.
 
 Testing gate:

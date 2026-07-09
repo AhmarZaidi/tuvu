@@ -21,7 +21,9 @@
 	"vars": {
 		"ENVIRONMENT": "development",
 		"APP_NAME": "Tuvu",
-		"PUBLIC_APP_URL": "http://localhost:8787"
+		"PUBLIC_APP_URL": "http://localhost:8787",
+		"SUPABASE_STORAGE_AVATARS_BUCKET": "tuvu-avatars",
+		"SUPABASE_STORAGE_MEDIA_CACHE_BUCKET": "tuvu-media-cache"
 	},
 	"d1_databases": [
 		{
@@ -37,19 +39,15 @@
 			"remote": true
 		}
 	],
-	"r2_buckets": [
-		{
-			"binding": "USER_UPLOADS",
-			"bucket_name": "tuvu-user-uploads-dev"
-		}
-	],
 	"env": {
 		"staging": {
 			"name": "tuvu-staging",
 			"vars": {
 				"ENVIRONMENT": "staging",
 				"APP_NAME": "Tuvu",
-				"PUBLIC_APP_URL": "https://staging.example.com"
+				"PUBLIC_APP_URL": "https://staging.example.com",
+				"SUPABASE_STORAGE_AVATARS_BUCKET": "tuvu-avatars-staging",
+				"SUPABASE_STORAGE_MEDIA_CACHE_BUCKET": "tuvu-media-cache-staging"
 			},
 			"d1_databases": [
 				{
@@ -58,12 +56,6 @@
 					"database_id": "2661d67f-4cfa-434b-b3e5-b65ba0fa3b68",
 					"migrations_dir": "migrations"
 				}
-			],
-			"r2_buckets": [
-				{
-					"binding": "USER_UPLOADS",
-					"bucket_name": "tuvu-user-uploads-staging"
-				}
 			]
 		},
 		"production": {
@@ -71,7 +63,9 @@
 			"vars": {
 				"ENVIRONMENT": "production",
 				"APP_NAME": "Tuvu",
-				"PUBLIC_APP_URL": "https://tuvu.example.com"
+				"PUBLIC_APP_URL": "https://tuvu.example.com",
+				"SUPABASE_STORAGE_AVATARS_BUCKET": "tuvu-avatars",
+				"SUPABASE_STORAGE_MEDIA_CACHE_BUCKET": "tuvu-media-cache"
 			},
 			"d1_databases": [
 				{
@@ -79,12 +73,6 @@
 					"database_name": "tuvu",
 					"database_id": "REPLACE_WITH_PRODUCTION_D1_DATABASE_ID",
 					"migrations_dir": "migrations"
-				}
-			],
-			"r2_buckets": [
-				{
-					"binding": "USER_UPLOADS",
-					"bucket_name": "tuvu-user-uploads"
 				}
 			]
 		}

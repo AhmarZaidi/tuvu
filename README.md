@@ -58,7 +58,6 @@ Create the remote resources before first production deployment:
 
 ```sh
 npx wrangler d1 create tuvu
-npx wrangler r2 bucket create tuvu-user-uploads
 ```
 
 Replace the placeholder production IDs in `wrangler.jsonc` with the created D1
@@ -71,10 +70,19 @@ npx wrangler secret put TMDB_API_KEY
 Provider keys are introduced in later phases, but the variable names are already
 documented in [docs/env.md](docs/env.md).
 
+## Supabase Storage
+
+User-uploaded avatars, banners, and optional media image cache objects use
+Supabase Storage instead of Cloudflare R2. Create a Supabase project and buckets
+named `tuvu-avatars` and `tuvu-media-cache`, then add the Supabase values to
+`.dev.vars` for local Worker development and to Wrangler secrets for deployed
+Workers. See [docs/env.md](docs/env.md) for the exact variables and
+[docs/supabase-storage.md](docs/supabase-storage.md) for setup notes.
+
 ## Architecture Records
 
 - [ADR 0001: Static SPA plus Hono API](docs/adr/0001-static-spa-hono-api.md)
 - [ADR 0002: D1 as the Primary Database](docs/adr/0002-d1-primary-database.md)
-- [ADR 0003: R2 for User Uploads](docs/adr/0003-r2-user-uploads.md)
+- [ADR 0003: Supabase Storage for User Uploads](docs/adr/0003-supabase-storage-user-uploads.md)
 - [ADR 0004: TMDB, RAWG, and Open Library Providers](docs/adr/0004-metadata-providers.md)
 - [ADR 0005: Passkeys plus OAuth Authentication](docs/adr/0005-passkeys-oauth-auth.md)

@@ -79,6 +79,10 @@ named `tuvu-avatars` and `tuvu-media-cache`, then add the Supabase values to
 Workers. See [docs/env.md](docs/env.md) for the exact variables and
 [docs/supabase-storage.md](docs/supabase-storage.md) for setup notes.
 
+## Database Resets
+
+For database reset and storage cleanup instructions, see [docs/phase-3-media.md](docs/phase-3-media.md).
+
 ## Architecture Records
 
 - [ADR 0001: Static SPA plus Hono API](docs/adr/0001-static-spa-hono-api.md)
@@ -86,3 +90,4 @@ Workers. See [docs/env.md](docs/env.md) for the exact variables and
 - [ADR 0003: Supabase Storage for User Uploads](docs/adr/0003-supabase-storage-user-uploads.md)
 - [ADR 0004: TMDB, RAWG, and Open Library Providers](docs/adr/0004-metadata-providers.md)
 - [ADR 0005: Passkeys plus OAuth Authentication](docs/adr/0005-passkeys-oauth-auth.md)
+

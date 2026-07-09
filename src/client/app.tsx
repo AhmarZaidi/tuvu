@@ -43,6 +43,7 @@ type MediaCardItem = {
   status: string;
   tone: StatusTone;
   accent: string;
+  posterPath?: string | null;
 };
 
 type MePayload = {
@@ -170,39 +171,192 @@ export function App() {
   );
 }
 
-function AppShell() {
+const MediaCreationContext = createContext<{ openCreateModal: (type?: MediaType) => void } | null>(null);
+
+export function useMediaCreation() {
+  const value = useContext(MediaCreationContext);
+  if (!value) {
+    throw new Error("useMediaCreation must be used inside a ProtectedShell/AppShell.");
+  }
+  return value;
+}
+
+function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClose: () => void; defaultType?: MediaType }) {
+  const { me } = useAuth();
+  const [title, setTitle] = useState("");
+  const [type, setType] = useState<MediaType>(defaultType ?? "show");
+  const [year, setYear] = useState<number>(new Date().getFullYear());
+  const [posterPath, setPosterPath] = useState("");
+  const [seasonsCount, setSeasonsCount] = useState(1);
+  const [episodesCount, setEpisodesCount] = useState(10);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) return null;
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    try {
+      setBusy(true);
+      setError(null);
+
+      // 1. Create media
+      const mediaRes = await apiJson<{ media: { id: string } }>("/api/media", {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({
+          type,
+          title: title.trim(),
+          year,
+          source: "manual",
+          overview: "Manually created media item.",
+          posterPath: posterPath.trim() || undefined,
+        }),
+      });
+      const mediaId = mediaRes.media.id;
+
+      // 2. Create seasons & episodes (only if show or anime)
+      if (type === "show" || type === "anime") {
+        for (let s = 1; s <= seasonsCount; s++) {
+          await apiJson(`/api/media/${mediaId}/seasons`, {
+            method: "POST",
+            csrfToken: me.csrfToken,
+            body: JSON.stringify({ seasonNumber: s, name: `Season ${s}`, isSpecial: false }),
+          });
+
+          for (let ep = 1; ep <= episodesCount; ep++) {
+            await apiJson(`/api/media/${mediaId}/episodes`, {
+              method: "POST",
+              csrfToken: me.csrfToken,
+              body: JSON.stringify({
+                seasonNumber: s,
+                episodeNumber: ep,
+                name: `Episode ${ep}`,
+                isSpecial: false,
+              }),
+            });
+          }
+        }
+      }
+
+      // 3. Add to library
+      await apiJson(`/api/library/${mediaId}`, {
+        method: "POST",
+        csrfToken: me.csrfToken,
+      });
+
+      onClose();
+      // Redirect to detail page
+      window.location.assign(`/media/${type}/${mediaId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create media.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="app-shell">
-      <aside className="desktop-rail">
-        <BrandMark />
-        <nav className="rail-nav" aria-label="Primary">
+    <Modal title="Add Custom Media" open={open} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="settings-form" style={{ display: "grid", gap: "1rem" }}>
+        <label>
+          Title
+          <input required value={title} onChange={(e) => setTitle(e.target.value)} disabled={busy} placeholder="e.g. Severance" />
+        </label>
+        <label>
+          Type
+          <select value={type} onChange={(e) => setType(e.target.value as MediaType)} disabled={busy}>
+            <option value="show">Show</option>
+            <option value="movie">Movie</option>
+            <option value="anime">Anime</option>
+            <option value="game">Game</option>
+            <option value="book">Book</option>
+          </select>
+        </label>
+        <label>
+          Release Year
+          <input type="number" min={1888} max={2100} value={year} onChange={(e) => setYear(Number(e.target.value))} disabled={busy} />
+        </label>
+        <label>
+          Cover Image URL (optional)
+          <input value={posterPath} onChange={(e) => setPosterPath(e.target.value)} disabled={busy} placeholder="https://example.com/cover.jpg" />
+        </label>
+        {(type === "show" || type === "anime") && (
+          <div className="file-row" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+            <label>
+              Seasons
+              <input type="number" min={1} max={50} value={seasonsCount} onChange={(e) => setSeasonsCount(Number(e.target.value))} disabled={busy} />
+            </label>
+            <label>
+              Episodes per Season
+              <input type="number" min={1} max={100} value={episodesCount} onChange={(e) => setEpisodesCount(Number(e.target.value))} disabled={busy} />
+            </label>
+          </div>
+        )}
+        {error && <span className="input-error">{error}</span>}
+        <div className="action-row">
+          <button className="primary-button" type="submit" disabled={busy}>
+            {busy ? "Creating..." : "Create & Track"}
+          </button>
+          <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function AppShell() {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [defaultType, setDefaultType] = useState<MediaType>("show");
+
+  const openCreateModal = (type: MediaType = "show") => {
+    setDefaultType(type);
+    setIsCreateOpen(true);
+  };
+
+  const contextValue = useMemo(() => ({ openCreateModal }), []);
+
+  return (
+    <MediaCreationContext.Provider value={contextValue}>
+      <div className="app-shell">
+        <aside className="desktop-rail">
+          <BrandMark />
+          <nav className="rail-nav" aria-label="Primary">
+            {navItems.map((item) => (
+              <ShellNavLink key={item.to} {...item} />
+            ))}
+          </nav>
+        </aside>
+
+        <div className="app-frame">
+          <header className="topbar">
+            <BrandMark compact />
+            <div className="search-box" role="search">
+              <Search size={18} aria-hidden="true" />
+              <input aria-label="Search media" placeholder="Search your library" />
+            </div>
+            <IconButton label="Notifications">
+              <Bell size={18} />
+            </IconButton>
+          </header>
+
+          <Outlet />
+        </div>
+
+        <nav className="bottom-nav" aria-label="Primary">
           {navItems.map((item) => (
-            <ShellNavLink key={item.to} {...item} />
+            <ShellNavLink key={item.to} {...item} compact />
           ))}
         </nav>
-      </aside>
-
-      <div className="app-frame">
-        <header className="topbar">
-          <BrandMark compact />
-          <div className="search-box" role="search">
-            <Search size={18} aria-hidden="true" />
-            <input aria-label="Search media" placeholder="Search your library" />
-          </div>
-          <IconButton label="Notifications">
-            <Bell size={18} />
-          </IconButton>
-        </header>
-
-        <Outlet />
       </div>
 
-      <nav className="bottom-nav" aria-label="Primary">
-        {navItems.map((item) => (
-          <ShellNavLink key={item.to} {...item} compact />
-        ))}
-      </nav>
-    </div>
+      <CreateMediaModal open={isCreateOpen} onClose={() => setIsCreateOpen(false)} defaultType={defaultType} />
+    </MediaCreationContext.Provider>
   );
 }
 
@@ -500,13 +654,165 @@ function ProtectedShell() {
   );
 }
 
+type LibraryEntry = {
+  item: {
+    id: string;
+    userId: string;
+    mediaId: string;
+    status: string;
+    isFavorite: boolean;
+    rating: number | null;
+    notes: string | null;
+    watchedAt: string | null;
+    rewatchCount: number;
+    progressEpisodes: number;
+    visibility: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  media: {
+    id: string;
+    type: MediaType;
+    title: string;
+    overview: string | null;
+    posterPath: string | null;
+    backdropPath: string | null;
+    airStatus: string | null;
+    runtimeMinutes: number | null;
+    releaseDate: string | null;
+    year: number | null;
+    language: string | null;
+    country: string | null;
+    source: string;
+    sourceId: string | null;
+    totalEpisodes: number | null;
+    totalSeasons: number | null;
+  };
+};
+
+function useLibrary() {
+  const [library, setLibrary] = useState<LibraryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchLibrary = async () => {
+    try {
+      const data = await apiJson<{ library: LibraryEntry[] }>("/api/library");
+      setLibrary(data.library);
+    } catch (err) {
+      console.error("Failed to load library items", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLibrary();
+  }, []);
+
+  return { library, loading, refresh: fetchLibrary };
+}
+
+function mergeMediaItems(staticItems: MediaCardItem[], library: LibraryEntry[]): MediaCardItem[] {
+  const merged: MediaCardItem[] = [];
+  const processedMediaIds = new Set<string>();
+
+  for (const staticItem of staticItems) {
+    const matchingLib = library.find(
+      (entry) => entry.media.title.toLowerCase() === staticItem.title.toLowerCase()
+    );
+
+    if (matchingLib) {
+      processedMediaIds.add(matchingLib.media.id);
+      
+      let tone: StatusTone = "planned";
+      if (matchingLib.item.status === "watching" || matchingLib.item.status === "playing" || matchingLib.item.status === "reading") {
+        tone = "watching";
+      } else if (matchingLib.item.status === "completed" || matchingLib.item.status === "watched" || matchingLib.item.status === "finished") {
+        tone = "complete";
+      } else if (matchingLib.item.status === "paused") {
+        tone = "paused";
+      } else if (matchingLib.item.status === "dropped" || matchingLib.item.status === "stopped") {
+        tone = "stopped";
+      }
+
+      let progress = 0;
+      if (matchingLib.media.type === "show" || matchingLib.media.type === "anime") {
+        const totalEps = staticItem.id === "severance" ? 9 : staticItem.id === "frieren" ? 28 : 5;
+        progress = Math.min(100, Math.round((matchingLib.item.progressEpisodes / totalEps) * 100));
+      } else if (matchingLib.media.type === "movie") {
+        progress = matchingLib.item.status === "watched" ? 100 : 0;
+      }
+
+      merged.push({
+        ...staticItem,
+        id: matchingLib.media.id,
+        status: matchingLib.item.status.replace("_", " "),
+        progress,
+        tone,
+        posterPath: matchingLib.media.posterPath,
+      });
+    } else {
+      merged.push(staticItem);
+    }
+  }
+
+  for (const entry of library) {
+    if (!processedMediaIds.has(entry.media.id)) {
+      let tone: StatusTone = "planned";
+      if (entry.item.status === "watching" || entry.item.status === "playing" || entry.item.status === "reading") {
+        tone = "watching";
+      } else if (entry.item.status === "completed" || entry.item.status === "watched" || entry.item.status === "finished") {
+        tone = "complete";
+      } else if (entry.item.status === "paused") {
+        tone = "paused";
+      } else if (entry.item.status === "dropped" || entry.item.status === "stopped") {
+        tone = "stopped";
+      }
+
+      let progress = 0;
+      if (entry.media.type === "show" || entry.media.type === "anime") {
+        if (entry.item.status === "completed") {
+          progress = 100;
+        } else {
+          progress = entry.item.progressEpisodes > 0 ? 50 : 0;
+        }
+      } else if (entry.media.type === "movie") {
+        progress = entry.item.status === "watched" ? 100 : 0;
+      }
+
+      merged.push({
+        id: entry.media.id,
+        title: entry.media.title,
+        meta: entry.media.year ? `Released in ${entry.media.year}` : entry.media.type,
+        type: entry.media.type,
+        progress,
+        status: entry.item.status.replace("_", " "),
+        tone,
+        accent: "linear-gradient(145deg, #2b2f36, #0f1115)",
+        posterPath: entry.media.posterPath,
+      });
+    }
+  }
+
+  return merged;
+}
+
 function ShowsPage() {
+  const { openCreateModal } = useMediaCreation();
+  const { library, loading } = useLibrary();
+
+  const showList = useMemo(() => {
+    const showLib = library.filter(entry => entry.media.type === "show" || entry.media.type === "anime");
+    const staticShows = mediaItems.filter(item => item.type === "show" || item.type === "anime");
+    return mergeMediaItems(staticShows, showLib);
+  }, [library]);
+
   return (
     <AppPage
       eyebrow="Shows"
       title="Watch next"
       description="A dashboard shaped like the daily tracking loop: resume, catch up, and keep an eye on what is coming."
-      action={<IconButton label="Add show"><Plus size={18} /></IconButton>}
+      action={<IconButton label="Add show" onClick={() => openCreateModal("show")}><Plus size={18} /></IconButton>}
     >
       <DashboardStats />
       <Tabs
@@ -516,13 +822,15 @@ function ShowsPage() {
           { id: "upcoming", label: "Upcoming" },
         ]}
       />
-      <PosterGrid>
-        {mediaItems
-          .filter((item) => item.type === "show" || item.type === "anime")
-          .map((item) => (
+      {loading ? (
+        <SkeletonGrid />
+      ) : (
+        <PosterGrid>
+          {showList.map((item) => (
             <MediaCard key={item.id} item={item} />
           ))}
-      </PosterGrid>
+        </PosterGrid>
+      )}
       <EmptyState
         icon={<Clapperboard size={24} />}
         title="No imported TV Time data yet"
@@ -535,46 +843,93 @@ function ShowsPage() {
 }
 
 function MoviesPage() {
+  const { openCreateModal } = useMediaCreation();
+  const { library, loading } = useLibrary();
+
+  const movieList = useMemo(() => {
+    const movieLib = library.filter(entry => entry.media.type === "movie");
+    const staticMovies = mediaItems.filter(item => item.type === "movie");
+    return mergeMediaItems(staticMovies, movieLib);
+  }, [library]);
+
   return (
-    <AppPage eyebrow="Movies" title="Movie library" description="A compact home for watchlist, watched titles, favorites, and upcoming releases.">
+    <AppPage
+      eyebrow="Movies"
+      title="Movie library"
+      description="A compact home for watchlist, watched titles, favorites, and upcoming releases."
+      action={<IconButton label="Add movie" onClick={() => openCreateModal("movie")}><Plus size={18} /></IconButton>}
+    >
       <SegmentedControl options={["Watchlist", "Watched", "Favorites", "Upcoming"]} />
-      <PosterGrid>
-        {mediaItems
-          .filter((item) => item.type === "movie")
-          .map((item) => (
+      {loading ? (
+        <SkeletonGrid />
+      ) : (
+        <PosterGrid>
+          {movieList.map((item) => (
             <MediaCard key={item.id} item={item} />
           ))}
-      </PosterGrid>
-      <SkeletonGrid />
+        </PosterGrid>
+      )}
     </AppPage>
   );
 }
 
 function BooksPage() {
+  const { openCreateModal } = useMediaCreation();
+  const { library, loading } = useLibrary();
+
+  const bookList = useMemo(() => {
+    const bookLib = library.filter(entry => entry.media.type === "book");
+    const staticBooks = mediaItems.filter(item => item.type === "book");
+    return mergeMediaItems(staticBooks, bookLib);
+  }, [library]);
+
   return (
-    <AppPage eyebrow="Books" title="Book library" description="Books are placeholder-first in this phase, with tracking coming in Phase 7.">
-      <PosterGrid>
-        {mediaItems
-          .filter((item) => item.type === "book")
-          .map((item) => (
+    <AppPage
+      eyebrow="Books"
+      title="Book library"
+      description="Books are placeholder-first in this phase, with tracking coming in Phase 7."
+      action={<IconButton label="Add book" onClick={() => openCreateModal("book")}><Plus size={18} /></IconButton>}
+    >
+      {loading ? (
+        <SkeletonGrid />
+      ) : (
+        <PosterGrid>
+          {bookList.map((item) => (
             <MediaCard key={item.id} item={item} />
           ))}
-      </PosterGrid>
+        </PosterGrid>
+      )}
       <EmptyState icon={<BookOpen size={24} />} title="Books are ready for tracking" message="Search, reading status, and progress arrive after the core media model." />
     </AppPage>
   );
 }
 
 function GamesPage() {
+  const { openCreateModal } = useMediaCreation();
+  const { library, loading } = useLibrary();
+
+  const gameList = useMemo(() => {
+    const gameLib = library.filter(entry => entry.media.type === "game");
+    const staticGames = mediaItems.filter(item => item.type === "game");
+    return mergeMediaItems(staticGames, gameLib);
+  }, [library]);
+
   return (
-    <AppPage eyebrow="Games" title="Game library" description="Games are placeholder-first in this phase, with tracking coming in Phase 7.">
-      <PosterGrid>
-        {mediaItems
-          .filter((item) => item.type === "game")
-          .map((item) => (
+    <AppPage
+      eyebrow="Games"
+      title="Game library"
+      description="Games are placeholder-first in this phase, with tracking coming in Phase 7."
+      action={<IconButton label="Add game" onClick={() => openCreateModal("game")}><Plus size={18} /></IconButton>}
+    >
+      {loading ? (
+        <SkeletonGrid />
+      ) : (
+        <PosterGrid>
+          {gameList.map((item) => (
             <MediaCard key={item.id} item={item} />
           ))}
-      </PosterGrid>
+        </PosterGrid>
+      )}
       <EmptyState icon={<Gamepad2 size={24} />} title="Games are ready for tracking" message="Platform, play status, and progress notes arrive after the core media model." />
     </AppPage>
   );
@@ -634,29 +989,601 @@ function ProfilePage() {
   );
 }
 
+type MediaDetailData = {
+  media: {
+    id: string;
+    type: MediaType;
+    title: string;
+    overview: string | null;
+    posterPath: string | null;
+    backdropPath: string | null;
+    airStatus: string | null;
+    runtimeMinutes: number | null;
+    releaseDate: string | null;
+    year: number | null;
+    language: string | null;
+    country: string | null;
+    source: string;
+    sourceId: string | null;
+    totalEpisodes: number | null;
+    totalSeasons: number | null;
+  };
+  userMedia: {
+    id: string;
+    userId: string;
+    mediaId: string;
+    status: string;
+    isFavorite: boolean;
+    rating: number | null;
+    notes: string | null;
+    watchedAt: string | null;
+    rewatchCount: number;
+    progressEpisodes: number;
+    visibility: string;
+  } | null;
+};
+
+type EpisodeWithActivity = {
+  id: string;
+  mediaId: string;
+  seasonId: string | null;
+  seasonNumber: number;
+  episodeNumber: number;
+  name: string | null;
+  overview: string | null;
+  stillPath: string | null;
+  airDate: string | null;
+  runtimeMinutes: number | null;
+  isSpecial: boolean;
+  externalId: string | null;
+  activity: {
+    id: string;
+    userId: string;
+    episodeId: string;
+    mediaId: string;
+    watched: boolean;
+    watchedAt: string | null;
+    rewatchCount: number;
+  } | null;
+};
+
 function MediaDetailPage() {
   const { type, id } = useParams();
-  const fallbackMedia = mediaItems[0] as MediaCardItem;
-  const item = mediaItems.find((media) => media.id === id) ?? fallbackMedia;
+  const { me } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<MediaDetailData | null>(null);
+  const [episodes, setEpisodes] = useState<EpisodeWithActivity[]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [notesText, setNotesText] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((current) => current === msg ? null : current);
+    }, 3000);
+  };
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const mediaData = await apiJson<MediaDetailData>(`/api/media/${id}`);
+      setDetail(mediaData);
+      setNotesText(mediaData.userMedia?.notes ?? "");
+
+      if (mediaData.media.type === "show" || mediaData.media.type === "anime") {
+        const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
+        setEpisodes(epData.episodes);
+      } else {
+        setEpisodes([]);
+      }
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Failed to load media.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (id) {
+      loadData();
+    }
+  }, [id]);
+
+  const addToLibrary = async (status?: string) => {
+    if (!id || !detail) return;
+    try {
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}`, {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ status }),
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      setNotesText(result.userMedia?.notes ?? "");
+      triggerToast("Added to library.");
+      if (detail.media.type === "show" || detail.media.type === "anime") {
+        const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
+        setEpisodes(epData.episodes);
+      }
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to add to library.");
+    }
+  };
+
+  const removeFromLibrary = async () => {
+    if (!id || !detail) return;
+    if (!window.confirm("Remove from library? This deletes all watched history and notes.")) return;
+    try {
+      await apiJson(`/api/library/${id}`, {
+        method: "DELETE",
+        csrfToken: me.csrfToken,
+      });
+      setDetail({ ...detail, userMedia: null });
+      setEpisodes(episodes.map(ep => ({ ...ep, activity: null })));
+      triggerToast("Removed from library.");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to remove.");
+    }
+  };
+
+  const updateStatus = async (status: string) => {
+    if (!id || !detail || !detail.userMedia) return;
+    try {
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/status`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ status }),
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      triggerToast(`Status: ${status.replace("_", " ")}`);
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to update status.");
+    }
+  };
+
+  const toggleFavorite = async () => {
+    if (!id || !detail || !detail.userMedia) return;
+    const nextFavorite = !detail.userMedia.isFavorite;
+    try {
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/favorite`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ isFavorite: nextFavorite }),
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      triggerToast(nextFavorite ? "Favorite added" : "Favorite removed");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to favorite.");
+    }
+  };
+
+  const updateRating = async (rating: number | null) => {
+    if (!id || !detail || !detail.userMedia) return;
+    try {
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/rating`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ rating }),
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      triggerToast(rating ? `Rated ${rating}/10` : "Rating cleared");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to rate.");
+    }
+  };
+
+  const saveNotes = async () => {
+    if (!id || !detail || !detail.userMedia) return;
+    if (notesText === detail.userMedia.notes) return;
+    try {
+      setSavingNotes(true);
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/notes`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ notes: notesText || null }),
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      triggerToast("Notes saved");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to save notes.");
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const markMovieWatched = async () => {
+    if (!id || !detail || !detail.userMedia) return;
+    try {
+      const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/watched`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+      });
+      setDetail({ ...detail, userMedia: result.userMedia });
+      triggerToast("Watched movie!");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to watch.");
+    }
+  };
+
+  const toggleEpisodeWatched = async (episodeId: string, currentWatched: boolean) => {
+    if (!id || !detail) return;
+    if (!detail.userMedia) {
+      await addToLibrary();
+    }
+    try {
+      const path = `/api/episodes/${episodeId}/watched`;
+      const result = await apiJson<{ activity: EpisodeWithActivity["activity"]; progress: { watched: number } }>(path, {
+        method: currentWatched ? "DELETE" : "POST",
+        csrfToken: me.csrfToken,
+      });
+      setEpisodes(episodes.map(ep => ep.id === episodeId ? { ...ep, activity: result.activity } : ep));
+      if (detail.userMedia) {
+        setDetail({
+          ...detail,
+          userMedia: {
+            ...detail.userMedia,
+            progressEpisodes: result.progress.watched,
+          }
+        });
+      } else {
+        await loadData();
+      }
+      triggerToast(currentWatched ? "Episode unwatched" : "Episode watched");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Failed to log episode.");
+    }
+  };
+
+  const initializeMockMedia = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const fallbackMedia = mediaItems.find((m) => m.id === id);
+      const title = fallbackMedia?.title ?? "Custom Show";
+      const mediaRes = await apiJson<{ media: { id: string } }>("/api/media", {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({
+          type: type as MediaType,
+          title,
+          source: "manual",
+          overview: "Manual placeholder created for tracking.",
+        }),
+      });
+      const newMediaId = mediaRes.media.id;
+
+      if (type === "show" || type === "anime") {
+        await apiJson(`/api/media/${newMediaId}/seasons`, {
+          method: "POST",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ seasonNumber: 1, name: "Season 1", isSpecial: false }),
+        });
+        for (let i = 1; i <= 5; i++) {
+          await apiJson(`/api/media/${newMediaId}/episodes`, {
+            method: "POST",
+            csrfToken: me.csrfToken,
+            body: JSON.stringify({
+              seasonNumber: 1,
+              episodeNumber: i,
+              name: `Episode ${i}`,
+              isSpecial: false,
+            }),
+          });
+        }
+      }
+
+      await apiJson(`/api/library/${newMediaId}`, {
+        method: "POST",
+        csrfToken: me.csrfToken,
+      });
+
+      window.location.assign(`/media/${type}/${newMediaId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to initialize media item.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <AppPage eyebrow={type ?? "Media"} title="Loading..." description="Reading media records...">
+        <SkeletonGrid />
+      </AppPage>
+    );
+  }
+
+  if (error || !detail) {
+    const isMock = mediaItems.some((m) => m.id === id);
+    return (
+      <AppPage eyebrow={type ?? "Media"} title="Not tracked yet" description={error ?? "This item is not tracked in the database."}>
+        {isMock ? (
+          <EmptyState
+            icon={<Plus size={24} />}
+            title="Initialize Mock Media"
+            message="This mock title exists in the UI but is not yet registered in your database. Click below to initialize Season 1 (5 episodes) and start tracking."
+          >
+            <div style={{ marginTop: "1rem" }}>
+              <button className="primary-button" onClick={initializeMockMedia}>
+                Initialize & Track
+              </button>
+            </div>
+          </EmptyState>
+        ) : (
+          <EmptyState
+            icon={<X size={24} />}
+            title="Media Not Found"
+            message="We couldn't find this item in your database."
+          />
+        )}
+      </AppPage>
+    );
+  }
+
+  const { media, userMedia } = detail;
+  const regularEpisodes = episodes.filter((ep) => !ep.isSpecial);
+  const totalRegularCount = regularEpisodes.length;
+  const watchedRegularCount = regularEpisodes.filter((ep) => ep.activity?.watched).length;
+  const progressPercent = totalRegularCount > 0 ? Math.round((watchedRegularCount / totalRegularCount) * 100) : 0;
+
+  const nextEp = regularEpisodes
+    .sort((a, b) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber)
+    .find((ep) => !ep.activity?.watched);
+
+  const statusOptions = {
+    show: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
+    anime: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
+    movie: ["watch_later", "watched"],
+    game: ["planned", "playing", "completed", "paused", "dropped"],
+    book: ["want_to_read", "reading", "finished", "paused", "dropped"],
+  }[media.type] ?? [];
 
   return (
-    <AppPage eyebrow={type ?? "Media"} title={item.title} description="Detail pages will host seasons, episodes, reactions, notes, and spoiler-gated comments.">
+    <AppPage eyebrow={media.type} title={media.title} description={media.overview ?? "No overview available."}>
       <section className="detail-layout">
-        <ResponsivePoster accent={item.accent} title={item.title} />
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "min(100%, 18rem)" }}>
+          <ResponsivePoster accent="linear-gradient(145deg, #2b2f36, #0f1115)" title={media.title} posterPath={media.posterPath} />
+          {userMedia && (
+            <label className="secondary-button" style={{ cursor: "pointer", fontSize: "0.85rem", minHeight: "2.2rem", padding: "0 0.5rem", display: "inline-flex", width: "100%", justifyContent: "center", alignItems: "center" }}>
+              Upload Cover
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const form = new FormData();
+                  form.set("file", file);
+                  try {
+                    triggerToast("Uploading cover...");
+                    const res = await apiJson<{ posterPath: string }>(`/api/media/${media.id}/cover`, {
+                      method: "POST",
+                      csrfToken: me.csrfToken,
+                      body: form,
+                      contentType: null,
+                    });
+                    setDetail({
+                      ...detail,
+                      media: {
+                        ...detail.media,
+                        posterPath: res.posterPath,
+                      }
+                    });
+                    triggerToast("Cover updated successfully!");
+                  } catch (err) {
+                    triggerToast(err instanceof Error ? err.message : "Upload failed.");
+                  }
+                }}
+                style={{ display: "none" }}
+              />
+            </label>
+          )}
+        </div>
+        
         <div className="detail-copy">
-          <StatusChip tone={item.tone}>{item.status}</StatusChip>
-          <ProgressBar value={item.progress} label={`${item.progress}% complete`} />
-          <div className="action-row">
-            <button className="primary-button">
-              <Check size={18} aria-hidden="true" />
-              Mark progress
-            </button>
-            <IconButton label="Favorite">
-              <Heart size={18} />
-            </IconButton>
+          <div className="action-row" style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+            {!userMedia ? (
+              <button className="primary-button" onClick={() => addToLibrary()}>
+                <Plus size={18} aria-hidden="true" />
+                Add to library
+              </button>
+            ) : (
+              <>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                  <label htmlFor="status-select" className="eyebrow" style={{ margin: 0 }}>Tracking status</label>
+                  <select
+                    id="status-select"
+                    value={userMedia.status}
+                    onChange={(e) => updateStatus(e.target.value)}
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.09)",
+                      borderRadius: "0.35rem",
+                      padding: "0.45rem 0.75rem",
+                      color: "white",
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    {statusOptions.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt.replace("_", " ").toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <IconButton
+                  label="Favorite"
+                  onClick={toggleFavorite}
+                  style={userMedia.isFavorite ? { background: "rgba(255, 75, 75, 0.15)", color: "#ff4b4b" } : undefined}
+                >
+                  <Heart size={18} fill={userMedia.isFavorite ? "currentColor" : "none"} />
+                </IconButton>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                  <label htmlFor="rating-select" className="eyebrow" style={{ margin: 0 }}>Rating</label>
+                  <select
+                    id="rating-select"
+                    value={userMedia.rating ?? ""}
+                    onChange={(e) => updateRating(e.target.value ? Number(e.target.value) : null)}
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.09)",
+                      borderRadius: "0.35rem",
+                      padding: "0.45rem 0.75rem",
+                      color: "white",
+                      fontSize: "0.9rem",
+                    }}
+                  >
+                    <option value="">No rating</option>
+                    {[1,2,3,4,5,6,7,8,9,10].map((r) => (
+                      <option key={r} value={r}>{r} / 10</option>
+                    ))}
+                  </select>
+                </div>
+
+                <button className="secondary-button" onClick={removeFromLibrary} style={{ color: "#ff6b6b" }}>
+                  Remove
+                </button>
+              </>
+            )}
           </div>
+
+          {userMedia && media.type === "movie" && (
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "0.5rem" }}>
+              <button className="primary-button" onClick={markMovieWatched}>
+                <Check size={18} />
+                Mark Watched
+              </button>
+              <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <span style={{ fontSize: "0.85rem", color: "#aeb1ac" }}>Rewatches: {userMedia.rewatchCount}</span>
+                {userMedia.watchedAt && (
+                  <span style={{ fontSize: "0.85rem", color: "#aeb1ac" }}>
+                    Last: {new Date(userMedia.watchedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {userMedia && (media.type === "show" || media.type === "anime") && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: "0.9rem", fontWeight: "bold" }}>Progress</span>
+                <span style={{ fontSize: "0.85rem", color: "#ffbf47" }}>
+                  {watchedRegularCount} / {totalRegularCount} episodes ({progressPercent}%)
+                </span>
+              </div>
+              <ProgressBar value={progressPercent} label={`${progressPercent}% watched`} />
+
+              {nextEp && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: "rgba(255,191,71,0.06)",
+                    border: "1px dashed rgba(255,191,71,0.25)",
+                    padding: "0.75rem 1rem",
+                    borderRadius: "0.5rem",
+                    marginTop: "0.25rem",
+                  }}
+                >
+                  <div>
+                    <p className="eyebrow" style={{ margin: 0, fontSize: "0.7rem" }}>Up next</p>
+                    <p style={{ margin: 0, fontWeight: "bold", fontSize: "0.95rem" }}>
+                      S{nextEp.seasonNumber} E{nextEp.episodeNumber} - {nextEp.name ?? "Untitled"}
+                    </p>
+                  </div>
+                  <button className="primary-button" onClick={() => toggleEpisodeWatched(nextEp.id, false)} style={{ minHeight: "2.2rem", padding: "0 0.75rem", fontSize: "0.8rem" }}>
+                    Watch
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {userMedia && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.5rem" }}>
+              <label htmlFor="notes-textarea" className="eyebrow" style={{ margin: 0 }}>Private Notes</label>
+              <textarea
+                id="notes-textarea"
+                value={notesText}
+                onChange={(e) => setNotesText(e.target.value)}
+                onBlur={saveNotes}
+                placeholder="Add your private notes or review here. Auto-saves on blur."
+                style={{
+                  background: "rgba(0,0,0,0.25)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "0.45rem",
+                  padding: "0.75rem",
+                  color: "#f8f7f2",
+                  fontSize: "0.9rem",
+                  minHeight: "5rem",
+                  resize: "vertical",
+                }}
+                disabled={savingNotes}
+              />
+            </div>
+          )}
         </div>
       </section>
+
+      {(media.type === "show" || media.type === "anime") && episodes.length > 0 && (
+        <section style={{ marginTop: "2rem" }}>
+          <h2 style={{ fontSize: "1.25rem", color: "#fff4d3", margin: "0 0 1rem" }}>Episodes</h2>
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            {episodes.map((ep) => {
+              const watched = ep.activity?.watched ?? false;
+              return (
+                <div
+                  key={ep.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "0.8rem 1rem",
+                    background: watched ? "rgba(255,207,92,0.04)" : "rgba(255,255,255,0.02)",
+                    border: watched ? "1px solid rgba(255,207,92,0.15)" : "1px solid rgba(255,255,255,0.05)",
+                    borderRadius: "0.5rem",
+                    transition: "all 0.2s ease",
+                  }}
+                >
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", minWidth: 0 }}>
+                    <span style={{ fontSize: "0.8rem", color: "#aeb1ac", fontWeight: "bold" }}>
+                      S{ep.seasonNumber} E{ep.episodeNumber} {ep.isSpecial && <span style={{ color: "#ff4b4b", fontSize: "0.7rem", marginLeft: "0.3rem" }}>SPECIAL</span>}
+                    </span>
+                    <span style={{ fontSize: "0.95rem", color: watched ? "#ffcf5c" : "white", fontWeight: "600", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {ep.name ?? `Episode ${ep.episodeNumber}`}
+                    </span>
+                  </div>
+
+                  <IconButton
+                    label={watched ? "Mark unwatched" : "Mark watched"}
+                    onClick={() => toggleEpisodeWatched(ep.id, watched)}
+                    style={{
+                      background: watched ? "#ffcf5c" : "rgba(255,255,255,0.06)",
+                      color: watched ? "#1d1505" : "#aeb1ac",
+                      border: "none",
+                      width: "2.2rem",
+                      height: "2.2rem",
+                      flex: "0 0 2.2rem",
+                    }}
+                  >
+                    <Check size={16} />
+                  </IconButton>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {toastMessage && <Toast message={toastMessage} />}
     </AppPage>
   );
 }
@@ -769,7 +1696,7 @@ export function MediaCard({ item }: { item: MediaCardItem }) {
   return (
     <article className="media-card">
       <NavLink to={`/media/${item.type}/${item.id}`} aria-label={`Open ${item.title}`}>
-        <ResponsivePoster accent={item.accent} title={item.title} />
+        <ResponsivePoster accent={item.accent} title={item.title} posterPath={item.posterPath} />
       </NavLink>
       <div className="media-card-body">
         <div>
@@ -787,7 +1714,14 @@ export function PosterGrid({ children }: { children: ReactNode }) {
   return <section className="poster-grid">{children}</section>;
 }
 
-export function ResponsivePoster({ accent, title }: { accent: string; title: string }) {
+export function ResponsivePoster({ accent, title, posterPath }: { accent: string; title: string; posterPath?: string | null }) {
+  if (posterPath) {
+    return (
+      <div className="poster">
+        <img src={posterPath} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "0.5rem" }} />
+      </div>
+    );
+  }
   return (
     <div className="poster" style={{ background: accent }}>
       <span>{title}</span>
@@ -813,12 +1747,14 @@ export function EmptyState({
   message,
   actionLabel,
   to,
+  children,
 }: {
   icon: ReactNode;
   title: string;
   message: string;
   actionLabel?: string;
   to?: string;
+  children?: ReactNode;
 }) {
   return (
     <section className="empty-state">
@@ -826,6 +1762,7 @@ export function EmptyState({
       <h2>{title}</h2>
       <p>{message}</p>
       {actionLabel && to ? <NavLink to={to}>{actionLabel}</NavLink> : null}
+      {children}
     </section>
   );
 }

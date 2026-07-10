@@ -178,15 +178,39 @@ export function createMergeRoutes() {
         return apiError(c, 409, "conflict", "This item needs a TMDB match before metadata can be refreshed. Open Merge media and accept or choose a match first.");
       }
     }
-    await enqueueMediaRefreshJob(c.env.DB, media.id, provider, now);
+    const jobId = await enqueueMediaRefreshJob(c.env.DB, media.id, provider, now);
     await c.env.DB.prepare("INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at) VALUES (?, ?, ?) ON CONFLICT(media_id) DO UPDATE SET updated_at=excluded.updated_at")
       .bind(media.id, null, now)
       .run();
 
-    // Trigger background processing immediately
-    c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
+    // Prioritize the item the user is currently viewing instead of draining old backlog first.
+    c.executionCtx.waitUntil(import("./hydration").then(m => m.processHydrationJob(c.env, jobId)));
 
-    return c.json(apiSuccess({ queued: true }));
+    return c.json(apiSuccess({ queued: true, jobId }));
+  });
+
+  router.get("/:mediaId/refresh-status", requireAuth(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
+    const mediaId = c.req.param("mediaId");
+    const progress = await hydrationProgress(c.env.DB, mediaId);
+    const activeJob = await c.env.DB.prepare(`SELECT id, status, last_error, updated_at FROM metadata_refresh_jobs
+      WHERE media_id = ? AND status IN ('queued', 'running')
+      ORDER BY updated_at DESC
+      LIMIT 1`)
+      .bind(mediaId)
+      .first<{ id: string; status: string; last_error: string | null; updated_at: string }>();
+    if (activeJob) {
+      c.executionCtx.waitUntil(import("./hydration").then(m => m.processHydrationJob(c.env, activeJob.id)));
+      return c.json(apiSuccess({ job: activeJob, progress }));
+    }
+
+    const job = await c.env.DB.prepare(`SELECT id, status, last_error, updated_at FROM metadata_refresh_jobs
+      WHERE media_id = ?
+      ORDER BY updated_at DESC
+      LIMIT 1`)
+      .bind(mediaId)
+      .first<{ id: string; status: string; last_error: string | null; updated_at: string }>();
+    return c.json(apiSuccess({ job: job ?? null, progress }));
   });
 
   return router;
@@ -344,6 +368,47 @@ async function enqueueMediaRefreshJob(db: D1Database, mediaId: string, provider:
     .bind(id, mediaId, provider, now, now)
     .run();
   return id;
+}
+
+async function hydrationProgress(db: D1Database, mediaId: string) {
+  const [media, episodeCounts, jobCounts, failedJob] = await Promise.all([
+    db.prepare("SELECT total_episodes FROM media_items WHERE id = ?").bind(mediaId).first<{ total_episodes: number | null }>(),
+    db.prepare(`SELECT
+        COUNT(*) AS episode_count,
+        SUM(CASE WHEN still_path IS NOT NULL OR overview IS NOT NULL OR air_date IS NOT NULL OR runtime_minutes IS NOT NULL OR external_id IS NOT NULL OR extended_data_json IS NOT NULL THEN 1 ELSE 0 END) AS hydrated_count
+      FROM episodes
+      WHERE media_id = ? AND is_special = 0`)
+      .bind(mediaId)
+      .first<{ episode_count: number; hydrated_count: number | null }>(),
+    db.prepare("SELECT status, COUNT(*) AS count FROM metadata_refresh_jobs WHERE media_id = ? GROUP BY status")
+      .bind(mediaId)
+      .all<{ status: string; count: number }>(),
+    db.prepare("SELECT last_error, updated_at FROM metadata_refresh_jobs WHERE media_id = ? AND status = 'failed' ORDER BY updated_at DESC LIMIT 1")
+      .bind(mediaId)
+      .first<{ last_error: string | null; updated_at: string }>(),
+  ]);
+
+  const counts = new Map((jobCounts.results ?? []).map((row) => [row.status, row.count]));
+  const totalEpisodes = Math.max(media?.total_episodes ?? 0, episodeCounts?.episode_count ?? 0);
+  const hydratedEpisodes = Math.min(totalEpisodes, episodeCounts?.hydrated_count ?? 0);
+  const queuedJobs = counts.get("queued") ?? 0;
+  const runningJobs = counts.get("running") ?? 0;
+  const failedJobs = counts.get("failed") ?? 0;
+  const activeJobs = queuedJobs + runningJobs;
+  const percent = totalEpisodes > 0 ? Math.round((hydratedEpisodes / totalEpisodes) * 100) : activeJobs > 0 ? 1 : 0;
+  const status = activeJobs > 0 ? "refreshing" : failedJobs > 0 ? "needs_retry" : totalEpisodes > 0 && hydratedEpisodes >= totalEpisodes ? "complete" : "idle";
+
+  return {
+    status,
+    totalEpisodes,
+    hydratedEpisodes,
+    percent,
+    queuedJobs,
+    runningJobs,
+    failedJobs,
+    activeJobs,
+    lastUpdatedAt: failedJob?.updated_at ?? null,
+  };
 }
 
 async function moveUserMedia(db: D1Database, userId: string, sourceMediaId: string, targetMediaId: string, now: string) {

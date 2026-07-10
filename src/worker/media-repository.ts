@@ -151,7 +151,7 @@ export type MediaRepository = {
   upsertUserMedia(record: UserMediaRecord): Promise<UserMediaRecord>;
   findUserMedia(userId: string, mediaId: string): Promise<UserMediaRecord | null>;
   findUserLibrary(userId: string, filters?: LibraryFilters): Promise<{ item: UserMediaRecord; media: MediaItemRecord }[]>;
-  findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number): Promise<DashboardEntry[]>;
+  findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null): Promise<DashboardEntry[]>;
   removeUserMedia(userId: string, mediaId: string): Promise<void>;
   updateUserMediaProgress(userId: string, mediaId: string, progressEpisodes: number, now: string): Promise<void>;
   updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, now: string): Promise<UserMediaRecord | null>;
@@ -537,9 +537,12 @@ export class D1MediaRepository implements MediaRepository {
     }));
   }
 
-  async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number) {
+  async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
     const types = kind === "shows" ? ["show", "anime"] : [kind.slice(0, -1)];
     const typePlaceholders = types.map(() => "?").join(", ");
+    const trimmedQuery = query?.trim();
+    const searchClause = trimmedQuery ? "AND mi.title LIKE ?" : "";
+    const searchBinds = trimmedQuery ? [`%${trimmedQuery}%`] : [];
     const result = await this.db
       .prepare(
         `SELECT
@@ -586,11 +589,11 @@ export class D1MediaRepository implements MediaRepository {
              ORDER BY next_ep.season_number, next_ep.episode_number LIMIT 1) AS next_episode_air_date
          FROM user_media um
          JOIN media_items mi ON mi.id = um.media_id
-         WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
+         WHERE um.user_id = ? AND mi.type IN (${typePlaceholders}) ${searchClause}
          ORDER BY um.updated_at DESC, mi.title COLLATE NOCASE
          LIMIT ? OFFSET ?`,
       )
-      .bind(userId, ...types, limit, offset)
+      .bind(userId, ...types, ...searchBinds, limit, offset)
       .all<DashboardRow>();
 
     return result.results.map(mapDashboardRow);

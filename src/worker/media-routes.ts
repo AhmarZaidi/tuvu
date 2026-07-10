@@ -58,6 +58,9 @@ export function createMediaRoutes() {
 
     const auth = c.get("auth");
     const userMedia = await mediaRepo.findUserMedia(auth.user.id, media.id);
+    if (c.env.DB) {
+      media.extendedDataJson = await enrichRelatedMedia(c.env.DB, auth.user.id, media.extendedDataJson);
+    }
 
     return c.json(apiSuccess({ media, userMedia, canonicalMediaId: media.id, aliasFromMediaId: alias ? requestedId : null }));
   });
@@ -231,4 +234,39 @@ export function createMediaRoutes() {
   });
 
   return router;
+}
+
+async function enrichRelatedMedia(db: D1Database, userId: string, extendedDataJson?: string | null) {
+  if (!extendedDataJson) return extendedDataJson ?? null;
+  try {
+    const data = JSON.parse(extendedDataJson) as { related?: Array<Record<string, unknown>> };
+    if (!Array.isArray(data.related) || data.related.length === 0) return extendedDataJson;
+    const related = [];
+    for (const item of data.related) {
+      const providerId = String(item.id ?? "");
+      const type = normalizeRelatedType(String(item.type ?? "show"));
+      let localMediaId: string | null = null;
+      let alreadyTracked = false;
+      if (providerId) {
+        const row = await db.prepare(`SELECT mi.id, um.media_id AS tracked_id
+          FROM media_items mi
+          LEFT JOIN media_external_ids ex ON ex.media_id = mi.id AND ex.source = 'tmdb'
+          LEFT JOIN user_media um ON um.media_id = mi.id AND um.user_id = ?
+          WHERE mi.type = ? AND ((mi.source = 'tmdb' AND mi.source_id = ?) OR ex.external_id = ?)
+          LIMIT 1`)
+          .bind(userId, type, providerId, providerId)
+          .first<{ id: string; tracked_id: string | null }>();
+        localMediaId = row?.id ?? null;
+        alreadyTracked = Boolean(row?.tracked_id);
+      }
+      related.push({ ...item, provider: "tmdb", providerId, type, localMediaId, alreadyTracked });
+    }
+    return JSON.stringify({ ...data, related });
+  } catch {
+    return extendedDataJson;
+  }
+}
+
+function normalizeRelatedType(type: string) {
+  return type === "movie" ? "movie" : "show";
 }

@@ -9,6 +9,7 @@ import { createUnitRoutes } from "./unit-routes";
 import { createImportRoutes } from "./import-routes";
 import { createExploreRoutes } from "./explore-routes";
 import { createMergeRoutes } from "./merge-routes";
+import { createPeopleRoutes } from "./people-routes";
 import { createProfileRoutes } from "./profile-routes";
 import type { ProfileRouteDependencies } from "./profile-routes";
 import type { AuthRepository } from "./repository";
@@ -71,6 +72,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/api/imports", createImportRoutes());
   app.route("/api/explore", createExploreRoutes());
   app.route("/api/merge", createMergeRoutes());
+  app.route("/api/people", createPeopleRoutes());
 
   app.onError((error, c) => {
     console.error(error);

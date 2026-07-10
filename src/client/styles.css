@@ -431,7 +431,6 @@ a {
 .icon-button {
   width: 2.6rem;
   height: 2.6rem;
-  flex: 0 0 2.6rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
 }
@@ -613,6 +612,49 @@ a {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #ffbf47, #75d58b);
+}
+
+.episode-guide-progress,
+.profile-loading-panel {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  margin-bottom: 1rem;
+  border: 1px solid rgba(255, 207, 92, 0.16);
+  border-radius: 0.65rem;
+  background: rgba(255, 207, 92, 0.07);
+}
+
+.episode-guide-progress {
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 16rem) auto;
+  align-items: center;
+}
+
+.episode-guide-progress strong,
+.profile-loading-panel span {
+  color: #f8f7f2;
+}
+
+.episode-guide-progress span {
+  display: block;
+  margin-top: 0.2rem;
+  color: #aeb1ac;
+  font-size: 0.86rem;
+}
+
+.episode-guide-progress.active {
+  border-color: rgba(255, 207, 92, 0.28);
+  background: rgba(255, 207, 92, 0.1);
+}
+
+.profile-loading-panel {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.profile-loading-panel.warning {
+  border-color: rgba(244, 154, 76, 0.22);
+  background: rgba(244, 154, 76, 0.08);
 }
 
 .tabs,
@@ -1336,6 +1378,11 @@ a {
     bottom: calc(1rem + env(safe-area-inset-bottom));
   }
 
+  .person-profile-layout {
+    grid-template-columns: 13rem minmax(0, 1fr);
+    align-items: start;
+  }
+
   /* Two-column form layout inside desktop modal */
   .modal form.settings-form {
     display: grid !important;
@@ -1945,7 +1992,8 @@ a {
 }
 
 .season-group {
-  border-block: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem 0.5rem 0 0;
 }
 
 .season-header {
@@ -1958,9 +2006,13 @@ a {
   right: 0;
   bottom: -1px;
   left: 0;
-  height: 1px;
+  height: 2px;
   background: linear-gradient(to right, #ffcf5c var(--season-progress, 0%), rgba(255, 255, 255, 0.08) var(--season-progress, 0%));
   content: "";
+}
+
+.season-header .watched-toggle {
+  margin-right: 0.5rem;
 }
 
 .season-toggle {
@@ -2032,6 +2084,8 @@ a {
     #24272a center / cover no-repeat;
   color: #ffcf5c;
   font-weight: 900;
+  background-position: center;
+  background-size: cover;
 }
 
 .episode-tile-copy {
@@ -2255,6 +2309,7 @@ a {
 .progress-form input,
 .progress-form select {
   width: 100%;
+  padding: 0.5rem;
 }
 
 .detail-band {
@@ -2271,6 +2326,14 @@ a {
 }
 
 @media (max-width: 640px) {
+  .episode-guide-progress {
+    grid-template-columns: 1fr;
+  }
+
+  .episode-guide-progress .secondary-button {
+    width: 100%;
+  }
+
   .page-heading.mobile-help .heading-description {
     display: none;
   }
@@ -2327,6 +2390,7 @@ a {
   .episode-tile {
     grid-template-columns: 3.3rem minmax(0, 1fr) auto;
     gap: 0.55rem;
+    margin-left: 0.5rem;
   }
 
   .episode-thumb {
@@ -2949,7 +3013,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  border-radius: 999px;
+  border-radius: 0.5rem;
   background: rgba(255, 255, 255, 0.07);
   padding: 0.32rem 0.58rem;
   color: #c9cac5;
@@ -3027,6 +3091,90 @@ a {
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.related-scroll {
+  display: flex;
+  max-width: 100%;
+  gap: 0.65rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
+.related-card {
+  position: relative;
+  display: grid;
+  width: 7.2rem;
+  flex: 0 0 7.2rem;
+  gap: 0.3rem;
+}
+
+.related-poster-button {
+  position: relative;
+  display: grid;
+  aspect-ratio: 2 / 3;
+  width: 100%;
+  place-items: center;
+  border: 0;
+  border-radius: 0.45rem;
+  background:
+    linear-gradient(145deg, rgba(255, 191, 71, 0.2), rgba(74, 91, 112, 0.3)),
+    #202225 center / cover no-repeat;
+  color: #ffcf5c;
+  font: inherit;
+  font-weight: 900;
+  background-position: center;
+  background-size: cover;
+}
+
+.related-track-button {
+  position: absolute;
+  right: 0.2rem;
+  bottom: 0.2rem;
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid rgba(255, 207, 92, 0.45);
+  border-radius: 999px;
+  background: rgba(16, 17, 18, 0.86);
+  color: #ffcf5c;
+}
+
+.related-track-button {
+  z-index: 2;
+}
+
+.related-track-button.tracked {
+  background: rgba(255, 207, 92, 0.95);
+  color: #1c1609;
+  border: 1.5px solid rgba(16, 17, 18, .45);
+}
+
+.related-card strong {
+  overflow: hidden;
+  color: #f8f7f2;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person-profile-layout {
+  display: grid;
+  gap: 1rem;
+}
+
+.person-profile-image {
+  display: grid;
+  aspect-ratio: 3 / 4;
+  place-items: center;
+  border-radius: 0.5rem;
+  background:
+    linear-gradient(145deg, rgba(255, 191, 71, 0.25), rgba(74, 91, 112, 0.35)),
+    #202225 center / cover no-repeat;
+  color: #ffcf5c;
+  font-size: 2rem;
+  font-weight: 900;
 }
 
 .cast-card strong,

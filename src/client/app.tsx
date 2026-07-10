@@ -149,7 +149,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         const res = await response.json() as { data?: { done?: boolean; processed?: number; total?: number }; error?: { message?: string } };
 
         if (!response.ok || !res.data) {
-          setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
+          setActiveJob({ id: jobId, status: "failed", error_message: safeNoticeText(res.error?.message, "Import could not continue right now.") });
           return;
         }
 
@@ -165,7 +165,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         if (abortCountRef.current !== myAbort) return;
         console.error("Background commit failed:", err);
-        setActiveJob({ id: jobId, status: "failed", error_message: err instanceof Error ? err.message : "Network error" });
+        setActiveJob({ id: jobId, status: "failed", error_message: friendlyErrorMessage(err, "Import could not continue right now.") });
       }
     };
     runChunk();
@@ -188,7 +188,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         const res = await response.json() as { data?: { done?: boolean; remaining?: number }; error?: { message?: string } };
 
         if (!response.ok || !res.data) {
-          setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
+          setActiveJob({ id: jobId, status: "failed", error_message: safeNoticeText(res.error?.message, "Rollback could not continue right now.") });
           return;
         }
 
@@ -208,7 +208,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         if (abortCountRef.current !== myAbort) return;
         console.error("Background rollback failed:", err);
-        setActiveJob({ id: jobId, status: "failed", error_message: err instanceof Error ? err.message : "Network error" });
+        setActiveJob({ id: jobId, status: "failed", error_message: friendlyErrorMessage(err, "Rollback could not continue right now.") });
       }
     };
     runChunk();
@@ -406,12 +406,22 @@ export function App() {
 
 function SnackbarProvider({ children }: { children: ReactNode }) {
   const [notices, setNotices] = useState<AppNotice[]>([]);
+  const recentNoticeRef = useRef(new Map<string, number>());
 
   useEffect(() => {
     const onNotice = (event: Event) => {
       const detail = (event as CustomEvent<Omit<AppNotice, "id">>).detail;
       if (!detail?.message) return;
-      const notice: AppNotice = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, tone: detail.tone ?? "info", message: detail.message, dismissible: detail.dismissible ?? true };
+      const tone = detail.tone ?? "info";
+      const dedupeKey = `${tone}:${detail.message}`;
+      const now = Date.now();
+      const lastShown = recentNoticeRef.current.get(dedupeKey) ?? 0;
+      if (now - lastShown < 4500) return;
+      recentNoticeRef.current.set(dedupeKey, now);
+      for (const [key, timestamp] of recentNoticeRef.current) {
+        if (now - timestamp > 15_000) recentNoticeRef.current.delete(key);
+      }
+      const notice: AppNotice = { id: `${now}-${Math.random().toString(36).slice(2)}`, tone, message: detail.message, dismissible: detail.dismissible ?? true };
       setNotices((current) => [...current.slice(-3), notice]);
       window.setTimeout(() => {
         setNotices((current) => current.filter((item) => item.id !== notice.id));
@@ -1263,6 +1273,8 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   const { openCreateModal } = useMediaCreation();
   const initialCache = useMemo(() => readDashboardCache(me.user.id, kind), [me.user.id, kind]);
   const [payload, setPayload] = useState<DashboardPayload | null>(() => initialCache?.payload ?? null);
+  const [searchPayload, setSearchPayload] = useState<DashboardPayload | null>(null);
+  const [searching, setSearching] = useState(false);
   const [activeSection, setActiveSection] = useState(() => initialCache?.activeSection ?? "all");
   const [query, setQuery] = useState(() => initialCache?.query ?? "");
   const [sort, setSort] = useState(() => initialCache?.sort ?? "updated");
@@ -1333,7 +1345,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   };
 
   const loadMore = async () => {
-    if (loading || !payload?.page.hasMore) return;
+    if (searchPayload || loading || !payload?.page.hasMore) return;
     const nextOffset = (payload.page.offset ?? 0) + 50;
     await load(nextOffset);
   };
@@ -1341,16 +1353,17 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   useEffect(() => {
     const cached = readDashboardCache(me.user.id, kind);
     restoredScrollRef.current = false;
-    if (cached) {
-      setPayload(cached.payload);
-      setActiveSection(cached.activeSection);
-      setQuery(cached.query);
-      setSort(cached.sort);
+      if (cached) {
+        setPayload(cached.payload);
+        setActiveSection(cached.activeSection);
+        setQuery(cached.query);
+        setSort(cached.sort);
       setView(cached.view);
       window.requestAnimationFrame(() => {
         window.scrollTo(0, cached.scrollY);
         restoredScrollRef.current = true;
       });
+      void load(0);
       return;
     }
     setPayload(null);
@@ -1387,7 +1400,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
 
   // Set up intersection observer for infinite scroll
   useEffect(() => {
-    if (!payload?.page.hasMore || loading) return;
+    if (searchPayload || !payload?.page.hasMore || loading) return;
 
     const observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting) {
@@ -1405,9 +1418,37 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
         observer.unobserve(currentSentinel);
       }
     };
-  }, [payload?.page.hasMore, loading, payload?.page.offset]);
+  }, [searchPayload, payload?.page.hasMore, loading, payload?.page.offset]);
 
-  const section = payload?.sections.find((candidate) => candidate.id === activeSection) ?? payload?.sections.at(-1);
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setSearchPayload(null);
+      setSearching(false);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setSearching(true);
+      apiJson<DashboardPayload>(`/api/library/dashboard/${kind}?limit=5000&offset=0&q=${encodeURIComponent(trimmed)}`)
+        .then((next) => {
+          setSearchPayload({
+            entries: Array.isArray(next.entries) ? next.entries : [],
+            sections: Array.isArray(next.sections) ? next.sections : [],
+            totalTracked: next.totalTracked,
+            statusCounts: next.statusCounts,
+            sectionCounts: next.sectionCounts,
+            page: next.page ?? { limit: 5000, offset: 0, hasMore: false },
+          });
+          setError(null);
+        })
+        .catch((reason) => setError(friendlyErrorMessage(reason, "Search could not be completed.")))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [kind, query]);
+
+  const visiblePayload = searchPayload ?? payload;
+  const section = visiblePayload?.sections.find((candidate) => candidate.id === activeSection) ?? visiblePayload?.sections.at(-1);
 
   const entries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -1455,7 +1496,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
       </div>
       {sectionTabs.length > 0 && <DashboardTabs tabs={sectionTabs} active={activeSection} onChange={setActiveSection} />}
       {error && <p className="input-error" role="alert">{error}</p>}
-      {!payload ? <SkeletonGrid /> : entries.length === 0 ? (
+      {(!payload || searching) ? <SkeletonGrid /> : entries.length === 0 ? (
         <EmptyState icon={kind === "shows" ? <Clapperboard size={24} /> : kind === "movies" ? <Film size={24} /> : kind === "books" ? <BookOpen size={24} /> : <Gamepad2 size={24} />} title={query ? "No matching titles" : `Nothing in ${section?.label ?? title} yet`} message={query ? "Try a different title or clear the filter." : `Add a ${mediaType} and choose a tracking status to fill this section.`}>
           {!query && <button className="primary-button" onClick={() => openCreateModal(mediaType)}><Plus size={18} />Add {mediaType}</button>}
         </EmptyState>
@@ -1464,7 +1505,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
           <section className={view === "compact" ? "media-results compact" : "media-results poster-grid"} aria-label={section?.label}>
             {entries.map((entry) => <DashboardMediaCard key={entry.mediaId} entry={entry} compact={view === "compact"} onMarkNext={markNextWatched} />)}
           </section>
-          {payload.page.hasMore && (
+          {!searchPayload && payload.page.hasMore && (
             <div ref={sentinelRef} style={{ height: "60px", display: "flex", alignItems: "center", justifyContent: "center", margin: "1.5rem 0" }}>
               <div className="import-spinner" style={{ width: "24px", height: "24px", borderColor: "rgba(255,207,92,0.2)", borderTopColor: "#ffcf5c" }} />
             </div>
@@ -2159,6 +2200,18 @@ type TrackableUnit = {
   activity: { id: string; completed: boolean; completedAt: string | null; rating: number | null; notes: string | null } | null;
 };
 
+type HydrationProgress = {
+  status: "refreshing" | "needs_retry" | "complete" | "idle";
+  totalEpisodes: number;
+  hydratedEpisodes: number;
+  percent: number;
+  queuedJobs: number;
+  runningJobs: number;
+  failedJobs: number;
+  activeJobs: number;
+  lastUpdatedAt: string | null;
+};
+
 type MediaDetailCacheEntry = {
   detail: MediaDetailData;
   episodes: EpisodeWithActivity[];
@@ -2208,6 +2261,8 @@ function MediaDetailPage() {
   const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(() => new Set(initialCache?.collapsedSeasons ?? []));
   const [mediaSettingsOpen, setMediaSettingsOpen] = useState(false);
   const [episodeAction, setEpisodeAction] = useState<{ type: "episode"; episode: EpisodeWithActivity } | { type: "season"; seasonNumber: number; watchedCount: number; totalCount: number } | null>(null);
+  const [hydrationProgress, setHydrationProgress] = useState<HydrationProgress | null>(null);
+  const autoHydrateRef = useRef(new Set<string>());
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -2536,12 +2591,67 @@ function MediaDetailPage() {
     if (!id) return;
     try {
       await apiJson(`/api/merge/${id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
+      markHydrationTried(id);
       setMediaSettingsOpen(false);
-      triggerToast("Metadata refresh queued.");
+      triggerToast("Refreshing extra details in the background.");
     } catch (err) {
-      triggerToast(err instanceof Error ? err.message : "Refresh could not be queued.");
+      triggerToast(friendlyErrorMessage(err, "Extra details could not be refreshed right now."));
     }
   };
+
+  const loadHydrationProgress = async () => {
+    if (!id) return null;
+    try {
+      const status = await apiJson<{ job: { id: string; status: string; last_error: string | null; updated_at: string } | null; progress: HydrationProgress }>(`/api/merge/${id}/refresh-status`);
+      setHydrationProgress(status.progress);
+      return status.progress;
+    } catch {
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    if (!id || !detail) return;
+    if (!mediaNeedsHydration(detail.media, episodes)) return;
+    if (autoHydrateRef.current.has(detail.media.id)) return;
+    if (recentlyTriedHydration(detail.media.id)) return;
+    autoHydrateRef.current.add(detail.media.id);
+    markHydrationTried(detail.media.id);
+    void (async () => {
+      try {
+        await apiJson(`/api/merge/${detail.media.id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
+        window.setTimeout(() => {
+          clearMediaDetailCache(me.user.id, id);
+          void (async () => {
+            await loadData();
+            await reportHydrationIfStillMissing(detail.media.id, detail.media.title);
+          })();
+        }, 4500);
+      } catch (reason) {
+        notify(friendlyErrorMessage(reason, "Extra details could not be refreshed right now."), "info");
+      }
+    })();
+  }, [id, detail?.media.id, detail?.media.extendedDataJson, detail?.media.posterPath, detail?.media.backdropPath, episodes.length, me.csrfToken, me.user.id]);
+
+  useEffect(() => {
+    if (!id || !detail || (detail.media.type !== "show" && detail.media.type !== "anime")) return;
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const poll = async () => {
+      const progress = await loadHydrationProgress();
+      if (cancelled) return;
+      if (progress?.activeJobs || progress?.status === "refreshing") {
+        timeoutId = window.setTimeout(poll, 5000);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [id, detail?.media.id, detail?.media.type]);
   const initializeMockMedia = async () => {
     try {
       setLoading(true);
@@ -2769,10 +2879,13 @@ function MediaDetailPage() {
         </div>
       </section>
 
-      {(media.type === "show" || media.type === "anime") && episodes.length > 0 && (
+      {(media.type === "show" || media.type === "anime") && (episodes.length > 0 || hydrationProgress) && (
         <section className="episodes-section">
           <div className="section-heading"><div><p className="eyebrow">Episode guide</p><h2>Seasons & Episodes</h2></div><span>{watchedRegularCount} of {totalRegularCount} watched</span></div>
-          <div className="season-stack">
+          {hydrationProgress && <EpisodeGuideProgress progress={hydrationProgress} onRefresh={() => void loadHydrationProgress()} />}
+          {episodes.length === 0 ? (
+            <EmptyState icon={<RefreshCw size={24} />} title="Episode guide is being prepared" message="Episode details will appear here as provider data is loaded." />
+          ) : <div className="season-stack">
             {episodeGroups.map((group) => {
               const collapsed = collapsedSeasons.has(group.seasonNumber);
               const watchedCount = group.episodes.filter((episode) => episode.activity?.watched).length;
@@ -2797,7 +2910,7 @@ function MediaDetailPage() {
                 })}</div>}
               </section>;
             })}
-          </div>
+          </div>}
         </section>
       )}
 
@@ -2878,9 +2991,9 @@ function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["med
   return (
     <div className="rich-detail-grid">
       <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div>{ext.watchProviders?.length ? <div className="provider-row">{ext.watchProviders.map((provider) => <span key={provider.name}>{provider.logoPath && <img src={provider.logoPath} alt="" />}{provider.name}</span>)}</div> : <p className="muted-copy">Availability has not been hydrated yet.</p>}</section>
-      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span>Release: {media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "TBA"}</span><span>Average duration: {media.runtimeMinutes ? `${media.runtimeMinutes} min` : "TBA"}</span><span>Genres: {ext.genres?.map((genre) => genre.name).join(", ") || "TBA"}</span><span>Director: {directors.join(", ") || "TBA"}</span><span>Writer: {writers.join(", ") || "TBA"}</span><span>Producer: {producers.join(", ") || "TBA"}</span><span>Creator: {creators.join(", ") || "TBA"}</span></div></section>
-      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div>{ext.cast?.length ? <div className="cast-scroll">{ext.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `cast-${index}`}`}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Cast"}</span></NavLink>)}</div> : <p className="muted-copy">Cast will appear after provider hydration.</p>}</section>
-      <section className="detail-panel"><div><p className="eyebrow">Related</p><h2>Related media</h2></div>{ext.related?.length ? <div className="related-mini-row">{ext.related.map((item) => <div className="related-mini-card" key={`${item.type ?? media.type}-${item.id}`}><div style={item.posterPath ? { backgroundImage: `url(${item.posterPath})` } : undefined}>{!item.posterPath && item.title.slice(0, 2).toUpperCase()}</div></div>)}</div> : <p className="muted-copy">Related media will appear after provider hydration.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span><CalendarDays size={15} />{media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "Release TBA"}</span><span><Clock3 size={15} />{media.runtimeMinutes ? `${media.runtimeMinutes} min avg` : "Runtime TBA"}</span><span><Sparkles size={15} />{ext.genres?.map((genre) => genre.name).join(", ") || "Genres TBA"}</span><span><Clapperboard size={15} />Director: {directors.join(", ") || "TBA"}</span><span><BookOpen size={15} />Writer: {writers.join(", ") || "TBA"}</span><span className=""><Star size={15} />Producer: {producers.join(", ") || "TBA"}</span><span><User size={15} />Creator: {creators.join(", ") || "TBA"}</span></div></section>
+        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div>{ext.cast?.length ? <div className="cast-scroll">{ext.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `cast-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: "Acting" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Cast"}</span></NavLink>)}</div> : <p className="muted-copy">Cast will appear after provider hydration.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Related</p><h2>Related media</h2></div>{ext.related?.length ? <RelatedMediaRow items={ext.related} /> : <p className="muted-copy">Related media will appear after provider hydration.</p>}</section>
       <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span>{ext.voteCount ? <span>{ext.voteCount.toLocaleString()} votes</span> : null}</div></section>
       <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div><p className="muted-copy">Spoiler-aware comments arrive in Phase 8.</p></section>
     </div>
@@ -2893,11 +3006,87 @@ type ExtendedData = {
   crew?: ExtendedPerson[];
   creators?: ExtendedPerson[];
   watchProviders?: Array<{ name: string; logoPath?: string | null }>;
-  related?: Array<{ id: number | string; title: string; posterPath?: string | null; type?: string }>;
+  related?: RelatedMediaItem[];
   genres?: Array<{ id?: number; name: string }>;
   rating?: number;
   voteCount?: number;
 };
+
+type RelatedMediaItem = {
+  id: number | string;
+  providerId?: string;
+  provider?: "tmdb";
+  title: string;
+  posterPath?: string | null;
+  type?: MediaType | string;
+  localMediaId?: string | null;
+  alreadyTracked?: boolean;
+  year?: number | null;
+};
+
+function RelatedMediaRow({ items }: { items: RelatedMediaItem[] }) {
+  const { me } = useAuth();
+  const navigate = useNavigate();
+  const [tracked, setTracked] = useState(() => new Set(items.filter((item) => item.alreadyTracked).map((item) => String(item.providerId ?? item.id))));
+
+  const openOrAdd = async (item: RelatedMediaItem, shouldNavigate: boolean) => {
+    const key = String(item.providerId ?? item.id);
+    if (item.localMediaId) {
+      if (!isRelatedTracked(item, tracked)) {
+        await apiJson(`/api/library/${item.localMediaId}`, {
+          method: "POST",
+          csrfToken: me.csrfToken,
+        });
+        setTracked((current) => new Set(current).add(key));
+        clearDashboardCaches(me.user.id);
+      }
+      if (shouldNavigate) navigate(`/media/${normalizeRelatedMediaType(item.type)}/${item.localMediaId}`);
+      return;
+    }
+    const result = await apiJson<{ media: { id: string; type: MediaType } }>(`/api/explore/add`, {
+      method: "POST",
+      csrfToken: me.csrfToken,
+      body: JSON.stringify({
+        provider: item.provider ?? "tmdb",
+        providerId: key,
+        type: normalizeRelatedMediaType(item.type),
+        title: item.title,
+        posterPath: item.posterPath ?? null,
+        year: item.year ?? null,
+      }),
+    });
+    setTracked((current) => new Set(current).add(key));
+    clearDashboardCaches(me.user.id);
+    if (shouldNavigate) navigate(`/media/${result.media.type}/${result.media.id}`);
+  };
+
+  return (
+    <div className="related-scroll">
+      {items.map((item) => {
+        const key = String(item.providerId ?? item.id);
+        const isTracked = isRelatedTracked(item, tracked);
+        return (
+          <article className="related-card" key={`${normalizeRelatedMediaType(item.type)}-${key}`}>
+            <button className="related-poster-button" style={item.posterPath ? { backgroundImage: `url(${item.posterPath})` } : undefined} onClick={() => void openOrAdd(item, true)}>
+              {!item.posterPath && item.title.slice(0, 2).toUpperCase()}
+            </button>
+            <button className={isTracked ? "related-track-button tracked" : "related-track-button"} aria-label={isTracked ? `${item.title} is tracked` : `Track ${item.title}`} disabled={isTracked} onClick={() => void openOrAdd(item, false)}>
+              {isTracked ? <Check size={14} /> : <Plus size={14} />}
+            </button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function isRelatedTracked(item: RelatedMediaItem, tracked: Set<string>) {
+  return tracked.has(String(item.providerId ?? item.id)) || Boolean(item.alreadyTracked);
+}
+
+function normalizeRelatedMediaType(type?: string): MediaType {
+  return type === "movie" ? "movie" : "show";
+}
 
 function parseExtendedData(json: string | null): ExtendedData {
   if (!json) return {};
@@ -2905,6 +3094,74 @@ function parseExtendedData(json: string | null): ExtendedData {
     return JSON.parse(json) as ExtendedData;
   } catch {
     return {};
+  }
+}
+
+function EpisodeGuideProgress({ progress, onRefresh }: { progress: HydrationProgress; onRefresh: () => void }) {
+  const isRefreshing = progress.status === "refreshing" || progress.activeJobs > 0;
+  const label = progress.totalEpisodes > 0
+    ? `${progress.hydratedEpisodes} of ${progress.totalEpisodes} episode details loaded`
+    : isRefreshing
+      ? "Preparing episode guide"
+      : "Episode guide metadata has not started yet";
+  const detail = isRefreshing
+    ? `${progress.runningJobs ? "Updating now" : "Waiting"}${progress.queuedJobs ? `, ${progress.queuedJobs} batch${progress.queuedJobs === 1 ? "" : "es"} queued` : ""}`
+    : progress.status === "needs_retry"
+      ? "Some details could not be refreshed. You can retry from media settings."
+      : "Saved details will be reused until they need refreshing.";
+
+  return (
+    <div className={isRefreshing ? "episode-guide-progress active" : "episode-guide-progress"}>
+      <div>
+        <strong>{label}</strong>
+        <span>{detail}</span>
+      </div>
+      <ProgressBar value={Math.max(0, Math.min(100, progress.percent))} label={`${progress.percent}% metadata loaded`} />
+      <button className="secondary-button" onClick={onRefresh}>{isRefreshing ? "Update progress" : "Check status"}</button>
+    </div>
+  );
+}
+
+function mediaNeedsHydration(media: MediaDetailData["media"], episodes: EpisodeWithActivity[]) {
+  if (media.source !== "tmdb") return false;
+  const ext = parseExtendedData(media.extendedDataJson);
+  const missingMedia = !media.posterPath || !media.backdropPath || !media.overview || !media.releaseDate || !ext.cast?.length || !ext.related?.length;
+  const showLike = media.type === "show" || media.type === "anime";
+  const missingEpisodes = showLike && episodes.length === 0;
+  return missingMedia || missingEpisodes;
+}
+
+function hydrationCooldownKey(mediaId: string) {
+  return `tuvu-hydration:${mediaId}`;
+}
+
+function recentlyTriedHydration(mediaId: string) {
+  try {
+    const value = Number(localStorage.getItem(hydrationCooldownKey(mediaId)) ?? "0");
+    return Number.isFinite(value) && Date.now() - value < 6 * 60 * 60_000;
+  } catch {
+    return false;
+  }
+}
+
+function markHydrationTried(mediaId: string) {
+  try {
+    localStorage.setItem(hydrationCooldownKey(mediaId), String(Date.now()));
+  } catch {
+    // Hydration should still work without local storage.
+  }
+}
+
+async function reportHydrationIfStillMissing(mediaId: string, title: string) {
+  try {
+    const status = await apiJson<{ job: { id: string; status: string; last_error: string | null; updated_at: string } | null }>(`/api/merge/${mediaId}/refresh-status`);
+    if (status.job?.status === "failed") {
+      notify(`Some extra details for ${title} could not be refreshed right now. Your saved tracking is still available.`, "info");
+    } else if (status.job?.status === "queued" || status.job?.status === "running") {
+      notify(`Extra details for ${title} are still updating in the background.`, "info");
+    }
+  } catch {
+    // Avoid looping notices if status lookup itself fails; apiJson has already surfaced the network/API issue.
   }
 }
 
@@ -2965,6 +3222,7 @@ function EpisodeDetailPage() {
   const [data, setData] = useState<EpisodeDetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const autoHydrateEpisodeRef = useRef(false);
 
   const load = async () => {
     if (!episodeId) return;
@@ -2976,7 +3234,33 @@ function EpisodeDetailPage() {
       setError(reason instanceof Error ? reason.message : "Episode could not be loaded.");
     }
   };
-  useEffect(() => { void load(); }, [episodeId]);
+  useEffect(() => {
+    autoHydrateEpisodeRef.current = false;
+    void load();
+  }, [episodeId]);
+
+  useEffect(() => {
+    if (!id || !data?.media || autoHydrateEpisodeRef.current) return;
+    if (data.media.source !== "tmdb") return;
+    const missing = !data.episode.stillPath || !data.episode.overview || !data.episode.airDate || !data.episode.runtimeMinutes;
+    if (!missing) return;
+    if (recentlyTriedHydration(id)) return;
+    autoHydrateEpisodeRef.current = true;
+    markHydrationTried(id);
+    void (async () => {
+      try {
+        await apiJson(`/api/merge/${id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
+        window.setTimeout(() => {
+          void (async () => {
+            await load();
+            await reportHydrationIfStillMissing(id, data.media?.title ?? data.episode.name ?? "episode");
+          })();
+        }, 4500);
+      } catch (reason) {
+        notify(friendlyErrorMessage(reason, "Episode details could not be refreshed right now."), "info");
+      }
+    })();
+  }, [id, data?.media?.source, data?.episode.id, data?.episode.stillPath, data?.episode.overview, data?.episode.airDate, data?.episode.runtimeMinutes, me.csrfToken]);
 
   const updateActivity = async (changes: Record<string, unknown>) => {
     if (!episodeId) return;
@@ -2992,9 +3276,10 @@ function EpisodeDetailPage() {
     if (!id) return;
     try {
       await apiJson(`/api/merge/${id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
-      setError("Metadata refresh queued.");
+      markHydrationTried(id);
+      notify("Refreshing extra details in the background.", "info");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Refresh could not be queued.");
+      notify(friendlyErrorMessage(reason, "Extra details could not be refreshed right now."), "info");
     }
   };
 
@@ -3018,7 +3303,7 @@ function EpisodeDetailPage() {
         </div>
       </section>
       <div className="rich-detail-grid">
-        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div>{episodeExt.cast?.length ? <div className="cast-scroll">{episodeExt.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `episode-${episode.id}-${index}`}`}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Guest"}</span></NavLink>)}</div> : <p className="muted-copy">Episode cast will appear after provider hydration.</p>}</section>
+        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div>{episodeExt.cast?.length ? <div className="cast-scroll">{episodeExt.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `episode-${episode.id}-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: "Acting" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Guest"}</span></NavLink>)}</div> : <p className="muted-copy">Episode cast will appear after provider hydration.</p>}</section>
         <section className="detail-panel"><div><p className="eyebrow">Episode info</p><h2>Credits</h2></div><div className="info-list"><span>Director: {episodeDirectors.join(", ") || "TBA"}</span><span>Writer: {episodeWriters.join(", ") || "TBA"}</span><span>TMDB rating: {episodeExt.rating ? `${Number(episodeExt.rating).toFixed(1)}/10` : "TBA"}</span></div></section>
         <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div>{watched ? <p className="muted-copy">Episode comments arrive in Phase 8.</p> : <p className="spoiler-lock"><ShieldCheck size={18} />Mark this episode watched to reveal spoiler comments.</p>}</section>
       </div>
@@ -3044,16 +3329,106 @@ function UnitDetailPage() {
   return <AppPage eyebrow={media?.title ?? type ?? "Progress"} title={unit.title ?? `${unit.kind} ${unit.position}`} description={unit.overview ?? `Track this ${unit.kind} independently.`}><NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink><section className="episode-detail-hero"><div className="episode-still" style={unit.imagePath ? { backgroundImage: `url(${unit.imagePath})` } : undefined}><span>{unit.kind} {unit.position}</span></div><div className="episode-detail-copy"><div className="metadata-row"><span><CalendarDays size={16} />{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date unavailable"}</span></div><div className="watch-toggle" role="group" aria-label="Completion status"><button className={!activity?.completed ? "active" : ""} onClick={() => void update({ completed: false })}>Not complete</button><button className={activity?.completed ? "active" : ""} onClick={() => void update({ completed: true })}><Check size={16} />Complete</button></div>{activity?.completedAt && <p className="muted-copy">Completed {new Date(activity.completedAt).toLocaleString()}</p>}<div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} key={rating} onClick={() => void update({ rating })}>{rating}</button>)}</div></div><label className="notes-field">Private notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void update({ notes: notes || null })} placeholder={`Notes about this ${unit.kind}`} /></label></div></section></AppPage>;
 }
 
+type PersonProfilePayload = {
+  id: string;
+  name: string;
+  biography: string | null;
+  profilePath: string | null;
+  birthday: string | null;
+  deathday: string | null;
+  placeOfBirth: string | null;
+  knownForDepartment: string | null;
+  credits: Array<{ id: string; type: "movie" | "show"; title: string; character: string | null; posterPath: string | null; year: number | null }>;
+};
+
 function PersonPlaceholderPage() {
   const { id } = useParams();
+  const location = useLocation();
+  const fallbackPerson = useMemo(() => personFromNavigationState(location.state, id), [location.state, id]);
+  const [person, setPerson] = useState<PersonProfilePayload | null>(() => fallbackPerson);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(fallbackPerson ? "Loading full profile..." : null);
+  const [loading, setLoading] = useState(!fallbackPerson);
+
+  useEffect(() => {
+    if (!id) return;
+    setPerson(fallbackPerson);
+    setError(null);
+    setNotice(fallbackPerson ? "Loading full profile..." : null);
+    setLoading(!fallbackPerson);
+    void (async () => {
+      try {
+        const next = await apiJson<PersonProfilePayload>(`/api/people/${id}`);
+        setPerson(next);
+        setNotice(null);
+      } catch (reason) {
+        const message = friendlyErrorMessage(reason, "Full profile could not be loaded right now.");
+        if (fallbackPerson) {
+          setNotice(message);
+        } else {
+          setError(message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [id, fallbackPerson]);
+
+  if (!person) {
+    return (
+      <AppPage eyebrow="Cast" title={error ? "Person unavailable" : "Loading person"} description={error ?? "Reading cast profile..."}>
+        {!error && <div className="profile-loading-panel"><div className="import-spinner" /><span>Loading profile details...</span></div>}
+      </AppPage>
+    );
+  }
+
   return (
-    <AppPage eyebrow="Cast" title="Person profile" description="Cast and creator profiles will be hydrated from provider data in Phase 6.">
-      <section className="detail-panel">
-        <div><p className="eyebrow">Placeholder</p><h2>{id ?? "person"}</h2></div>
-        <p className="muted-copy">This route is ready for image galleries, biography, social links, credits, and related media.</p>
+    <AppPage eyebrow={person.knownForDepartment ?? "Cast"} title={person.name} description={person.biography || "Biography is not available yet."}>
+      {(loading || notice) && <div className={loading ? "profile-loading-panel" : "profile-loading-panel warning"}>{loading && <div className="import-spinner" />}<span>{notice ?? "Loading full profile..."}</span></div>}
+      <section className="person-profile-layout">
+        <div className="person-profile-image" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div>
+        <div className="detail-panel">
+          <div><p className="eyebrow">Profile</p><h2>{person.name}</h2></div>
+          <div className="info-list">
+            <span><CalendarDays size={15} />{person.birthday ?? "Birthday TBA"}{person.deathday ? ` - ${person.deathday}` : ""}</span>
+            <span><User size={15} />{person.placeOfBirth ?? "Location TBA"}</span>
+            <span><Clapperboard size={15} />{person.knownForDepartment ?? "Department TBA"}</span>
+          </div>
+          <p className="muted-copy">{person.biography || "No biography has been published by the provider yet."}</p>
+        </div>
+      </section>
+      <section className="detail-panel detail-panel-wide">
+        <div><p className="eyebrow">Credits</p><h2>Known for</h2></div>
+        {person.credits.length ? (
+          <div className="related-scroll">
+            {person.credits.map((credit) => (
+              <NavLink className="related-card" key={`${credit.type}-${credit.id}`} to={`/explore/search?q=${encodeURIComponent(credit.title)}`}>
+                <div className="related-poster-button" style={credit.posterPath ? { backgroundImage: `url(${credit.posterPath})` } : undefined}>{!credit.posterPath && credit.title.slice(0, 2).toUpperCase()}</div>
+                <strong>{credit.title}</strong>
+                <span className="muted-copy">{credit.character ?? credit.type}{credit.year ? ` - ${credit.year}` : ""}</span>
+              </NavLink>
+            ))}
+          </div>
+        ) : <p className="muted-copy">Credits will appear after provider hydration.</p>}
       </section>
     </AppPage>
   );
+}
+
+function personFromNavigationState(state: unknown, id?: string): PersonProfilePayload | null {
+  const person = (state as { person?: Partial<PersonProfilePayload> } | null)?.person;
+  if (!person?.name) return null;
+  return {
+    id: String(person.id || id || ""),
+    name: person.name,
+    biography: person.biography ?? null,
+    profilePath: person.profilePath ?? null,
+    birthday: person.birthday ?? null,
+    deathday: person.deathday ?? null,
+    placeOfBirth: person.placeOfBirth ?? null,
+    knownForDepartment: person.knownForDepartment ?? null,
+    credits: person.credits ?? [],
+  };
 }
 
 function ListPage() {
@@ -3667,8 +4042,8 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
       <article className="media-card compact-card">
         <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
           <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.4rem" }}>
-            {/* Background poster with 0.5 opacity */}
-            <div style={{ opacity: 0.5, width: "100%", height: "100%" }}>
+            {/* Background poster with 0.2 opacity */}
+            <div style={{ opacity: 0.2, width: "100%", height: "100%" }}>
               <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
             </div>
 
@@ -3704,8 +4079,8 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
     <article className="media-card">
       <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
         <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.5rem" }}>
-          {/* Background poster with 0.5 opacity */}
-          <div style={{ opacity: 0.5, width: "100%", height: "100%" }}>
+          {/* Background poster with 0.2 opacity */}
+          <div style={{ opacity: 0.2, width: "100%", height: "100%" }}>
             <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
           </div>
 
@@ -4107,17 +4482,18 @@ async function apiJson<T = unknown>(
       headers,
     });
   } catch (error) {
-    const message = "Network connection failed. Check your internet connection or local Worker server.";
+    const message = "We could not reach the app server. Check your connection and try again.";
     notify(message, "error");
-    throw new Error(error instanceof Error ? `${message} ${error.message}` : message);
+    const friendly = new Error(message) as Error & { cause?: unknown };
+    friendly.cause = error;
+    throw friendly;
   }
   const text = await response.text();
   let payload: { data?: T; error?: { message: string } };
   try {
     payload = text ? JSON.parse(text) as { data?: T; error?: { message: string } } : {};
   } catch {
-    const contentType = response.headers.get("content-type") ?? "unknown content";
-    const message = `API did not return JSON (${response.status} ${contentType}). Start the Worker with npm run dev:worker, or run Vite together with Wrangler on port 8787.`;
+    const message = "The app server sent an unexpected response. Please refresh and try again.";
     notify(message, "error");
     throw new Error(message);
   }
@@ -4126,23 +4502,37 @@ async function apiJson<T = unknown>(
     const errorDetails = payload.error as any;
     const message = apiNoticeMessage(response.status, errorDetails?.message);
     notify(message, response.status >= 500 || response.status === 0 ? "error" : "info");
-    const error = new Error(errorDetails?.message ?? message) as any;
+    const error = new Error(message) as any;
     error.code = errorDetails?.code;
     error.details = errorDetails?.details;
+    error.developerMessage = errorDetails?.message;
     throw error;
   }
   return payload.data;
 }
 
 function apiNoticeMessage(status: number, message?: string) {
-  if (status === 503) return "Backend service is unavailable. Check the Worker and database bindings.";
-  if (status >= 500) return message ? `Server error: ${message}` : "Server error. Please try again in a moment.";
+  if (status === 503) return "This service is temporarily unavailable. Please try again in a moment.";
+  if (status >= 500) return "Something went wrong while loading this. Please try again in a moment.";
   if (status === 401) return "Your session expired. Please log in again.";
-  if (status === 403) return "This action is not allowed or the CSRF token expired.";
-  if (status === 404) return message ? `Not found: ${message}` : "The requested item was not found.";
+  if (status === 403) return "This action is not allowed right now. Please refresh and try again.";
+  if (status === 404) return message && !looksTechnical(message) ? message : "The requested item was not found.";
   if (status === 409) return message ?? "This change conflicts with existing data.";
   if (status === 429) return "Too many requests. Please wait a moment and try again.";
-  return message ?? "Request failed.";
+  return message && !looksTechnical(message) ? message : "Request failed. Please try again.";
+}
+
+function looksTechnical(message: string) {
+  return /internal error|reference\s*=|D1|SQL|database binding|TMDB_API_KEY|stack|JSON|Worker|wrangler|csrf/i.test(message);
+}
+
+function friendlyErrorMessage(reason: unknown, fallback = "Something went wrong. Please try again.") {
+  if (reason instanceof Error && reason.message && !looksTechnical(reason.message)) return reason.message;
+  return fallback;
+}
+
+function safeNoticeText(message: string | null | undefined, fallback: string) {
+  return message && !looksTechnical(message) ? message : fallback;
 }
 
 function initials(name: string) {

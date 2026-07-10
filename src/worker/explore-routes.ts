@@ -48,7 +48,7 @@ export function createExploreRoutes() {
     const local = localResults.flat().map((media) => localProviderResult(media));
     const remote = await providerSearch(c.env, query.data.q, types, 8);
     const combined = dedupeResults([...local, ...remote]);
-    const marked = c.env.DB ? await markTrackedResults(c.env.DB, auth.user.id, combined) : combined;
+    const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, combined)) : combined;
     return c.json(apiSuccess({ query: query.data.q, results: marked.slice(0, 40) }));
   });
 
@@ -183,6 +183,19 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     if (result.provider === "local" || result.localMediaId) localIds.set(resultKey(result), result.localMediaId ?? result.providerId);
   }
 
+  const initialLocalIds = [...new Set(localIds.values())];
+  if (initialLocalIds.length > 0) {
+    const placeholders = initialLocalIds.map(() => "?").join(",");
+    const aliases = await db.prepare(`SELECT source_media_id, target_media_id FROM media_merge_aliases
+      WHERE status = 'merged' AND source_media_id IN (${placeholders})`)
+      .bind(...initialLocalIds)
+      .all<{ source_media_id: string; target_media_id: string }>();
+    const aliasMap = new Map(aliases.results.map((row) => [row.source_media_id, row.target_media_id]));
+    for (const [key, mediaId] of localIds) {
+      localIds.set(key, aliasMap.get(mediaId) ?? mediaId);
+    }
+  }
+
   for (const provider of ["tmdb", "rawg", "openlibrary"] as const) {
     const providerResults = results.filter((result) => result.provider === provider);
     const ids = [...new Set(providerResults.map((result) => result.providerId))];
@@ -214,6 +227,30 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     const localMediaId = localIds.get(resultKey(result)) ?? null;
     return { ...result, localMediaId, alreadyTracked: localMediaId ? trackedIds.has(localMediaId) : false };
   });
+}
+
+function dedupeMarkedResults(results: ProviderResult[]) {
+  const output: ProviderResult[] = [];
+  const byLocalId = new Map<string, number>();
+  const byProvider = new Set<string>();
+  for (const result of results) {
+    const localKey = result.localMediaId ? `${result.type}:${result.localMediaId}` : null;
+    if (localKey && byLocalId.has(localKey)) {
+      const existingIndex = byLocalId.get(localKey)!;
+      const existing = output[existingIndex];
+      if (!existing) continue;
+      if (existing.provider === "local" && result.provider !== "local") {
+        output[existingIndex] = { ...result, localMediaId: existing.localMediaId, alreadyTracked: existing.alreadyTracked || result.alreadyTracked };
+      }
+      continue;
+    }
+    const providerKey = resultKey(result);
+    if (byProvider.has(providerKey)) continue;
+    if (localKey) byLocalId.set(localKey, output.length);
+    byProvider.add(providerKey);
+    output.push(result);
+  }
+  return output;
 }
 
 function resultKey(result: ProviderResult) {

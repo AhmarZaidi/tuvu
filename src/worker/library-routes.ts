@@ -26,11 +26,12 @@ export function createLibraryRoutes() {
 
     const requestedLimit = Number(c.req.query("limit") ?? 60);
     const requestedOffset = Number(c.req.query("offset") ?? 0);
+    const searchQuery = c.req.query("q")?.trim() || null;
     const limit = Number.isFinite(requestedLimit) ? Math.min(5000, Math.max(1, Math.trunc(requestedLimit))) : 60;
     const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.trunc(requestedOffset)) : 0;
     const auth = c.get("auth");
     
-    const entries = await c.get("mediaRepository").findDashboardEntries(auth.user.id, kind.data, limit, offset);
+    const entries = await c.get("mediaRepository").findDashboardEntries(auth.user.id, kind.data, limit, offset, searchQuery);
 
     let totalTracked = entries.length;
     const statusCounts: Record<string, number> = {};

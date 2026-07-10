@@ -776,11 +776,34 @@ Implementation details:
   - Favorites
   - Upcoming
   - All Movies
+- Book page sections:
+  - Reading Now
+  - Want To Read
+  - Finished
+  - Upcoming
+  - Favorites
+  - Paused and Dropped
+  - All Books
+- Game page sections:
+  - Playing Now
+  - Backlog
+  - Completed
+  - Upcoming
+  - Favorites
+  - Paused and Dropped
+  - All Games
 - Implement poster grid and list/compact view where useful.
 - Add progress bars to show cards.
 - Add quick action to mark next episode watched.
-- Add season/episode page controls.
+- Add independently sized season controls; never assume seasons have equal episode counts.
+- Add bulk season watched/unwatched actions and dedicated episode detail routes.
+- Add optional book/game numeric progress and provider-independent placeholder tracking.
+- Add provider-ready normalized tables for image galleries, people/credits, external ratings, and optional book/game units.
+- Keep rich provider sections conditional until hydrated; missing provider fields must not prevent manual tracking.
 - Add filters and sort controls.
+- Use compact mobile-first dashboard controls: sort as an icon dropdown beside search, with full labels inside the menu.
+- On media detail pages, use responsive artwork treatment: mobile top backdrop banner plus poster fade background; desktop backdrop fade background plus left poster column.
+- Keep media artwork upload/customization actions in a media settings bottom sheet on mobile and modal on desktop.
 - Add empty states for new accounts.
 - Add local pagination or incremental loading.
 
@@ -794,7 +817,7 @@ Testing gate:
 
 Acceptance gate:
 
-- The main TV Time replacement workflow is usable without import or external APIs.
+- The main TV Time replacement workflow is usable without import or external APIs, including shows with unequal season sizes and basic book/game tracking.
 
 ### Phase 5: TV Time Import and Migration
 
@@ -822,7 +845,9 @@ Implementation details:
 - Import shows, seasons, episodes, watched states, watched dates, favorites, raw statuses, normalized statuses, rewatch counts, and watched counts.
 - Import movies, watched states, watched dates, favorites, rewatch counts, TVDB IDs, IMDb IDs, year, and raw UUID.
 - Store all source IDs.
-- Create placeholder media immediately before metadata hydration.
+- Resolve TVDB/IMDb IDs against cached/provider records before writing canonical media whenever possible.
+- Reuse an existing canonical media row when an external ID matches; create a lightweight placeholder only for unmatched or ambiguous entries.
+- Preserve source IDs and tracking history on placeholders so later hydration can merge metadata without rewriting user activity.
 - Show unmatched and warning report after import.
 - Preserve all raw TV Time dates and display timezone warning.
 
@@ -916,7 +941,7 @@ Implementation details:
 
 - Add Anime collection/filter view using the shared show/movie model.
 - Allow anime entries to be represented as show or movie format underneath while displaying category as anime.
-- Add Games library view:
+- Polish the Phase 4 Games library view and provider-hydrated metadata:
   - planned
   - playing
   - completed
@@ -924,7 +949,7 @@ Implementation details:
   - dropped
   - platform
   - playtime/progress notes
-- Add Books library view:
+- Polish the Phase 4 Books library view and provider-hydrated metadata:
   - want to read
   - reading
   - finished

@@ -5,10 +5,13 @@ import type {
   UserMediaRecord,
   EpisodeActivityRecord,
   ActivityEventRecord,
+  MediaUnitRecord,
+  UnitActivityRecord,
   LibraryFilters,
   MediaRepository,
 } from "@worker/media-repository";
 import type { MediaType } from "@shared/media";
+import type { DashboardKind } from "@shared/dashboard";
 
 export class MemoryMediaRepository implements MediaRepository {
   private mediaItems = new Map<string, MediaItemRecord>();
@@ -17,6 +20,8 @@ export class MemoryMediaRepository implements MediaRepository {
   private userMedia = new Map<string, UserMediaRecord>();
   private episodeActivities = new Map<string, EpisodeActivityRecord>();
   private activityEvents: ActivityEventRecord[] = [];
+  private mediaUnits = new Map<string, MediaUnitRecord>();
+  private unitActivities = new Map<string, UnitActivityRecord>();
 
   async createMedia(item: MediaItemRecord) {
     this.mediaItems.set(item.id, item);
@@ -111,6 +116,59 @@ export class MemoryMediaRepository implements MediaRepository {
       .filter((x): x is { item: UserMediaRecord; media: MediaItemRecord } => x !== null);
   }
 
+  async createMediaUnit(unit: MediaUnitRecord) { this.mediaUnits.set(unit.id, unit); }
+  async findMediaUnits(mediaId: string) { return [...this.mediaUnits.values()].filter((unit) => unit.mediaId === mediaId).sort((a, b) => (a.parentId ?? "").localeCompare(b.parentId ?? "") || a.position - b.position); }
+  async findMediaUnitById(id: string) { return this.mediaUnits.get(id) ?? null; }
+  async upsertUnitActivity(activity: UnitActivityRecord) { this.unitActivities.set(`${activity.userId}:${activity.unitId}`, activity); return activity; }
+  async findUnitActivity(userId: string, unitId: string) { return this.unitActivities.get(`${userId}:${unitId}`) ?? null; }
+  async findUnitActivitiesForMedia(userId: string, mediaId: string) { return [...this.unitActivities.values()].filter((activity) => activity.userId === userId && activity.mediaId === mediaId); }
+
+  async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number) {
+    const allowedTypes: MediaType[] = kind === "shows" ? ["show", "anime"] : [kind.slice(0, -1) as MediaType];
+    const rows = [...this.userMedia.values()]
+      .filter((item) => item.userId === userId)
+      .map((item) => ({ item, media: this.mediaItems.get(item.mediaId) }))
+      .filter((row): row is { item: UserMediaRecord; media: MediaItemRecord } => Boolean(row.media && allowedTypes.includes(row.media.type)))
+      .sort((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt) || a.media.title.localeCompare(b.media.title))
+      .slice(offset, offset + limit);
+
+    return rows.map(({ item, media }) => {
+      const episodes = [...this.episodes.values()]
+        .filter((episode) => episode.mediaId === media.id && !episode.isSpecial)
+        .sort((a, b) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber);
+      const watched = new Set(
+        [...this.episodeActivities.values()]
+          .filter((activity) => activity.userId === userId && activity.watched)
+          .map((activity) => activity.episodeId),
+      );
+      const next = episodes.find((episode) => !watched.has(episode.id)) ?? null;
+      return {
+        mediaId: media.id,
+        type: media.type,
+        title: media.title,
+        overview: media.overview,
+        posterPath: media.posterPath,
+        backdropPath: media.backdropPath,
+        airStatus: media.airStatus,
+        releaseDate: media.releaseDate,
+        year: media.year,
+        status: item.status,
+        isFavorite: item.isFavorite,
+        rating: item.rating,
+        progressEpisodes: item.progressEpisodes,
+        progressValue: item.progressValue,
+        progressTotal: item.progressTotal,
+        progressUnit: item.progressUnit,
+        platform: item.platform,
+        updatedAt: item.updatedAt,
+        totalRegularEpisodes: episodes.length,
+        nextEpisode: next
+          ? { id: next.id, name: next.name, seasonNumber: next.seasonNumber, episodeNumber: next.episodeNumber, airDate: next.airDate }
+          : null,
+      };
+    });
+  }
+
   async removeUserMedia(userId: string, mediaId: string) {
     this.userMedia.delete(this.userMediaKey(userId, mediaId));
   }
@@ -131,6 +189,19 @@ export class MemoryMediaRepository implements MediaRepository {
   async upsertEpisodeActivity(record: EpisodeActivityRecord) {
     this.episodeActivities.set(this.activityKey(record.userId, record.episodeId), record);
     return record;
+  }
+
+  async updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, now: string) {
+    const key = this.userMediaKey(userId, mediaId);
+    const existing = this.userMedia.get(key);
+    if (!existing) return null;
+    const updated = { ...existing, progressValue: value, progressTotal: total, progressUnit: unit, platform, updatedAt: now };
+    this.userMedia.set(key, updated);
+    return updated;
+  }
+
+  async upsertEpisodeActivities(records: EpisodeActivityRecord[]) {
+    for (const record of records) this.episodeActivities.set(this.activityKey(record.userId, record.episodeId), record);
   }
 
   async findEpisodeActivity(userId: string, episodeId: string) {

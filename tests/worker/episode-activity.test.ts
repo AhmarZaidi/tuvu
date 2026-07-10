@@ -244,4 +244,21 @@ describe("episode activity API integration", () => {
     expect(body.data.progress.watched).toBe(1);
     expect(body.data.progress.percent).toBe(33);
   });
+
+  it("bulk-updates one season without assuming equal season sizes", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const { mediaId } = await seedShow(mediaRepo);
+    const now = new Date().toISOString();
+    await mediaRepo.createSeason({ id: "sea_s2", mediaId, seasonNumber: 2, name: "Season 2", overview: null, posterPath: null, episodeCount: 2, airDate: null, isSpecial: false, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s2e1", mediaId, seasonId: "sea_s2", seasonNumber: 2, episodeNumber: 1, name: "S2E1", overview: null, stillPath: null, airDate: null, runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s2e2", mediaId, seasonId: "sea_s2", seasonNumber: 2, episodeNumber: 2, name: "S2E2", overview: null, stillPath: null, airDate: null, runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${mediaId}`, { method: "POST", body: "{}", headers }, testEnv());
+    const response = await app.request(`/api/episodes/media/${mediaId}/seasons/1`, { method: "PATCH", body: JSON.stringify({ watched: true }), headers }, testEnv());
+    const body = await response.json() as { data: { progress: { watched: number; total: number } } };
+    expect(response.status).toBe(200);
+    expect(body.data.progress).toMatchObject({ watched: 3, total: 5 });
+  });
 });

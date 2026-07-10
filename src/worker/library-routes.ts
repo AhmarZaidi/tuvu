@@ -1,10 +1,12 @@
 import { Hono } from "hono";
+import { dashboardKindSchema, buildDashboardSections } from "@shared/dashboard";
 import {
   addToLibrarySchema,
   updateStatusSchema,
   updateRatingSchema,
   updateNotesSchema,
   updateFavoriteSchema,
+  updateMediaProgressSchema,
   markMovieWatchedSchema,
 } from "@shared/media";
 import { randomId } from "./crypto";
@@ -15,6 +17,26 @@ import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
 export function createLibraryRoutes() {
   const router = new Hono<{ Bindings: Env; Variables: AppVariables & { mediaRepository: MediaRepository } }>();
+
+  router.get("/dashboard/:kind", requireAuth(), async (c) => {
+    const kind = dashboardKindSchema.safeParse(c.req.param("kind"));
+    if (!kind.success) {
+      return apiError(c, 400, "validation_failed", "Unknown dashboard type.");
+    }
+
+    const requestedLimit = Number(c.req.query("limit") ?? 60);
+    const requestedOffset = Number(c.req.query("offset") ?? 0);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(100, Math.max(1, Math.trunc(requestedLimit))) : 60;
+    const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.trunc(requestedOffset)) : 0;
+    const entries = await c.get("mediaRepository").findDashboardEntries(c.get("auth").user.id, kind.data, limit, offset);
+
+    return c.json(apiSuccess({
+      kind: kind.data,
+      entries,
+      sections: buildDashboardSections(kind.data, entries),
+      page: { limit, offset, hasMore: entries.length === limit },
+    }));
+  });
 
   // GET /api/library — user's library with optional filters
   router.get("/", requireAuth(), async (c) => {
@@ -76,6 +98,10 @@ export function createLibraryRoutes() {
       watchedAt: null,
       rewatchCount: 0,
       progressEpisodes: 0,
+      progressValue: null,
+      progressTotal: null,
+      progressUnit: null,
+      platform: null,
       visibility: "private",
       createdAt: now,
       updatedAt: now,
@@ -259,6 +285,17 @@ export function createLibraryRoutes() {
       updatedAt: now,
     });
 
+    return c.json(apiSuccess({ userMedia: updated }));
+  });
+
+  router.patch("/:mediaId/progress", requireAuth(), requireCsrf(), async (c) => {
+    const body = updateMediaProgressSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return apiError(c, 400, "validation_failed", "Progress update is invalid.", body.error.flatten());
+    const repo = c.get("mediaRepository");
+    const auth = c.get("auth");
+    const mediaId = c.req.param("mediaId");
+    if (!(await repo.findUserMedia(auth.user.id, mediaId))) return apiError(c, 404, "not_found", "This item is not in your library.");
+    const updated = await repo.updateUserMediaDetailProgress(auth.user.id, mediaId, body.data.value, body.data.total ?? null, body.data.unit ?? null, body.data.platform ?? null, new Date().toISOString());
     return c.json(apiSuccess({ userMedia: updated }));
   });
 

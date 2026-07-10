@@ -166,6 +166,52 @@ describe("library API integration", () => {
     expect(body.data.library[0]!.media.type).toBe("show");
   });
 
+  it("returns bounded dashboard sections for the requested media kind", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const show = createPlaceholderMedia(mediaRepo, { type: "show", title: "Dashboard Show" });
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${show.id}`, { method: "POST", body: JSON.stringify({ status: "watch_later" }), headers }, testEnv());
+
+    const response = await app.request("/api/library/dashboard/shows?limit=10", { headers: { cookie } }, testEnv());
+    const body = await response.json() as { data: { entries: unknown[]; sections: Array<{ id: string; entries: unknown[] }>; page: { limit: number } } };
+    expect(response.status).toBe(200);
+    expect(body.data.page.limit).toBe(10);
+    expect(body.data.entries).toHaveLength(1);
+    expect(body.data.sections.find((section) => section.id === "watch-later")?.entries).toHaveLength(1);
+  });
+
+  it("stores book and game progress without requiring a provider record", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const book = createPlaceholderMedia(mediaRepo, { type: "book" });
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${book.id}`, { method: "POST", body: "{}", headers }, testEnv());
+    const response = await app.request(`/api/library/${book.id}/progress`, { method: "PATCH", body: JSON.stringify({ value: 120, total: 300, unit: "page" }), headers }, testEnv());
+    const body = await response.json() as { data: { userMedia: { progressValue: number; progressTotal: number; progressUnit: string } } };
+    expect(response.status).toBe(200);
+    expect(body.data.userMedia).toMatchObject({ progressValue: 120, progressTotal: 300, progressUnit: "page" });
+  });
+
+  it("creates and tracks an optional book chapter with a dedicated detail response", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const book = createPlaceholderMedia(mediaRepo, { type: "book", title: "Chapter Book" });
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${book.id}`, { method: "POST", body: "{}", headers }, testEnv());
+    const create = await app.request(`/api/media/${book.id}/units`, { method: "POST", body: JSON.stringify({ kind: "chapter", position: 1, title: "Opening" }), headers }, testEnv());
+    const created = await create.json() as { data: { unit: { id: string } } };
+    expect(create.status).toBe(201);
+    const update = await app.request(`/api/units/${created.data.unit.id}/activity`, { method: "PATCH", body: JSON.stringify({ completed: true, rating: 9 }), headers }, testEnv());
+    expect(update.status).toBe(200);
+    const detail = await app.request(`/api/units/${created.data.unit.id}`, { headers: { cookie } }, testEnv());
+    const body = await detail.json() as { data: { activity: { completed: boolean; rating: number } } };
+    expect(body.data.activity).toMatchObject({ completed: true, rating: 9 });
+  });
+
   it("updates status within allowed values", async () => {
     const authRepo = new MemoryAuthRepository();
     const mediaRepo = new MemoryMediaRepository();

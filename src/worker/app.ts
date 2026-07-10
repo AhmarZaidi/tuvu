@@ -5,6 +5,7 @@ import { apiError } from "./http";
 import { createEpisodeRoutes } from "./episode-routes";
 import { createLibraryRoutes } from "./library-routes";
 import { createMediaRoutes } from "./media-routes";
+import { createUnitRoutes } from "./unit-routes";
 import { createProfileRoutes } from "./profile-routes";
 import type { ProfileRouteDependencies } from "./profile-routes";
 import type { AuthRepository } from "./repository";
@@ -63,6 +64,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/api/media", createMediaRoutes());
   app.route("/api/library", createLibraryRoutes());
   app.route("/api/episodes", createEpisodeRoutes());
+  app.route("/api/units", createUnitRoutes());
 
   app.onError((error, c) => {
     console.error(error);

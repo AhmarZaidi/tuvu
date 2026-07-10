@@ -31,10 +31,12 @@ export const createMediaSchema = z.object({
   overview: z.string().max(2000).optional(),
   posterPath: z.string().max(500).optional(),
   backdropPath: z.string().max(500).optional(),
+  airStatus: z.enum(["ended", "continuing", "upcoming", "released", "cancelled"]).optional(),
   year: z.number().int().min(1888).max(2100).optional(),
   releaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "releaseDate must be YYYY-MM-DD.").optional(),
   runtimeMinutes: z.number().int().positive().optional(),
   language: z.string().max(10).optional(),
+  country: z.string().max(10).optional(),
   source: z.enum(["manual", "tmdb", "rawg", "openlibrary", "tvdb"]).default("manual"),
   sourceId: z.string().max(200).optional(),
 });
@@ -78,6 +80,32 @@ export const updateNotesSchema = z.object({
   notes: z.string().max(5000).nullable(),
 });
 
+export const mediaUnitKindSchema = z.enum(["part", "chapter", "act", "mission", "quest"]);
+export const createMediaUnitSchema = z.object({
+  parentId: z.string().max(100).nullable().optional(),
+  kind: mediaUnitKindSchema,
+  position: z.number().int().min(1),
+  title: z.string().trim().max(300).optional(),
+  overview: z.string().max(2000).optional(),
+  imagePath: z.string().max(500).optional(),
+  releaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  externalId: z.string().max(200).optional(),
+});
+
+export const updateUnitActivitySchema = z.object({
+  completed: z.boolean().optional(),
+  completedAt: z.string().datetime().nullable().optional(),
+  rating: z.number().int().min(1).max(10).nullable().optional(),
+  notes: z.string().max(5000).nullable().optional(),
+});
+
+export const updateMediaProgressSchema = z.object({
+  value: z.number().nonnegative().nullable(),
+  total: z.number().positive().nullable().optional(),
+  unit: z.enum(["page", "percent", "hour", "chapter", "mission"]).nullable().optional(),
+  platform: z.string().trim().max(100).nullable().optional(),
+}).refine((data) => data.value === null || data.total == null || data.value <= data.total, { message: "Progress cannot exceed the total." });
+
 export const updateFavoriteSchema = z.object({
   isFavorite: z.boolean(),
 });
@@ -91,6 +119,18 @@ export const markMovieWatchedSchema = z.object({
 // ─────────────────────────────────────────────────────────────
 export const markEpisodeWatchedSchema = z.object({
   watchedAt: z.string().datetime().optional(),
+});
+
+export const bulkSeasonWatchedSchema = z.object({
+  watched: z.boolean(),
+  watchedAt: z.string().datetime().optional(),
+});
+
+export const updateEpisodeActivitySchema = z.object({
+  watched: z.boolean().optional(),
+  watchedAt: z.string().datetime().nullable().optional(),
+  rating: z.number().int().min(1).max(10).nullable().optional(),
+  notes: z.string().max(5000).nullable().optional(),
 });
 
 // ─────────────────────────────────────────────────────────────

@@ -10,17 +10,18 @@ afterEach(() => {
 function mockSignedInUser() {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          data: {
-            user: {
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const data = url.includes("/api/library/dashboard/") ? {
+        entries: [], sections: [{ id: "all", label: "All Shows", entries: [] }], page: { limit: 100, offset: 0, hasMore: false },
+      } : {
+        user: {
               id: "usr_test",
               email: null,
               username: "test_user",
               displayName: "Test User",
-            },
-            profile: {
+        },
+        profile: {
               bio: "",
               visibility: "private",
               preferredLanguage: "en",
@@ -29,13 +30,14 @@ function mockSignedInUser() {
               bannerUploadId: null,
               avatarUrl: null,
               bannerUrl: null,
-            },
-            csrfToken: "csrf",
-          },
-        }),
+        },
+        csrfToken: "csrf",
+      };
+      return new Response(
+        JSON.stringify({ data }),
         { headers: { "content-type": "application/json" } },
-      ),
-    ),
+      );
+    }),
   );
 }
 
@@ -60,7 +62,8 @@ describe("Phase 1 app shell", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Watch next" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Shows" })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /All Shows/ })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Books" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: "Profile" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("search")).toBeInTheDocument();

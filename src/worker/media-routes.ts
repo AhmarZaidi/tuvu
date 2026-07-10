@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createMediaSchema, createSeasonSchema, createEpisodeSchema } from "@shared/media";
+import { createMediaSchema, createSeasonSchema, createEpisodeSchema, createMediaUnitSchema } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import type { MediaRepository } from "./media-repository";
@@ -13,7 +13,7 @@ export function createMediaRoutes() {
   const router = new Hono<{ Bindings: Env; Variables: AppVariables & { mediaRepository: MediaRepository } }>();
 
   // POST /api/media — create a placeholder media item
-  router.post("/", requireAuth(), async (c) => {
+  router.post("/", requireAuth(), requireCsrf(), async (c) => {
     const body = createMediaSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) {
       return apiError(c, 400, "validation_failed", "Media creation request is invalid.", body.error.flatten());
@@ -28,12 +28,12 @@ export function createMediaRoutes() {
       overview: body.data.overview ?? null,
       posterPath: body.data.posterPath ?? null,
       backdropPath: body.data.backdropPath ?? null,
-      airStatus: null,
+      airStatus: body.data.airStatus ?? null,
       runtimeMinutes: body.data.runtimeMinutes ?? null,
       releaseDate: body.data.releaseDate ?? null,
       year: body.data.year ?? null,
       language: body.data.language ?? null,
-      country: null,
+      country: body.data.country ?? null,
       source: body.data.source,
       sourceId: body.data.sourceId ?? null,
       totalEpisodes: null,
@@ -73,7 +73,7 @@ export function createMediaRoutes() {
   });
 
   // POST /api/media/:id/seasons — add a season
-  router.post("/:id/seasons", requireAuth(), async (c) => {
+  router.post("/:id/seasons", requireAuth(), requireCsrf(), async (c) => {
     const body = createSeasonSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) {
       return apiError(c, 400, "validation_failed", "Season data is invalid.", body.error.flatten());
@@ -130,7 +130,7 @@ export function createMediaRoutes() {
   });
 
   // POST /api/media/:id/episodes — add an episode
-  router.post("/:id/episodes", requireAuth(), async (c) => {
+  router.post("/:id/episodes", requireAuth(), requireCsrf(), async (c) => {
     const body = createEpisodeSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) {
       return apiError(c, 400, "validation_failed", "Episode data is invalid.", body.error.flatten());
@@ -166,6 +166,31 @@ export function createMediaRoutes() {
 
     await mediaRepo.createEpisode(episode);
     return c.json(apiSuccess({ episode }), 201);
+  });
+
+  router.get("/:id/units", requireAuth(), async (c) => {
+    const repo = c.get("mediaRepository");
+    const media = await repo.findMediaById(c.req.param("id"));
+    if (!media) return apiError(c, 404, "not_found", "Media item not found.");
+    const [units, activities] = await Promise.all([repo.findMediaUnits(media.id), repo.findUnitActivitiesForMedia(c.get("auth").user.id, media.id)]);
+    const activityMap = new Map(activities.map((activity) => [activity.unitId, activity]));
+    return c.json(apiSuccess({ units: units.map((unit) => ({ ...unit, activity: activityMap.get(unit.id) ?? null })) }));
+  });
+
+  router.post("/:id/units", requireAuth(), requireCsrf(), async (c) => {
+    const body = createMediaUnitSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return apiError(c, 400, "validation_failed", "Unit data is invalid.", body.error.flatten());
+    const repo = c.get("mediaRepository");
+    const media = await repo.findMediaById(c.req.param("id"));
+    if (!media || !["book", "game"].includes(media.type)) return apiError(c, 400, "bad_request", "Units are available for books and games.");
+    if (body.data.parentId) {
+      const parent = await repo.findMediaUnitById(body.data.parentId);
+      if (!parent || parent.mediaId !== media.id) return apiError(c, 400, "validation_failed", "Parent unit was not found in this media item.");
+    }
+    const now = new Date().toISOString();
+    const unit = { id: randomId("unt"), mediaId: media.id, parentId: body.data.parentId ?? null, kind: body.data.kind, position: body.data.position, title: body.data.title ?? null, overview: body.data.overview ?? null, imagePath: body.data.imagePath ?? null, releaseDate: body.data.releaseDate ?? null, externalId: body.data.externalId ?? null, createdAt: now, updatedAt: now };
+    await repo.createMediaUnit(unit);
+    return c.json(apiSuccess({ unit }), 201);
   });
 
   // POST /api/media/:id/cover — upload cover image

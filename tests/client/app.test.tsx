@@ -65,7 +65,8 @@ describe("Phase 1 app shell", () => {
     expect(await screen.findByRole("heading", { name: "Shows" })).toBeInTheDocument();
     expect(await screen.findByRole("tab", { name: /All Shows/ })).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Books" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("link", { name: "Profile" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: "Explore" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Open profile" })).toBeInTheDocument();
     expect(screen.getByRole("search")).toBeInTheDocument();
   });
 });

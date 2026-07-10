@@ -124,11 +124,13 @@ export const markEpisodeWatchedSchema = z.object({
 export const bulkSeasonWatchedSchema = z.object({
   watched: z.boolean(),
   watchedAt: z.string().datetime().optional(),
+  mode: z.enum(["not_watched", "watched_once", "rewatched"]).optional(),
 });
 
 export const updateEpisodeActivitySchema = z.object({
   watched: z.boolean().optional(),
   watchedAt: z.string().datetime().nullable().optional(),
+  rewatchCount: z.number().int().nonnegative().optional(),
   rating: z.number().int().min(1).max(10).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
 });

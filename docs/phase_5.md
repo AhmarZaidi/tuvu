@@ -11,6 +11,7 @@ This file is the resumable source of truth for TV Time import work. Update it as
 - [x] Resolve existing canonical media by external IDs before creating placeholders.
 - [x] Keep rollback auditable by recording every canonical row created by an import job.
 - [x] Treat retrying chunk upload and commit as idempotent.
+- [x] Keep Explore as a primary shell page; Profile owns Notifications, Messages, Settings, and Import.
 
 ## Data and API
 
@@ -28,6 +29,13 @@ This file is the resumable source of truth for TV Time import work. Update it as
 - [x] Show detected files, counts, validation mismatches, and warnings before commit.
 - [x] Upload normalized items in bounded chunks.
 - [x] Show commit/rollback status after import.
+- [x] Keep dashboard section counts stable after logout/login by deriving section tabs from dashboard sections instead of raw status keys.
+- [x] Add sub-page back button and directional slide animation.
+- [x] Keep mobile bottom sheets above the bottom navigation.
+- [x] Portal modals/bottom sheets to `document.body` so import/media subpages anchor overlays to the viewport.
+- [x] Replace season and episode text actions with checkmark controls and a watch-state bottom sheet.
+- [x] Add polished placeholder sections for streaming availability, show info, cast, related media, external ratings, and comments.
+- [x] Add richer episode detail placeholders for cast, credits, ratings, and comments.
 
 ## Tests and Verification
 

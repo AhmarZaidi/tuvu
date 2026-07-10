@@ -24,7 +24,7 @@ The first production version should cover all basic functionality well. Advanced
 
 TV Time is a TV/movie tracker and social network. The core app structure is:
 
-- Bottom tabs: Shows, Movies, Discover, Profile.
+- Bottom tabs: Shows, Movies, Explore, Books, Games, with Profile opened from the top-right avatar button.
 - Show watchlist with poster or thumbnail views, progress bars, "watch next", "haven't watched for a while", watch history, and watched episode actions.
 - Show pages with episode lists, watched state, ratings, feelings/reactions, favorite character voting, and community comments.
 - Spoiler protection: episode/movie comments are hidden until the user marks that item watched.
@@ -122,13 +122,14 @@ Use free/public APIs carefully and cache responses.
 ### Navigation and Layout
 
 - Mobile-first app shell with bottom tabs:
+  - Shows
+  - Movies
+  - Explore
   - Books
   - Games
-  - Movies
-  - Shows
-  - Profile
 - Desktop layout should use a left rail or top navigation while preserving the same core routes.
-- Profile is the mobile hub for secondary app areas such as Explore, Messages, Settings, and TV Time import so no feature is desktop-only.
+- Profile is opened from the top-right circular avatar/logo button. Messages, Settings, Notifications, and TV Time import remain profile tools so no feature is desktop-only.
+- Dialogs and mobile bottom sheets must be portaled to `document.body` so they are anchored to the current viewport on animated subpages, not to the scrolled page content.
 - Anime should be accessible through Explore and shared library filters in v1.
 - Use the provided `app-icon.png` as the initial app icon and favicon source.
 - UI should feel close to TV Time: poster grids, progress bars, compact cards, clear status chips, dark-friendly theme, quick mark-watched actions.
@@ -632,7 +633,7 @@ Implementation details:
   - `/games`
   - `/shows`
   - `/movies`
-  - `/profile/explore`
+  - `/explore`
   - `/profile/:username?`
   - `/media/:type/:id`
   - `/lists/:id`
@@ -641,9 +642,9 @@ Implementation details:
   - `/profile/import/tv-time`
 - Implement logged-out auth screen.
 - Implement logged-in app shell.
-- Add bottom mobile navigation for Books, Games, Movies, Shows, and Profile.
+- Add bottom mobile navigation for Shows, Movies, Explore, Books, and Games.
 - Add desktop navigation.
-- Add Profile entry points for Explore, Messages, Settings, and Import on mobile.
+- Add a top-right Profile avatar button with a placeholder notification dot; Profile contains entry points for Notifications, Messages, Settings, and Import.
 - Add media card, poster grid, progress bar, status chip, empty state, skeleton, modal, toast, tabs, segmented controls, and icon button components.
 - Add dark/light/system theme support if cheap; otherwise ship a polished dark-first theme with later theme toggle.
 - Add app icon and favicon from `app-icon.png`.
@@ -870,7 +871,7 @@ Testing gate:
   - 1,050 movies
   - 658 watched movies
 - Import integration test verifies idempotent chunk retry.
-- Rollback test removes only records created by that import job.
+- Rollback test removes only records created by that  mport job.
 - UI test completes dry-run and review flow.
 
 Acceptance gate:

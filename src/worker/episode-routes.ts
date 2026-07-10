@@ -34,7 +34,7 @@ export function createEpisodeRoutes() {
     const activity = await mediaRepo.upsertEpisodeActivity({
       id: existing?.id ?? randomId("epa"), userId: auth.user.id, episodeId: episode.id, mediaId: episode.mediaId,
       watched, watchedAt: watched ? (watchedAt ?? now) : null,
-      rewatchCount: existing?.rewatchCount ?? 0,
+      rewatchCount: body.data.rewatchCount !== undefined ? body.data.rewatchCount : existing?.rewatchCount ?? 0,
       rating: body.data.rating !== undefined ? body.data.rating : existing?.rating ?? null,
       notes: body.data.notes !== undefined ? body.data.notes : existing?.notes ?? null,
       createdAt: existing?.createdAt ?? now, updatedAt: now,
@@ -69,12 +69,19 @@ export function createEpisodeRoutes() {
     const existingMap = new Map(existing.map((activity) => [activity.episodeId, activity]));
     const now = new Date().toISOString();
     const watchedAt = body.data.watchedAt ?? now;
+    const mode = body.data.mode ?? (body.data.watched ? "watched_once" : "not_watched");
     await mediaRepo.upsertEpisodeActivities(episodes.map((episode) => {
       const previous = existingMap.get(episode.id);
+      const wasWatched = previous?.watched === true;
+      const rewatchCount = mode === "rewatched"
+        ? (wasWatched ? previous?.rewatchCount ?? 0 : 0) + 1
+        : mode === "watched_once"
+          ? 0
+          : previous?.rewatchCount ?? 0;
       return {
         id: previous?.id ?? randomId("epa"), userId: auth.user.id, episodeId: episode.id, mediaId,
         watched: body.data.watched, watchedAt: body.data.watched ? watchedAt : null,
-        rewatchCount: previous?.rewatchCount ?? 0, createdAt: previous?.createdAt ?? now, updatedAt: now,
+        rewatchCount, createdAt: previous?.createdAt ?? now, updatedAt: now,
         rating: previous?.rating ?? null, notes: previous?.notes ?? null,
       };
     }));

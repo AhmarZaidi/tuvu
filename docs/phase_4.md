@@ -12,6 +12,7 @@ This file is the resumable source of truth for Phase 4 work. Update each item as
 - [x] Render provider-only detail sections conditionally; do not fabricate data before Phase 6 hydration.
 - [x] Books and games can have Upcoming dashboard sections based on future release dates.
 - [x] Media detail artwork is responsive: mobile uses a top backdrop banner plus poster fade, desktop uses backdrop fade plus a fixed poster column.
+- [x] Primary navigation is Shows, Movies, Explore, Books, Games; Profile is opened from the top-right avatar/logo button.
 
 ## Data and API
 
@@ -39,6 +40,7 @@ This file is the resumable source of truth for Phase 4 work. Update each item as
 - [x] Color watched/completed episode and unit toggle buttons clearly.
 - [x] Add collapsible season/unit groups and dedicated episode/unit routes.
 - [x] Use mobile bottom sheets and centered desktop dialogs for editing controls.
+- [x] Portal dialogs and bottom sheets to `document.body` so subpage transitions do not offset them below the viewport.
 
 ## Tests and Verification
 

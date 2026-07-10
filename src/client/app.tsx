@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   BarChart3,
   Bell,
   BookOpen,
@@ -34,7 +35,8 @@ import {
 } from "lucide-react";
 import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type { DashboardEntry, DashboardKind, DashboardSection } from "@shared/dashboard";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
@@ -139,6 +141,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         }
 
         if (res.data?.done) {
+          if (me) clearDashboardCaches(me.user.id);
           setActiveJob(null);
           setImportProgress(null);
         } else {
@@ -176,6 +179,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         }
 
         if (res.data?.done) {
+          if (me) clearDashboardCaches(me.user.id);
           setActiveJob(null);
           setImportProgress(null);
         } else {
@@ -319,15 +323,14 @@ const mediaItems: MediaCardItem[] = [
 ];
 
 const navItems = [
+  { to: "/shows", label: "Shows", icon: Tv },
+  { to: "/movies", label: "Movies", icon: Film },
+  { to: "/explore", label: "Explore", icon: Compass },
   { to: "/books", label: "Books", icon: BookOpen },
   { to: "/games", label: "Games", icon: Gamepad2 },
-  { to: "/movies", label: "Movies", icon: Film },
-  { to: "/shows", label: "Shows", icon: Tv },
-  { to: "/profile", label: "Profile", icon: User },
 ] as const;
 
 const profileNav = [
-  { to: "/profile/explore", label: "Explore", icon: Compass },
   { to: "/profile/messages", label: "Messages", icon: Mail },
   { to: "/profile/settings", label: "Settings", icon: Settings },
   { to: "/profile/import/tv-time", label: "Import", icon: Upload },
@@ -345,6 +348,7 @@ export function App() {
   useEffect(() => {
     const stored = localStorage.getItem("tuvu-theme");
     document.documentElement.dataset.theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    document.documentElement.dataset.navDirection ||= "forward";
   }, []);
 
   return (
@@ -356,7 +360,8 @@ export function App() {
         <Route path="/games" element={<GamesPage />} />
         <Route path="/shows" element={<ShowsPage />} />
         <Route path="/movies" element={<MoviesPage />} />
-        <Route path="/profile/explore" element={<ExplorePage />} />
+        <Route path="/explore" element={<ExplorePage />} />
+        <Route path="/profile/explore" element={<Navigate to="/explore" replace />} />
         <Route path="/profile/messages" element={<MessagesPage />} />
         <Route path="/profile/settings" element={<SettingsPage />} />
         <Route path="/profile/import/tv-time" element={<ImportPage />} />
@@ -364,6 +369,7 @@ export function App() {
         <Route path="/media/:type/:id" element={<MediaDetailPage />} />
         <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
         <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
+        <Route path="/people/:id" element={<PersonPlaceholderPage />} />
         <Route path="/lists/:id" element={<ListPage />} />
       </Route>
     </Routes>
@@ -464,6 +470,7 @@ function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClo
         method: "POST",
         csrfToken: me.csrfToken,
       });
+      clearDashboardCaches(me.user.id);
 
       onClose();
       // Redirect to detail page
@@ -544,6 +551,7 @@ function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClo
 function AppShell() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [defaultType, setDefaultType] = useState<MediaType>("show");
+  const { me } = useAuth();
 
   const openCreateModal = (type: MediaType = "show") => {
     setDefaultType(type);
@@ -571,9 +579,7 @@ function AppShell() {
               <Search size={18} aria-hidden="true" />
               <input aria-label="Search media" placeholder="Search your library" />
             </div>
-            <IconButton label="Notifications">
-              <Bell size={18} />
-            </IconButton>
+            <ProfileTopButton me={me} hasNotification={false} />
           </header>
 
           <Outlet />
@@ -649,6 +655,15 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function ProfileTopButton({ me, hasNotification }: { me: MePayload; hasNotification: boolean }) {
+  return (
+    <NavLink className="profile-top-button" to="/profile" aria-label="Open profile">
+      <img src={me.profile.avatarUrl ?? "/app-icon.png"} alt="" />
+      <span className={hasNotification ? "notification-dot active" : "notification-dot"} aria-hidden="true" />
+    </NavLink>
+  );
+}
+
 function ShellNavLink({
   to,
   label,
@@ -674,8 +689,8 @@ function ShellNavLink({
     active = currentPath === "/shows" || 
              currentPath.startsWith("/media/show/") || 
              currentPath.startsWith("/media/anime/");
-  } else if (to === "/profile") {
-    active = currentPath.startsWith("/profile");
+  } else if (to === "/explore") {
+    active = currentPath === "/explore";
   } else {
     active = currentPath === to;
   }
@@ -1104,20 +1119,80 @@ type DashboardPayload = {
   sections: DashboardSection[];
   totalTracked?: number;
   statusCounts?: Record<string, number>;
+  sectionCounts?: Record<string, number>;
   page: { limit: number; offset: number; hasMore: boolean };
 };
+
+type DashboardCacheEntry = {
+  payload: DashboardPayload;
+  activeSection: string;
+  query: string;
+  sort: string;
+  view: "grid" | "compact";
+  scrollY: number;
+  savedAt: number;
+};
+
+const dashboardCache = new Map<string, DashboardCacheEntry>();
+const dashboardCacheTtlMs = 10 * 60_000;
+
+function dashboardCacheKey(userId: string, kind: DashboardKind) {
+  return `${userId}:${kind}`;
+}
+
+function readDashboardCache(userId: string, kind: DashboardKind) {
+  const key = dashboardCacheKey(userId, kind);
+  const memory = dashboardCache.get(key);
+  if (memory && Date.now() - memory.savedAt < dashboardCacheTtlMs) return memory;
+  try {
+    const raw = sessionStorage.getItem(`tuvu-dashboard:${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DashboardCacheEntry;
+    if (Date.now() - parsed.savedAt > dashboardCacheTtlMs) return null;
+    dashboardCache.set(key, parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeDashboardCache(userId: string, kind: DashboardKind, entry: DashboardCacheEntry, persist = true) {
+  const key = dashboardCacheKey(userId, kind);
+  dashboardCache.set(key, entry);
+  if (!persist) return;
+  try {
+    sessionStorage.setItem(`tuvu-dashboard:${key}`, JSON.stringify(entry));
+  } catch {
+    // Memory cache still preserves smooth in-session navigation if storage quota is full.
+  }
+}
+
+function clearDashboardCaches(userId: string) {
+  (["shows", "movies", "books", "games"] as DashboardKind[]).forEach((kind) => {
+    const key = dashboardCacheKey(userId, kind);
+    dashboardCache.delete(key);
+    try {
+      sessionStorage.removeItem(`tuvu-dashboard:${key}`);
+    } catch {
+      // Ignore storage failures; memory cache is already cleared.
+    }
+  });
+}
 
 function DashboardPage({ kind, mediaType, title, description }: { kind: DashboardKind; mediaType: MediaType; title: string; description: string }) {
   const { me } = useAuth();
   const { openCreateModal } = useMediaCreation();
-  const [payload, setPayload] = useState<DashboardPayload | null>(null);
-  const [activeSection, setActiveSection] = useState("all");
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("updated");
-  const [view, setView] = useState<"grid" | "compact">("grid");
+  const initialCache = useMemo(() => readDashboardCache(me.user.id, kind), [me.user.id, kind]);
+  const [payload, setPayload] = useState<DashboardPayload | null>(() => initialCache?.payload ?? null);
+  const [activeSection, setActiveSection] = useState(() => initialCache?.activeSection ?? "all");
+  const [query, setQuery] = useState(() => initialCache?.query ?? "");
+  const [sort, setSort] = useState(() => initialCache?.sort ?? "updated");
+  const [view, setView] = useState<"grid" | "compact">(() => initialCache?.view ?? "grid");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const restoredScrollRef = useRef(false);
 
   const load = async (nextOffset = 0) => {
     if (loading) return;
@@ -1130,6 +1205,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
         sections: Array.isArray(next.sections) ? next.sections : [{ id: "all", label: `All ${title}`, entries: [] }],
         totalTracked: next.totalTracked,
         statusCounts: next.statusCounts,
+        sectionCounts: next.sectionCounts,
         page: next.page ?? { limit: 50, offset: nextOffset, hasMore: false },
       };
 
@@ -1162,6 +1238,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
           sections: mergedSections,
           totalTracked: normalized.totalTracked ?? prev.totalTracked,
           statusCounts: normalized.statusCounts ?? prev.statusCounts,
+          sectionCounts: normalized.sectionCounts ?? prev.sectionCounts,
           page: normalized.page,
         };
       });
@@ -1182,14 +1259,59 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
     await load(nextOffset);
   };
 
-  useEffect(() => { void load(0); }, [kind]);
+  useEffect(() => {
+    const cached = readDashboardCache(me.user.id, kind);
+    restoredScrollRef.current = false;
+    if (cached) {
+      setPayload(cached.payload);
+      setActiveSection(cached.activeSection);
+      setQuery(cached.query);
+      setSort(cached.sort);
+      setView(cached.view);
+      window.requestAnimationFrame(() => {
+        window.scrollTo(0, cached.scrollY);
+        restoredScrollRef.current = true;
+      });
+      return;
+    }
+    setPayload(null);
+    setActiveSection("all");
+    setQuery("");
+    setSort("updated");
+    setView("grid");
+    void load(0);
+  }, [me.user.id, kind]);
+
+  useEffect(() => {
+    if (!payload) return;
+    const entry = { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() };
+    writeDashboardCache(me.user.id, kind, entry);
+  }, [me.user.id, kind, payload, activeSection, query, sort, view]);
+
+  useEffect(() => {
+    const saveScroll = () => {
+      if (!payload) return;
+      writeDashboardCache(me.user.id, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, false);
+    };
+    const persistScroll = () => {
+      if (!payload) return;
+      writeDashboardCache(me.user.id, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, true);
+    };
+    window.addEventListener("scroll", saveScroll, { passive: true });
+    window.addEventListener("pagehide", persistScroll);
+    return () => {
+      persistScroll();
+      window.removeEventListener("scroll", saveScroll);
+      window.removeEventListener("pagehide", persistScroll);
+    };
+  }, [me.user.id, kind, payload, activeSection, query, sort, view]);
 
   // Set up intersection observer for infinite scroll
   useEffect(() => {
     if (!payload?.page.hasMore || loading) return;
 
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
+      if (entries[0]?.isIntersecting) {
         void loadMore();
       }
     }, { rootMargin: "250px" });
@@ -1222,6 +1344,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   const markNextWatched = async (episodeId: string) => {
     try {
       await apiJson(`/api/episodes/${episodeId}/watched`, { method: "POST", csrfToken: me.csrfToken, body: JSON.stringify({}) });
+      clearDashboardCaches(me.user.id);
       await load(0);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Episode could not be updated.");
@@ -1229,13 +1352,9 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   };
 
   const sectionTabs = (payload?.sections ?? []).map((candidate) => {
-    let count = candidate.entries.length;
-    if (payload?.statusCounts) {
-      if (candidate.id === "all") {
-        count = payload.totalTracked ?? count;
-      } else {
-        count = payload.statusCounts[candidate.id] ?? 0;
-      }
+    let count = payload?.sectionCounts?.[candidate.id] ?? candidate.entries.length;
+    if (candidate.id === "all" && payload?.totalTracked !== undefined) {
+      count = payload.totalTracked;
     }
     return {
       id: candidate.id,
@@ -1249,7 +1368,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
       {payload && <DashboardStats entries={payload.entries} kind={kind} totalTracked={payload.totalTracked} statusCounts={payload.statusCounts} />}
       <div className="dashboard-toolbar">
         <SortMenu value={sort} onChange={setSort} />
-        <div className="dashboard-search"><Search size={16} /><input aria-label={`Filter ${title}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Filter ${title.toLowerCase()}`} /></div>
+        <div className="dashboard-search"><Search size={16} /><input ref={searchInputRef} aria-label={`Filter ${title}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Filter ${title.toLowerCase()}`} />{query && <IconButton className="search-clear" label="Clear filter" onClick={() => { setQuery(""); searchInputRef.current?.blur(); }}><X size={14} /></IconButton>}</div>
         <div className="view-toggle" aria-label="View mode">
           <IconButton label="Poster grid" aria-pressed={view === "grid"} onClick={() => setView("grid")}><LayoutGrid size={17} /></IconButton>
           <IconButton label="Compact list" aria-pressed={view === "compact"} onClick={() => setView("compact")}><ListIcon size={17} /></IconButton>
@@ -1314,6 +1433,10 @@ function ProfilePage() {
         </div>
       </section>
       <section className="profile-actions" aria-label="Profile tools">
+        <button className="profile-action" type="button">
+          <Bell size={20} aria-hidden="true" />
+          <span>Notifications</span>
+        </button>
         {profileNav.map(({ to, label, icon: Icon }) => (
           <NavLink className="profile-action" key={to} to={to}>
             <Icon size={20} aria-hidden="true" />
@@ -1401,19 +1524,55 @@ type TrackableUnit = {
   activity: { id: string; completed: boolean; completedAt: string | null; rating: number | null; notes: string | null } | null;
 };
 
+type MediaDetailCacheEntry = {
+  detail: MediaDetailData;
+  episodes: EpisodeWithActivity[];
+  units: TrackableUnit[];
+  notesText: string;
+  collapsedSeasons: number[];
+  scrollY: number;
+  savedAt: number;
+};
+
+const mediaDetailCache = new Map<string, MediaDetailCacheEntry>();
+const mediaDetailCacheTtlMs = 10 * 60_000;
+
+function mediaDetailCacheKey(userId: string, mediaId: string) {
+  return `${userId}:${mediaId}`;
+}
+
+function readMediaDetailCache(userId: string, mediaId?: string) {
+  if (!mediaId) return null;
+  const key = mediaDetailCacheKey(userId, mediaId);
+  const cached = mediaDetailCache.get(key);
+  if (cached && Date.now() - cached.savedAt < mediaDetailCacheTtlMs) return cached;
+  return null;
+}
+
+function writeMediaDetailCache(userId: string, mediaId: string, entry: MediaDetailCacheEntry) {
+  mediaDetailCache.set(mediaDetailCacheKey(userId, mediaId), entry);
+}
+
+function clearMediaDetailCache(userId: string, mediaId?: string) {
+  if (!mediaId) return;
+  mediaDetailCache.delete(mediaDetailCacheKey(userId, mediaId));
+}
+
 function MediaDetailPage() {
   const { type, id } = useParams();
   const { me } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const initialCache = useMemo(() => readMediaDetailCache(me.user.id, id), [me.user.id, id]);
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState<string | null>(null);
-  const [detail, setDetail] = useState<MediaDetailData | null>(null);
-  const [episodes, setEpisodes] = useState<EpisodeWithActivity[]>([]);
-  const [units, setUnits] = useState<TrackableUnit[]>([]);
+  const [detail, setDetail] = useState<MediaDetailData | null>(() => initialCache?.detail ?? null);
+  const [episodes, setEpisodes] = useState<EpisodeWithActivity[]>(() => initialCache?.episodes ?? []);
+  const [units, setUnits] = useState<TrackableUnit[]>(() => initialCache?.units ?? []);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [notesText, setNotesText] = useState("");
+  const [notesText, setNotesText] = useState(initialCache?.notesText ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
-  const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(new Set());
+  const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(() => new Set(initialCache?.collapsedSeasons ?? []));
   const [mediaSettingsOpen, setMediaSettingsOpen] = useState(false);
+  const [episodeAction, setEpisodeAction] = useState<{ type: "episode"; episode: EpisodeWithActivity } | { type: "season"; seasonNumber: number; watchedCount: number; totalCount: number } | null>(null);
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -1433,6 +1592,7 @@ function MediaDetailPage() {
       if (mediaData.media.type === "show" || mediaData.media.type === "anime") {
         const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
         setEpisodes(epData.episodes);
+        setCollapsedSeasons(new Set(epData.episodes.map((episode) => episode.seasonNumber)));
         setUnits([]);
       } else if (mediaData.media.type === "book" || mediaData.media.type === "game") {
         const unitData = await apiJson<{ units: TrackableUnit[] }>(`/api/media/${id}/units`);
@@ -1452,9 +1612,55 @@ function MediaDetailPage() {
 
   useEffect(() => {
     if (id) {
-      loadData();
+      const cached = readMediaDetailCache(me.user.id, id);
+      if (cached) {
+        setDetail(cached.detail);
+        setEpisodes(cached.episodes);
+        setUnits(cached.units);
+        setNotesText(cached.notesText);
+        setCollapsedSeasons(new Set(cached.collapsedSeasons));
+        setLoading(false);
+        window.requestAnimationFrame(() => window.scrollTo(0, cached.scrollY));
+      } else {
+        void loadData();
+      }
     }
-  }, [id]);
+  }, [me.user.id, id]);
+
+  useEffect(() => {
+    if (!id || !detail) return;
+    writeMediaDetailCache(me.user.id, id, {
+      detail,
+      episodes,
+      units,
+      notesText,
+      collapsedSeasons: [...collapsedSeasons],
+      scrollY: window.scrollY,
+      savedAt: Date.now(),
+    });
+  }, [me.user.id, id, detail, episodes, units, notesText, collapsedSeasons]);
+
+  useEffect(() => {
+    const saveScroll = () => {
+      if (!id || !detail) return;
+      writeMediaDetailCache(me.user.id, id, {
+        detail,
+        episodes,
+        units,
+        notesText,
+        collapsedSeasons: [...collapsedSeasons],
+        scrollY: window.scrollY,
+        savedAt: Date.now(),
+      });
+    };
+    window.addEventListener("scroll", saveScroll, { passive: true });
+    window.addEventListener("pagehide", saveScroll);
+    return () => {
+      saveScroll();
+      window.removeEventListener("scroll", saveScroll);
+      window.removeEventListener("pagehide", saveScroll);
+    };
+  }, [me.user.id, id, detail, episodes, units, notesText, collapsedSeasons]);
 
   const addToLibrary = async (status?: string) => {
     if (!id || !detail) return;
@@ -1466,6 +1672,7 @@ function MediaDetailPage() {
       });
       setDetail({ ...detail, userMedia: result.userMedia });
       setNotesText(result.userMedia?.notes ?? "");
+      clearDashboardCaches(me.user.id);
       triggerToast("Added to library.");
       if (detail.media.type === "show" || detail.media.type === "anime") {
         const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
@@ -1486,6 +1693,8 @@ function MediaDetailPage() {
       });
       setDetail({ ...detail, userMedia: null });
       setEpisodes(episodes.map(ep => ({ ...ep, activity: null })));
+      clearDashboardCaches(me.user.id);
+      clearMediaDetailCache(me.user.id, id);
       triggerToast("Removed from library.");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to remove.");
@@ -1501,6 +1710,7 @@ function MediaDetailPage() {
         body: JSON.stringify({ status }),
       });
       setDetail({ ...detail, userMedia: result.userMedia });
+      clearDashboardCaches(me.user.id);
       triggerToast(`Status: ${status.replace("_", " ")}`);
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to update status.");
@@ -1517,6 +1727,7 @@ function MediaDetailPage() {
         body: JSON.stringify({ isFavorite: nextFavorite }),
       });
       setDetail({ ...detail, userMedia: result.userMedia });
+      clearDashboardCaches(me.user.id);
       triggerToast(nextFavorite ? "Favorite added" : "Favorite removed");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to favorite.");
@@ -1565,6 +1776,7 @@ function MediaDetailPage() {
         csrfToken: me.csrfToken,
       });
       setDetail({ ...detail, userMedia: result.userMedia });
+      clearDashboardCaches(me.user.id);
       triggerToast("Watched movie!");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to watch.");
@@ -1583,6 +1795,7 @@ function MediaDetailPage() {
         csrfToken: me.csrfToken,
       });
       setEpisodes(episodes.map(ep => ep.id === episodeId ? { ...ep, activity: result.activity } : ep));
+      clearDashboardCaches(me.user.id);
       if (detail.userMedia) {
         setDetail({
           ...detail,
@@ -1606,9 +1819,55 @@ function MediaDetailPage() {
       await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ watched }) });
       const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
       setEpisodes(refreshed.episodes);
+      clearDashboardCaches(me.user.id);
       triggerToast(watched ? `Season ${seasonNumber} watched` : `Season ${seasonNumber} reset`);
     } catch (reason) {
       triggerToast(reason instanceof Error ? reason.message : "Season could not be updated.");
+    }
+  };
+
+  const applySeasonAction = async (seasonNumber: number, action: "not_watched" | "watched_once" | "rewatched") => {
+    if (!id) return;
+    try {
+      if (action === "rewatched") {
+        const seasonEpisodes = episodes.filter((episode) => episode.seasonNumber === seasonNumber);
+        for (const episode of seasonEpisodes) {
+          await apiJson(`/api/episodes/${episode.id}/watched`, { method: "POST", csrfToken: me.csrfToken, body: JSON.stringify({}) });
+        }
+      } else {
+        await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, {
+          method: "PATCH",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ watched: action !== "not_watched", mode: action }),
+        });
+      }
+      const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
+      setEpisodes(refreshed.episodes);
+      setEpisodeAction(null);
+      clearDashboardCaches(me.user.id);
+      triggerToast(action === "not_watched" ? `Season ${seasonNumber} reset` : action === "rewatched" ? `Season ${seasonNumber} rewatched` : `Season ${seasonNumber} watched`);
+    } catch (reason) {
+      triggerToast(reason instanceof Error ? reason.message : "Season could not be updated.");
+    }
+  };
+
+  const applyEpisodeAction = async (episode: EpisodeWithActivity, action: "not_watched" | "watched_once" | "rewatched") => {
+    try {
+      if (action === "not_watched") {
+        await toggleEpisodeWatched(episode.id, true);
+      } else if (action === "rewatched") {
+        await apiJson(`/api/episodes/${episode.id}/watched`, { method: "POST", csrfToken: me.csrfToken, body: JSON.stringify({}) });
+        const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
+        setEpisodes(refreshed.episodes);
+      } else {
+        await apiJson(`/api/episodes/${episode.id}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ watched: true, rewatchCount: 0 }) });
+        const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
+        setEpisodes(refreshed.episodes);
+      }
+      setEpisodeAction(null);
+      clearDashboardCaches(me.user.id);
+    } catch (reason) {
+      triggerToast(reason instanceof Error ? reason.message : "Episode could not be updated.");
     }
   };
 
@@ -1821,27 +2080,15 @@ function MediaDetailPage() {
               <ProgressBar value={progressPercent} label={`${progressPercent}% watched`} />
 
               {nextEp && (
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    background: "rgba(255,191,71,0.06)",
-                    border: "1px dashed rgba(255,191,71,0.25)",
-                    padding: "0.75rem 1rem",
-                    borderRadius: "0.5rem",
-                    marginTop: "0.25rem",
-                  }}
-                >
-                  <div>
-                    <p className="eyebrow" style={{ margin: 0, fontSize: "0.7rem" }}>Up next</p>
-                    <p style={{ margin: 0, fontWeight: "bold", fontSize: "0.95rem" }}>
-                      S{nextEp.seasonNumber} E{nextEp.episodeNumber} - {nextEp.name ?? "Untitled"}
-                    </p>
-                  </div>
-                  <button className="primary-button" onClick={() => toggleEpisodeWatched(nextEp.id, false)} style={{ minHeight: "2.2rem", padding: "0 0.75rem", fontSize: "0.8rem" }}>
-                    Watch
-                  </button>
+                <div className="up-next-card">
+                  <p className="eyebrow">Up next</p>
+                  <EpisodeTile
+                    episode={nextEp}
+                    media={media}
+                    watched={false}
+                    onToggle={() => void toggleEpisodeWatched(nextEp.id, false)}
+                    onOpenActions={() => setEpisodeAction({ type: "episode", episode: nextEp })}
+                  />
                 </div>
               )}
             </div>
@@ -1884,16 +2131,22 @@ function MediaDetailPage() {
             {episodeGroups.map((group) => {
               const collapsed = collapsedSeasons.has(group.seasonNumber);
               const watchedCount = group.episodes.filter((episode) => episode.activity?.watched).length;
-              return <section className="season-group" key={group.seasonNumber}>
+              const seasonProgress = group.episodes.length > 0 ? Math.round((watchedCount / group.episodes.length) * 100) : 0;
+              return <section className="season-group" key={group.seasonNumber} style={{ "--season-progress": `${seasonProgress}%` } as CSSProperties}>
                 <header className="season-header">
                   <button className="season-toggle" onClick={() => setCollapsedSeasons((current) => { const next = new Set(current); next.has(group.seasonNumber) ? next.delete(group.seasonNumber) : next.add(group.seasonNumber); return next; })}><ChevronDown className={collapsed ? "collapsed" : ""} size={18} /><span>{group.seasonNumber === 0 ? "Specials" : `Season ${group.seasonNumber}`}</span><small>{watchedCount}/{group.episodes.length}</small></button>
-                  <button className="text-button" onClick={() => void setSeasonWatched(group.seasonNumber, watchedCount !== group.episodes.length)}>{watchedCount === group.episodes.length ? "Reset" : "Mark all"}</button>
+                  <IconButton className={watchedCount === group.episodes.length ? "watched-toggle active" : "watched-toggle"} label={watchedCount === group.episodes.length ? "Season actions" : "Mark season watched"} onClick={() => watchedCount === group.episodes.length ? setEpisodeAction({ type: "season", seasonNumber: group.seasonNumber, watchedCount, totalCount: group.episodes.length }) : void setSeasonWatched(group.seasonNumber, true)}><Check size={17} /></IconButton>
                 </header>
                 {!collapsed && <div className="episode-list">{group.episodes.map((ep) => {
                   const watched = ep.activity?.watched ?? false;
                   return <article className={watched ? "episode-row watched" : "episode-row"} key={ep.id}>
-                    <NavLink to={`/media/${media.type}/${media.id}/episodes/${ep.id}`} className="episode-copy"><span>S{ep.seasonNumber} E{ep.episodeNumber}{ep.isSpecial ? " · Special" : ""}</span><strong>{ep.name ?? (ep.airDate && new Date(`${ep.airDate}T00:00:00`).getTime() > Date.now() ? "TBA" : `Episode ${ep.episodeNumber}`)}</strong><small>{ep.airDate ? new Date(`${ep.airDate}T00:00:00`).toLocaleDateString() : "Release date TBA"}</small></NavLink>
-                    <IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Mark unwatched" : "Mark watched"} onClick={() => void toggleEpisodeWatched(ep.id, watched)}><Check size={17} /></IconButton>
+                    <EpisodeTile
+                      episode={ep}
+                      media={media}
+                      watched={watched}
+                      onToggle={() => watched ? setEpisodeAction({ type: "episode", episode: ep }) : void toggleEpisodeWatched(ep.id, false)}
+                      onOpenActions={() => setEpisodeAction({ type: "episode", episode: ep })}
+                    />
                     <NavLink className="episode-open" aria-label={`Open ${ep.name ?? `episode ${ep.episodeNumber}`}`} to={`/media/${media.type}/${media.id}/episodes/${ep.id}`}><ChevronRight size={18} /></NavLink>
                   </article>;
                 })}</div>}
@@ -1904,6 +2157,8 @@ function MediaDetailPage() {
       )}
 
       {(media.type === "book" || media.type === "game") && units.length > 0 && <section className="episodes-section"><div className="section-heading"><div><p className="eyebrow">Progress guide</p><h2>{media.type === "book" ? "Chapters & Parts" : "Missions & Acts"}</h2></div><span>{units.filter((unit) => unit.activity?.completed).length} of {units.length} complete</span></div><div className="episode-list">{units.map((unit) => <article className={unit.activity?.completed ? "episode-row watched" : "episode-row"} key={unit.id}><NavLink className="episode-copy" to={`/media/${media.type}/${media.id}/units/${unit.id}`}><span>{unit.kind} {unit.position}</span><strong>{unit.title ?? `${unit.kind} ${unit.position}`}</strong><small>{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString() : "Optional tracking unit"}</small></NavLink><IconButton className={unit.activity?.completed ? "watched-toggle active" : "watched-toggle"} label={unit.activity?.completed ? "Mark incomplete" : "Mark complete"} onClick={async () => { await apiJson(`/api/units/${unit.id}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ completed: !unit.activity?.completed }) }); const refreshed = await apiJson<{ units: TrackableUnit[] }>(`/api/media/${media.id}/units`); setUnits(refreshed.units); }}><Check size={17} /></IconButton><NavLink className="episode-open" aria-label={`Open ${unit.title ?? unit.kind}`} to={`/media/${media.type}/${media.id}/units/${unit.id}`}><ChevronRight size={18} /></NavLink></article>)}</div></section>}
+
+      <MediaDetailPlaceholderSections media={media} />
 
       <Modal title="Media settings" open={mediaSettingsOpen} onClose={() => setMediaSettingsOpen(false)}>
         <div className="media-settings-sheet">
@@ -1919,9 +2174,71 @@ function MediaDetailPage() {
         </div>
       </Modal>
 
+      <Modal title={episodeAction?.type === "season" ? "Season watch state" : "Episode watch state"} open={Boolean(episodeAction)} onClose={() => setEpisodeAction(null)}>
+        {episodeAction && <div className="watch-action-sheet">
+          <button className="secondary-button" onClick={() => episodeAction.type === "season" ? void applySeasonAction(episodeAction.seasonNumber, "not_watched") : void applyEpisodeAction(episodeAction.episode, "not_watched")}>Not watched</button>
+          <button className="secondary-button" onClick={() => episodeAction.type === "season" ? void applySeasonAction(episodeAction.seasonNumber, "rewatched") : void applyEpisodeAction(episodeAction.episode, "rewatched")}>Rewatched</button>
+          <button className="primary-button" onClick={() => episodeAction.type === "season" ? void applySeasonAction(episodeAction.seasonNumber, "watched_once") : void applyEpisodeAction(episodeAction.episode, "watched_once")}>Watched once</button>
+        </div>}
+      </Modal>
+
       {toastMessage && <Toast message={toastMessage} />}
     </AppPage>
   );
+}
+
+function EpisodeTile({ episode, media, watched, onToggle }: { episode: EpisodeWithActivity; media: MediaDetailData["media"]; watched: boolean; onToggle: () => void; onOpenActions?: () => void }) {
+  const release = releaseStatus(episode.airDate);
+  const title = episode.name ?? (release.kind === "future" ? "TBA" : `Episode ${episode.episodeNumber}`);
+  return (
+    <div className="episode-tile">
+      <NavLink className="episode-thumb" to={`/media/${media.type}/${media.id}/episodes/${episode.id}`} style={episode.stillPath ? { backgroundImage: `url(${episode.stillPath})` } : undefined} aria-label={`Open ${title}`}>
+        {!episode.stillPath && <span>{media.title.slice(0, 2).toUpperCase()}</span>}
+      </NavLink>
+      <NavLink className="episode-tile-copy" to={`/media/${media.type}/${media.id}/episodes/${episode.id}`}>
+        <span>{formatEpisodeCode(episode)}{episode.isSpecial ? " - Special" : ""}</span>
+        <strong>{title}</strong>
+      </NavLink>
+      {watched || release.kind === "released" ? (
+        <IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Episode actions" : "Mark watched"} onClick={onToggle}><Check size={17} /></IconButton>
+      ) : (
+        <span className="release-countdown">{release.label}</span>
+      )}
+    </div>
+  );
+}
+
+function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["media"] }) {
+  const finished = media.airStatus === "ended" || media.airStatus === "released";
+  return (
+    <div className="rich-detail-grid">
+      <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div><p className="muted-copy">Provider availability will appear here after metadata integration.</p><div className="provider-row"><span>Netflix</span><span>Prime Video</span><span>Disney+</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span>Release: {media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "TBA"}</span><span>Air time: Local schedule pending</span><span>Average duration: {media.runtimeMinutes ? `${media.runtimeMinutes} min` : "TBA"}</span><span>Director: TBA</span><span>Writer: TBA</span><span>Producer: TBA</span><span>Creator: TBA</span></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div><div className="cast-scroll">{["Lead", "Supporting", "Guest"].map((label, index) => <NavLink className="cast-card" key={label} to={`/people/placeholder-${index + 1}`}><div className="cast-portrait">{label[0]}</div><strong>{label} actor</strong><span>{label} character</span></NavLink>)}</div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Related</p><h2>Related media</h2></div><p className="muted-copy">Related shows and movies will appear after provider hydration.</p></section>
+      <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB TBA</span><span>IMDb TBA</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div><p className="muted-copy">Spoiler-aware comments arrive in Phase 8.</p></section>
+    </div>
+  );
+}
+
+function formatEpisodeCode(episode: { seasonNumber: number; episodeNumber: number }) {
+  return `S${String(episode.seasonNumber).padStart(2, "0")}xE${String(episode.episodeNumber).padStart(2, "0")}`;
+}
+
+function releaseStatus(airDate: string | null): { kind: "released" | "future" | "tba"; label: string } {
+  if (!airDate) return { kind: "tba", label: "TBA" };
+  const release = new Date(`${airDate}T00:00:00`);
+  if (Number.isNaN(release.getTime())) return { kind: "tba", label: "TBA" };
+  const diff = release.getTime() - Date.now();
+  if (diff <= 0) return { kind: "released", label: "Released" };
+  const minutes = Math.ceil(diff / 60_000);
+  if (minutes < 60) return { kind: "future", label: `${minutes}m` };
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return { kind: "future", label: `${hours}h` };
+  const days = Math.ceil(hours / 24);
+  if (days < 60) return { kind: "future", label: `${days}d` };
+  return { kind: "future", label: `${Math.ceil(days / 30)}mo` };
 }
 
 function ProgressEditor({ mediaId, mediaType, userMedia, csrfToken, onSaved }: { mediaId: string; mediaType: "book" | "game"; userMedia: NonNullable<MediaDetailData["userMedia"]>; csrfToken: string; onSaved: (updated: NonNullable<MediaDetailData["userMedia"]>) => void }) {
@@ -1982,20 +2299,24 @@ function EpisodeDetailPage() {
 
   if (!data) return <AppPage eyebrow="Episode" title={error ? "Episode unavailable" : "Loading episode"} description={error ?? "Reading episode details..."}>{!error && <SkeletonGrid />}</AppPage>;
   const { episode, media, activity } = data;
+  const watched = activity?.watched ?? false;
   return (
     <AppPage eyebrow={media?.title ?? type ?? "Episode"} title={episode.name ?? `Episode ${episode.episodeNumber}`} description={episode.overview ?? "Synopsis has not been announced yet."}>
-      <NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink>
       <section className="episode-detail-hero">
         <div className="episode-still" style={episode.stillPath ? { backgroundImage: `url(${episode.stillPath})` } : undefined}><span>S{episode.seasonNumber} E{episode.episodeNumber}</span></div>
         <div className="episode-detail-copy">
           <div className="metadata-row"><span><CalendarDays size={16} />{episode.airDate ? new Date(`${episode.airDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date TBA"}</span><span><Clock3 size={16} />{episode.runtimeMinutes ? `${episode.runtimeMinutes} min` : "Runtime TBA"}</span></div>
-          <div className="watch-toggle" role="group" aria-label="Watch status"><button className={!activity?.watched ? "active" : ""} onClick={() => void updateActivity({ watched: false })}>Not watched</button><button className={activity?.watched ? "active" : ""} onClick={() => void updateActivity({ watched: true })}><Check size={16} />Watched</button></div>
+          <div className="episode-detail-actions"><IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Mark not watched" : "Mark watched"} onClick={() => void updateActivity({ watched: !watched })}><Check size={18} /></IconButton><span>{watched ? "Watched" : "Not watched"}</span></div>
           {activity?.watchedAt && <p className="muted-copy">Watched {new Date(activity.watchedAt).toLocaleString()}</p>}
           <div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} aria-label={`Rate ${rating} out of 10`} key={rating} onClick={() => void updateActivity({ rating })}>{rating}</button>)}</div></div>
           <label className="notes-field">Private episode notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void updateActivity({ notes: notes || null })} placeholder="What stood out?" /></label>
         </div>
       </section>
-      <section className="detail-band"><div><p className="eyebrow">Community</p><h2>Comments</h2></div>{activity?.watched ? <button className="secondary-button" disabled>Comments arrive in Phase 8</button> : <p className="spoiler-lock"><ShieldCheck size={18} />Mark this episode watched to reveal spoiler comments.</p>}</section>
+      <div className="rich-detail-grid">
+        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div><div className="cast-scroll">{["Main", "Guest", "Voice"].map((label, index) => <NavLink className="cast-card" key={label} to={`/people/episode-${episode.id}-${index}`}><div className="cast-portrait">{label[0]}</div><strong>{label} actor</strong><span>{label} character</span></NavLink>)}</div></section>
+        <section className="detail-panel"><div><p className="eyebrow">Episode info</p><h2>Credits</h2></div><div className="info-list"><span>Director: TBA</span><span>Writer: TBA</span><span>External ratings: TBA</span></div></section>
+        <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div>{watched ? <p className="muted-copy">Episode comments arrive in Phase 8.</p> : <p className="spoiler-lock"><ShieldCheck size={18} />Mark this episode watched to reveal spoiler comments.</p>}</section>
+      </div>
     </AppPage>
   );
 }
@@ -2016,6 +2337,18 @@ function UnitDetailPage() {
   if (!data) return <AppPage eyebrow={type ?? "Progress"} title={error ?? "Loading..."} description="Reading progress details...">{!error && <SkeletonGrid />}</AppPage>;
   const { unit, media, activity } = data;
   return <AppPage eyebrow={media?.title ?? type ?? "Progress"} title={unit.title ?? `${unit.kind} ${unit.position}`} description={unit.overview ?? `Track this ${unit.kind} independently.`}><NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink><section className="episode-detail-hero"><div className="episode-still" style={unit.imagePath ? { backgroundImage: `url(${unit.imagePath})` } : undefined}><span>{unit.kind} {unit.position}</span></div><div className="episode-detail-copy"><div className="metadata-row"><span><CalendarDays size={16} />{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date unavailable"}</span></div><div className="watch-toggle" role="group" aria-label="Completion status"><button className={!activity?.completed ? "active" : ""} onClick={() => void update({ completed: false })}>Not complete</button><button className={activity?.completed ? "active" : ""} onClick={() => void update({ completed: true })}><Check size={16} />Complete</button></div>{activity?.completedAt && <p className="muted-copy">Completed {new Date(activity.completedAt).toLocaleString()}</p>}<div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} key={rating} onClick={() => void update({ rating })}>{rating}</button>)}</div></div><label className="notes-field">Private notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void update({ notes: notes || null })} placeholder={`Notes about this ${unit.kind}`} /></label></div></section></AppPage>;
+}
+
+function PersonPlaceholderPage() {
+  const { id } = useParams();
+  return (
+    <AppPage eyebrow="Cast" title="Person profile" description="Cast and creator profiles will be hydrated from provider data in Phase 6.">
+      <section className="detail-panel">
+        <div><p className="eyebrow">Placeholder</p><h2>{id ?? "person"}</h2></div>
+        <p className="muted-copy">This route is ready for image galleries, biography, social links, credits, and related media.</p>
+      </section>
+    </AppPage>
+  );
 }
 
 function ListPage() {
@@ -2525,8 +2858,20 @@ function AppPage({
   mobileHelp?: boolean;
   children: ReactNode;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time"]);
+  const isSubPage = !topLevelPaths.has(location.pathname) && location.pathname !== "/";
+  const goBack = () => {
+    document.documentElement.dataset.navDirection = "back";
+    window.setTimeout(() => {
+      navigate(-1);
+      window.setTimeout(() => { document.documentElement.dataset.navDirection = "forward"; }, 260);
+    }, 20);
+  };
   return (
-    <main className="page-shell">
+    <main className={isSubPage ? "page-shell sub-page-shell" : "page-shell"}>
+      {isSubPage && <IconButton className="page-back-button" label="Go back" onClick={goBack}><ArrowLeft size={18} /></IconButton>}
       <section className={mobileHelp ? "page-heading mobile-help" : "page-heading"}>
         <div>
           <p className="eyebrow">{eyebrow}</p>
@@ -2797,9 +3142,17 @@ export function SkeletonGrid() {
 }
 
 export function Modal({ title, children, open = true, onClose }: { title: string; children: ReactNode; open?: boolean; onClose?: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    document.body.classList.add("modal-open");
+    return () => {
+      document.body.classList.remove("modal-open");
+    };
+  }, [open]);
+
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose?.();
     }}>
@@ -2812,7 +3165,8 @@ export function Modal({ title, children, open = true, onClose }: { title: string
         </div>
         {children}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

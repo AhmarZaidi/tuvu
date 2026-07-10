@@ -21,6 +21,7 @@ export type MediaItemRecord = {
   sourceId: string | null;
   totalEpisodes: number | null;
   totalSeasons: number | null;
+  extendedDataJson?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -52,6 +53,7 @@ export type EpisodeRecord = {
   runtimeMinutes: number | null;
   isSpecial: boolean;
   externalId: string | null;
+  extendedDataJson?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -187,6 +189,7 @@ type MediaItemRow = {
   source_id: string | null;
   total_episodes: number | null;
   total_seasons: number | null;
+  extended_data_json?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -218,6 +221,7 @@ type EpisodeRow = {
   runtime_minutes: number | null;
   is_special: number;
   external_id: string | null;
+  extended_data_json?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -496,6 +500,7 @@ export class D1MediaRepository implements MediaRepository {
                 mi.language as mi_language, mi.country as mi_country,
                 mi.source as mi_source, mi.source_id as mi_source_id,
                 mi.total_episodes as mi_total_episodes, mi.total_seasons as mi_total_seasons,
+                mi.extended_data_json as mi_extended_data_json,
                 mi.created_at as mi_created_at, mi.updated_at as mi_updated_at
          FROM user_media um
          INNER JOIN media_items mi ON mi.id = um.media_id
@@ -504,7 +509,7 @@ export class D1MediaRepository implements MediaRepository {
          LIMIT ?`,
       )
       .bind(...binds, limit)
-      .all<UserMediaRow & { mi_type: MediaType; mi_title: string; mi_overview: string | null; mi_poster_path: string | null; mi_backdrop_path: string | null; mi_air_status: string | null; mi_runtime_minutes: number | null; mi_release_date: string | null; mi_year: number | null; mi_language: string | null; mi_country: string | null; mi_source: string; mi_source_id: string | null; mi_total_episodes: number | null; mi_total_seasons: number | null; mi_created_at: string; mi_updated_at: string }>();
+      .all<UserMediaRow & { mi_type: MediaType; mi_title: string; mi_overview: string | null; mi_poster_path: string | null; mi_backdrop_path: string | null; mi_air_status: string | null; mi_runtime_minutes: number | null; mi_release_date: string | null; mi_year: number | null; mi_language: string | null; mi_country: string | null; mi_source: string; mi_source_id: string | null; mi_total_episodes: number | null; mi_total_seasons: number | null; mi_extended_data_json?: string | null; mi_created_at: string; mi_updated_at: string }>();
 
     return result.results.map((row) => ({
       item: mapUserMedia(row),
@@ -525,6 +530,7 @@ export class D1MediaRepository implements MediaRepository {
         source_id: row.mi_source_id,
         total_episodes: row.mi_total_episodes,
         total_seasons: row.mi_total_seasons,
+        extended_data_json: row.mi_extended_data_json ?? null,
         created_at: row.mi_created_at,
         updated_at: row.mi_updated_at,
       }),
@@ -687,6 +693,7 @@ function mapMediaItem(row: MediaItemRow): MediaItemRecord {
     sourceId: row.source_id,
     totalEpisodes: row.total_episodes,
     totalSeasons: row.total_seasons,
+    extendedDataJson: row.extended_data_json ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -722,6 +729,7 @@ function mapEpisode(row: EpisodeRow): EpisodeRecord {
     runtimeMinutes: row.runtime_minutes,
     isSpecial: row.is_special === 1,
     externalId: row.external_id,
+    extendedDataJson: row.extended_data_json ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

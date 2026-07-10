@@ -22,6 +22,10 @@ import {
   Clock3,
   Play,
   Plus,
+  RefreshCw,
+  Pause,
+  Play as PlayIcon,
+  Square,
   Search,
   Settings,
   ShieldCheck,
@@ -36,7 +40,7 @@ import {
 import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type { DashboardEntry, DashboardKind, DashboardSection } from "@shared/dashboard";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
@@ -85,6 +89,15 @@ type AuthState = {
 
 const AuthContext = createContext<AuthState | null>(null);
 
+type NoticeTone = "info" | "success" | "error";
+type AppNotice = { id: string; tone: NoticeTone; message: string; dismissible?: boolean };
+const noticeEventName = "tuvu:notice";
+
+function notify(message: string, tone: NoticeTone = "info", dismissible = true) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<Omit<AppNotice, "id">>(noticeEventName, { detail: { message, tone, dismissible } }));
+}
+
 type ImportJob = {
   id: string;
   status: string;
@@ -115,7 +128,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
   const [importProgress, setImportProgress] = useState<{ processed: number; total: number; done: boolean } | null>(null);
   // Abort flag — incremented whenever we want to stop the current polling loop
   const abortCountRef = useRef(0);
-  
+
   const authContext = useContext(AuthContext);
   const me = authContext?.me;
 
@@ -134,7 +147,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         });
         if (abortCountRef.current !== myAbort) return;
         const res = await response.json() as { data?: { done?: boolean; processed?: number; total?: number }; error?: { message?: string } };
-        
+
         if (!response.ok || !res.data) {
           setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
           return;
@@ -144,6 +157,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
           if (me) clearDashboardCaches(me.user.id);
           setActiveJob(null);
           setImportProgress(null);
+          window.location.assign(`/profile/merge?sourceJob=${encodeURIComponent(jobId)}`);
         } else {
           setImportProgress({ processed: res.data?.processed ?? 0, total: res.data?.total ?? 100, done: false });
           setTimeout(runChunk, 300);
@@ -172,7 +186,7 @@ export function ImportProvider({ children }: { children: ReactNode }) {
         });
         if (abortCountRef.current !== myAbort) return;
         const res = await response.json() as { data?: { done?: boolean; remaining?: number }; error?: { message?: string } };
-        
+
         if (!response.ok || !res.data) {
           setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
           return;
@@ -331,6 +345,7 @@ const navItems = [
 ] as const;
 
 const profileNav = [
+  { to: "/profile/merge", label: "Merge media", icon: Library },
   { to: "/profile/messages", label: "Messages", icon: Mail },
   { to: "/profile/settings", label: "Settings", icon: Settings },
   { to: "/profile/import/tv-time", label: "Import", icon: Upload },
@@ -344,6 +359,15 @@ const exploreFilters: Array<{ label: string; icon: LucideIcon }> = [
   { label: "Books", icon: BookOpen },
 ];
 
+const mergeTypeFilters: Array<{ value: "all" | MediaType; label: string; icon: LucideIcon }> = [
+  { value: "all", label: "All", icon: Library },
+  { value: "show", label: "Shows", icon: Tv },
+  { value: "movie", label: "Movies", icon: Film },
+  { value: "book", label: "Books", icon: BookOpen },
+  { value: "game", label: "Games", icon: Gamepad2 },
+  { value: "anime", label: "Anime", icon: Sparkles },
+];
+
 export function App() {
   useEffect(() => {
     const stored = localStorage.getItem("tuvu-theme");
@@ -352,27 +376,66 @@ export function App() {
   }, []);
 
   return (
-    <Routes>
-      <Route path="/auth" element={<AuthPage />} />
-      <Route element={<ProtectedShell />}>
-        <Route index element={<Navigate to="/shows" replace />} />
-        <Route path="/books" element={<BooksPage />} />
-        <Route path="/games" element={<GamesPage />} />
-        <Route path="/shows" element={<ShowsPage />} />
-        <Route path="/movies" element={<MoviesPage />} />
-        <Route path="/explore" element={<ExplorePage />} />
-        <Route path="/profile/explore" element={<Navigate to="/explore" replace />} />
-        <Route path="/profile/messages" element={<MessagesPage />} />
-        <Route path="/profile/settings" element={<SettingsPage />} />
-        <Route path="/profile/import/tv-time" element={<ImportPage />} />
-        <Route path="/profile/:username?" element={<ProfilePage />} />
-        <Route path="/media/:type/:id" element={<MediaDetailPage />} />
-        <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
-        <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
-        <Route path="/people/:id" element={<PersonPlaceholderPage />} />
-        <Route path="/lists/:id" element={<ListPage />} />
-      </Route>
-    </Routes>
+    <SnackbarProvider>
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route element={<ProtectedShell />}>
+          <Route index element={<Navigate to="/shows" replace />} />
+          <Route path="/books" element={<BooksPage />} />
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/shows" element={<ShowsPage />} />
+          <Route path="/movies" element={<MoviesPage />} />
+          <Route path="/explore" element={<ExplorePage />} />
+          <Route path="/explore/search" element={<ExploreSearchPage />} />
+          <Route path="/profile/explore" element={<Navigate to="/explore" replace />} />
+          <Route path="/profile/messages" element={<MessagesPage />} />
+          <Route path="/profile/settings" element={<SettingsPage />} />
+          <Route path="/profile/import/tv-time" element={<ImportPage />} />
+          <Route path="/profile/merge" element={<MergePage />} />
+          <Route path="/profile/:username?" element={<ProfilePage />} />
+          <Route path="/media/:type/:id" element={<MediaDetailPage />} />
+          <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
+          <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
+          <Route path="/people/:id" element={<PersonPlaceholderPage />} />
+          <Route path="/lists/:id" element={<ListPage />} />
+        </Route>
+      </Routes>
+    </SnackbarProvider>
+  );
+}
+
+function SnackbarProvider({ children }: { children: ReactNode }) {
+  const [notices, setNotices] = useState<AppNotice[]>([]);
+
+  useEffect(() => {
+    const onNotice = (event: Event) => {
+      const detail = (event as CustomEvent<Omit<AppNotice, "id">>).detail;
+      if (!detail?.message) return;
+      const notice: AppNotice = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, tone: detail.tone ?? "info", message: detail.message, dismissible: detail.dismissible ?? true };
+      setNotices((current) => [...current.slice(-3), notice]);
+      window.setTimeout(() => {
+        setNotices((current) => current.filter((item) => item.id !== notice.id));
+      }, notice.tone === "error" ? 6500 : 4200);
+    };
+    window.addEventListener(noticeEventName, onNotice);
+    return () => window.removeEventListener(noticeEventName, onNotice);
+  }, []);
+
+  return (
+    <>
+      {children}
+      {createPortal(
+        <div className="snackbar-stack" role="status" aria-live="polite">
+          {notices.map((notice) => (
+            <div className={`snackbar ${notice.tone}`} key={notice.id}>
+              <span>{notice.message}</span>
+              {notice.dismissible !== false && <button aria-label="Dismiss notice" onClick={() => setNotices((current) => current.filter((item) => item.id !== notice.id))}><X size={15} /></button>}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -552,6 +615,10 @@ function AppShell() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [defaultType, setDefaultType] = useState<MediaType>("show");
   const { me } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [globalSearch, setGlobalSearch] = useState("");
+  const globalSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const openCreateModal = (type: MediaType = "show") => {
     setDefaultType(type);
@@ -559,6 +626,13 @@ function AppShell() {
   };
 
   const contextValue = useMemo(() => ({ openCreateModal }), []);
+
+  useEffect(() => {
+    if (location.pathname === "/explore/search") {
+      setGlobalSearch("");
+      globalSearchInputRef.current?.blur();
+    }
+  }, [location.pathname]);
 
   return (
     <MediaCreationContext.Provider value={contextValue}>
@@ -575,10 +649,15 @@ function AppShell() {
         <div className="app-frame">
           <header className="topbar">
             <BrandMark compact />
-            <div className="search-box" role="search">
+            <form className="search-box" role="search" onSubmit={(event) => {
+              event.preventDefault();
+              const query = globalSearch.trim();
+              if (query.length >= 2) navigate(`/explore/search?q=${encodeURIComponent(query)}`);
+            }}>
               <Search size={18} aria-hidden="true" />
-              <input aria-label="Search media" placeholder="Search your library" />
-            </div>
+              <input ref={globalSearchInputRef} aria-label="Search media" placeholder="Search any media" value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} />
+              {globalSearch && <IconButton type="button" className="search-clear" label="Clear search" onClick={() => { setGlobalSearch(""); globalSearchInputRef.current?.blur(); }}><X size={14} /></IconButton>}
+            </form>
             <ProfileTopButton me={me} hasNotification={false} />
           </header>
 
@@ -686,11 +765,11 @@ function ShellNavLink({
   } else if (to === "/movies") {
     active = currentPath === "/movies" || currentPath.startsWith("/media/movie/");
   } else if (to === "/shows") {
-    active = currentPath === "/shows" || 
-             currentPath.startsWith("/media/show/") || 
+    active = currentPath === "/shows" ||
+             currentPath.startsWith("/media/show/") ||
              currentPath.startsWith("/media/anime/");
   } else if (to === "/explore") {
-    active = currentPath === "/explore";
+    active = currentPath.startsWith("/explore");
   } else {
     active = currentPath === to;
   }
@@ -1024,7 +1103,7 @@ function mergeMediaItems(staticItems: MediaCardItem[], library: LibraryEntry[]):
 
     if (matchingLib) {
       processedMediaIds.add(matchingLib.media.id);
-      
+
       let tone: StatusTone = "planned";
       if (matchingLib.item.status === "watching" || matchingLib.item.status === "playing" || matchingLib.item.status === "reading") {
         tone = "watching";
@@ -1329,7 +1408,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   }, [payload?.page.hasMore, loading, payload?.page.offset]);
 
   const section = payload?.sections.find((candidate) => candidate.id === activeSection) ?? payload?.sections.at(-1);
-  
+
   const entries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const filtered = (section?.entries ?? []).filter((entry) => !normalized || entry.title.toLowerCase().includes(normalized));
@@ -1396,24 +1475,205 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   );
 }
 
+type ProviderAttribution = {
+  provider: "tmdb" | "rawg" | "openlibrary" | "local";
+  label: string;
+  url: string;
+};
+
+type ExploreResult = {
+  provider: ProviderAttribution["provider"];
+  providerId: string;
+  type: MediaType;
+  title: string;
+  overview: string | null;
+  posterPath: string | null;
+  backdropPath: string | null;
+  releaseDate: string | null;
+  year: number | null;
+  sourceUrl: string | null;
+  rating: number | null;
+  popularity: number | null;
+  attribution: ProviderAttribution;
+  alreadyTracked?: boolean;
+  localMediaId?: string | null;
+};
+
+type ExploreRow = {
+  id: string;
+  title: string;
+  subtitle: string;
+  results: ExploreResult[];
+};
+
+const exploreRowsCache = new Map<string, { rows: ExploreRow[]; savedAt: number }>();
+const exploreSearchCache = new Map<string, { results: ExploreResult[]; savedAt: number }>();
+
 function ExplorePage() {
+  const { me } = useAuth();
+  const [rows, setRows] = useState<ExploreRow[]>(() => exploreRowsCache.get(me.user.id)?.rows ?? []);
+  const [loading, setLoading] = useState(rows.length === 0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const cached = exploreRowsCache.get(me.user.id);
+    if (cached && Date.now() - cached.savedAt < 15 * 60_000) {
+      setRows(cached.rows);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    apiJson<{ rows: ExploreRow[] }>("/api/explore")
+      .then((data) => {
+        if (cancelled) return;
+        setRows(data.rows);
+        exploreRowsCache.set(me.user.id, { rows: data.rows, savedAt: Date.now() });
+        setError(null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Explore could not load.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [me.user.id]);
+
   return (
-    <AppPage eyebrow="Explore" title="Find something good" description="Search and discovery will connect to cached local results first, then provider APIs later." mobileHelp>
+    <AppPage eyebrow="Explore" title="Find something good" description="Search across shows, movies, books, and games, or browse cached discovery rows." mobileHelp>
       <div className="filter-row">
         {exploreFilters.map(({ label, icon: Icon }) => (
-          <button className="chip-button" key={label}>
+          <NavLink className="chip-button" key={label} to={`/explore/search?types=${label.toLowerCase() === "anime" ? "show" : label.toLowerCase().slice(0, -1)}`}>
             <Icon size={16} aria-hidden="true" />
             {label}
-          </button>
+          </NavLink>
         ))}
       </div>
-      <PosterGrid>
-        {mediaItems.map((item) => (
-          <MediaCard key={item.id} item={item} />
+      {error && <EmptyState icon={<Search size={24} />} title="Explore is resting" message={error} />}
+      {loading && <SkeletonGrid />}
+      {!loading && rows.length === 0 && !error && <EmptyState icon={<Compass size={24} />} title="No provider rows yet" message="Add provider API keys and reload Explore to fetch cached discovery rows." />}
+      <div className="explore-row-stack">
+        {rows.map((row) => (
+          <section className="explore-row" key={row.id}>
+            <div className="section-heading"><div><p className="eyebrow">Discover</p><h2>{row.title}</h2><p>{row.subtitle}</p></div></div>
+            <div className="explore-scroll">
+              {row.results.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
+            </div>
+          </section>
         ))}
-      </PosterGrid>
+      </div>
     </AppPage>
   );
+}
+
+function ExploreSearchPage() {
+  const { me } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialQuery = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(initialQuery);
+  const [types, setTypes] = useState<MediaType[]>(() => parseExploreTypes(searchParams.get("types")));
+  const [results, setResults] = useState<ExploreResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    if (types.length !== 4) next.set("types", types.join(","));
+    setSearchParams(next, { replace: true });
+  }, [query, types, setSearchParams]);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+    const cacheKey = `${me.user.id}:${trimmed.toLowerCase()}:${types.join(",")}`;
+    const cached = exploreSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.savedAt < 10 * 60_000) {
+      setResults(cached.results);
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      setLoading(true);
+      apiJson<{ results: ExploreResult[] }>(`/api/explore/search?q=${encodeURIComponent(trimmed)}&types=${encodeURIComponent(types.join(","))}`)
+        .then((data) => {
+          setResults(data.results);
+          exploreSearchCache.set(cacheKey, { results: data.results, savedAt: Date.now() });
+          setError(null);
+        })
+        .catch((reason) => setError(reason instanceof Error ? reason.message : "Search failed."))
+        .finally(() => setLoading(false));
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [me.user.id, query, types]);
+
+  return (
+    <AppPage eyebrow="Explore" title="Search" description="Results update live and use local cache before provider APIs." mobileHelp>
+      <div className="dashboard-toolbar">
+        <div className="dashboard-search"><Search size={16} /><input autoFocus aria-label="Search all media" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shows, movies, books, games" />{query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}</div>
+      </div>
+      <div className="filter-row">
+        {(["show", "movie", "book", "game"] as MediaType[]).map((type) => (
+          <button className={types.includes(type) ? "chip-button active" : "chip-button"} key={type} onClick={() => setTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])}>{type}</button>
+        ))}
+      </div>
+      {error && <EmptyState icon={<Search size={24} />} title="Search hit a snag" message={error} />}
+      {loading && <SkeletonGrid />}
+      {!loading && query.trim().length >= 2 && results.length === 0 && !error && <EmptyState icon={<Search size={24} />} title="No matches yet" message="Try a different title or enable more media types." />}
+      <section className="search-results-list" aria-label="Search results">
+        {results.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
+      </section>
+    </AppPage>
+  );
+}
+
+function ExploreResultCard({ result }: { result: ExploreResult }) {
+  const { me } = useAuth();
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [tracked, setTracked] = useState(Boolean(result.alreadyTracked));
+  async function addResult() {
+    if (tracked) {
+      if (result.localMediaId) navigate(`/media/${result.type}/${result.localMediaId}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await apiJson<{ media: { id: string; type: MediaType }; alreadyTracked: boolean }>("/api/explore/add", {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify(result),
+      });
+      setTracked(true);
+      clearDashboardCaches(me.user.id);
+      navigate(`/media/${response.media.type}/${response.media.id}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <article className="explore-result-card">
+      <div className="explore-result-poster" style={result.posterPath ? { backgroundImage: `url(${result.posterPath})` } : undefined}>{!result.posterPath && <span>{result.title.slice(0, 2).toUpperCase()}</span>}</div>
+      <div className="explore-result-copy">
+        <div><span className="status-chip planned">{result.type}</span>{result.year && <span className="muted-copy"> {result.year}</span>}</div>
+        <h2>{result.title}</h2>
+        {result.overview && <p>{result.overview}</p>}
+        <a href={result.attribution.url} target="_blank" rel="noreferrer">{result.attribution.label}</a>
+      </div>
+      <button className={tracked ? "secondary-button" : "primary-button"} disabled={busy} onClick={() => void addResult()}>{tracked ? "Open" : busy ? "Adding..." : "Add"}</button>
+    </article>
+  );
+}
+
+function parseExploreTypes(value: string | null): MediaType[] {
+  const allowed: MediaType[] = ["show", "movie", "book", "game"];
+  if (!value) return allowed;
+  const parsed = value.split(",").filter((item): item is MediaType => allowed.includes(item as MediaType));
+  return parsed.length ? parsed : allowed;
 }
 
 function ProfilePage() {
@@ -1454,6 +1714,379 @@ function ProfilePage() {
   );
 }
 
+type MergeCandidate = {
+  source: ExploreResult & { localMediaId: string; source: string };
+  candidate: ExploreResult | null;
+  confidence: "external_id_exact" | "title_year_strong" | "title_only_review" | "ambiguous";
+  reason: string;
+};
+
+type MergeStats = {
+  total: number;
+  unmerged: number;
+  merged: number;
+  exact: number;
+  review: number;
+};
+
+function MergePage() {
+  const { me } = useAuth();
+  const [searchParams] = useSearchParams();
+  const [type, setType] = useState<"all" | MediaType>("all");
+  const [stats, setStats] = useState<MergeStats | null>(null);
+  const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const [mergeQuery, setMergeQuery] = useState("");
+  const [message, setMessage] = useState(searchParams.get("sourceJob") ? "Import complete. Review possible merges before continuing." : "Review imported/manual media that may match provider records.");
+
+  // Progressive resolution state
+  const [resolving, setResolving] = useState(false);
+  const [resolveProgress, setResolveProgress] = useState(0);
+  const [resolveTotal, setResolveTotal] = useState(0);
+
+  // Bulk accept state
+  const [bulkAccepting, setBulkAccepting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  const [bulkTotal, setBulkTotal] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isStopped, setIsStopped] = useState(false);
+
+  const pausedRef = useRef(isPaused);
+  const stoppedRef = useRef(isStopped);
+  useEffect(() => { pausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => { stoppedRef.current = isStopped; }, [isStopped]);
+
+  async function load(forceRefresh = false) {
+    setBusy(true);
+    setLoadingCandidates(true);
+    setLoadedCount(0);
+    try {
+      const baseParams = new URLSearchParams();
+      if (type !== "all") baseParams.set("type", type);
+      if (mergeQuery.trim()) baseParams.set("q", mergeQuery.trim());
+      const statsQuery = type === "all" ? "" : `?type=${type}`;
+      const statsResponse = await apiJson<MergeStats>(`/api/merge/stats${statsQuery}`);
+      setStats(statsResponse);
+
+      const pageSize = 50;
+      let offset = 0;
+      let allCandidates: MergeCandidate[] = [];
+      for (;;) {
+        const params = new URLSearchParams(baseParams);
+        params.set("limit", String(pageSize));
+        params.set("offset", String(offset));
+        const page = await apiJson<{ candidates: MergeCandidate[] }>(`/api/merge/candidates?${params.toString()}`);
+        const pageCandidates = forceRefresh ? page.candidates.map(c => ({ ...c, reason: "Needs resolution." })) : page.candidates;
+        allCandidates = [...allCandidates, ...pageCandidates];
+        setCandidates(allCandidates);
+        setLoadedCount(allCandidates.length);
+        if (page.candidates.length < pageSize) break;
+        offset += pageSize;
+      }
+
+      const unresolved = allCandidates.filter(c => c.reason === "Needs resolution.");
+      if (unresolved.length > 0) {
+        setResolving(true);
+        setResolveTotal(unresolved.length);
+        setResolveProgress(0);
+        void processResolveQueue(unresolved);
+      } else {
+        setResolving(false);
+      }
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Merge candidates could not be loaded.");
+    } finally {
+      setBusy(false);
+      setLoadingCandidates(false);
+    }
+  }
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => void load(), 350);
+    return () => window.clearTimeout(timeout);
+  }, [type, mergeQuery]);
+
+  async function processResolveQueue(unresolved: MergeCandidate[]) {
+    let processed = 0;
+    const batchSize = 3;
+
+    for (let i = 0; i < unresolved.length; i += batchSize) {
+      if (stoppedRef.current) break;
+      const batch = unresolved.slice(i, i + batchSize);
+      try {
+        const response = await apiJson<{ results: MergeCandidate[]; errors?: Array<{ mediaId: string; message: string }> }>("/api/merge/resolve-batch", {
+          method: "POST",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ mediaIds: batch.map(c => c.source.localMediaId) }),
+        });
+
+        setCandidates(prev => {
+          const map = new Map(response.results.map(r => [r.source.localMediaId, r]));
+          return prev.map(c => map.get(c.source.localMediaId) || c);
+        });
+        if (response.errors?.length) {
+          console.warn("Some merge candidates could not be resolved", response.errors);
+        }
+      } catch (err) {
+        console.error("Batch resolve failed", err);
+      }
+      processed += batch.length;
+      setResolveProgress(processed);
+    }
+    setResolving(false);
+    const query = type === "all" ? "" : `?type=${type}`;
+    const statsResponse = await apiJson<MergeStats>(`/api/merge/stats${query}`).catch(() => null);
+    if (statsResponse) setStats(statsResponse);
+  }
+
+  async function accept(candidate: MergeCandidate, providerResult?: ExploreResult) {
+    if (bulkAccepting) return;
+    setBusy(true);
+    try {
+      await apiJson("/api/merge/accept", {
+        method: "POST",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({
+          sourceMediaId: candidate.source.localMediaId,
+          targetMediaId: providerResult?.localMediaId ?? candidate.candidate?.localMediaId ?? undefined,
+          providerResult: providerResult ?? candidate.candidate ?? undefined,
+          confidence: candidate.confidence,
+          reason: candidate.reason,
+        }),
+      });
+      clearDashboardCaches(me.user.id);
+      setMessage(`Merged ${candidate.source.title}.`);
+      notify(`Merged ${candidate.source.title}.`, "success");
+      setCandidates(prev => prev.filter(c => c.source.localMediaId !== candidate.source.localMediaId));
+
+      const query = type === "all" ? "" : `?type=${type}`;
+      const statsResponse = await apiJson<MergeStats>(`/api/merge/stats${query}`).catch(() => null);
+      if (statsResponse) setStats(statsResponse);
+    } catch (reason) {
+      setMessage(reason instanceof Error ? reason.message : "Merge failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptExact() {
+    const query = type === "all" ? "" : `?type=${type}`;
+    let exact = candidates.filter(c => c.confidence === "external_id_exact" && c.candidate);
+    if (exact.length === 0) {
+      notify("No exact ID matches are ready. Resolve candidates first or review title matches manually.", "info");
+      return;
+    }
+
+    setBulkAccepting(true);
+    setIsPaused(false);
+    setIsStopped(false);
+    setBulkTotal(exact.length);
+    setBulkProgress(0);
+
+    let count = 0;
+    for (const candidate of exact) {
+      while (pausedRef.current && !stoppedRef.current) {
+        await new Promise(r => setTimeout(r, 200));
+      }
+      if (stoppedRef.current) {
+        break;
+      }
+
+      try {
+        await apiJson("/api/merge/accept", {
+          method: "POST",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({
+            sourceMediaId: candidate.source.localMediaId,
+            targetMediaId: candidate.candidate!.localMediaId ?? undefined,
+            providerResult: candidate.candidate!,
+            confidence: candidate.confidence,
+            reason: candidate.reason,
+          }),
+        });
+        count++;
+        setBulkProgress(count);
+        setCandidates(prev => prev.filter(c => c.source.localMediaId !== candidate.source.localMediaId));
+      } catch (err) {
+        console.error("Failed to merge", candidate.source.title);
+      }
+    }
+
+    setBulkAccepting(false);
+    clearDashboardCaches(me.user.id);
+    setMessage(stoppedRef.current ? `Merge stopped. Merged ${count} items.` : `Merged ${count} exact match${count === 1 ? "" : "es"}.`);
+    notify(stoppedRef.current ? `Merge stopped after ${count} item${count === 1 ? "" : "s"}.` : `Merged ${count} exact match${count === 1 ? "" : "es"}.`, stoppedRef.current ? "info" : "success");
+
+    const statsResponse = await apiJson<MergeStats>(`/api/merge/stats${query}`).catch(() => null);
+    if (statsResponse) setStats(statsResponse);
+  }
+
+  const exactReady = candidates.some((candidate) => candidate.confidence === "external_id_exact" && candidate.candidate);
+  const visibleExactCount = candidates.filter((candidate) => candidate.confidence === "external_id_exact").length;
+  const visibleReviewCount = candidates.length - visibleExactCount;
+
+  return (
+    <AppPage eyebrow="Profile" title="Merge media" description="Combine imported/manual entries with provider-backed canonical media without losing tracking history." mobileHelp>
+      {bulkAccepting && (
+        <div className="merge-progress-panel active">
+          <div className="merge-progress-header">
+            <span>Merging {bulkTotal} matches...</span>
+            <div className="merge-progress-actions">
+              <IconButton label={isPaused ? "Resume" : "Pause"} onClick={() => setIsPaused(!isPaused)}>
+                {isPaused ? <PlayIcon size={16} /> : <Pause size={16} />}
+              </IconButton>
+              <IconButton label="Stop" onClick={() => setIsStopped(true)} style={{ color: "#ff6b6b" }}>
+                <Square size={16} />
+              </IconButton>
+            </div>
+          </div>
+          <div className="merge-progress-row">
+            <span>{isPaused ? "Paused" : "In progress"}</span>
+            <span>{bulkProgress} / {bulkTotal}</span>
+          </div>
+          <ProgressBar value={bulkTotal > 0 ? (bulkProgress / bulkTotal) * 100 : 0} label="Merge progress" />
+        </div>
+      )}
+
+      {(loadingCandidates || resolving) && (
+        <div className="merge-progress-panel">
+          <div className="merge-progress-row">
+            <span>{loadingCandidates ? "Loading merge candidates..." : "Searching provider matches..."}</span>
+            <span>{loadingCandidates ? `${loadedCount}${stats?.unmerged ? ` / ${stats.unmerged}` : ""}` : `${resolveProgress} / ${resolveTotal}`}</span>
+          </div>
+          <ProgressBar value={loadingCandidates && stats?.unmerged ? Math.min(100, (loadedCount / stats.unmerged) * 100) : resolveTotal > 0 ? (resolveProgress / resolveTotal) * 100 : 0} label="Merge queue progress" />
+        </div>
+      )}
+
+      <section className="merge-toolbar">
+        <div className="merge-type-filter" aria-label="Filter merge candidates by type">
+          {mergeTypeFilters.map(({ value, label, icon: Icon }) => (
+            <IconButton className={type === value ? "merge-type-button active" : "merge-type-button"} label={label} aria-pressed={type === value} key={value} onClick={() => setType(value)}>
+              <Icon size={18} />
+            </IconButton>
+          ))}
+        </div>
+        <div className="merge-toolbar-actions">
+          <IconButton label="Reload candidates" onClick={() => void load(true)} disabled={resolving || bulkAccepting}>
+            <RefreshCw size={18} />
+          </IconButton>
+          <button className="primary-button" disabled={busy || resolving || bulkAccepting || !exactReady} onClick={() => void acceptExact()}>Accept all exact</button>
+        </div>
+      </section>
+      <div className="dashboard-search merge-page-search">
+        <Search size={16} />
+        <input aria-label="Search merge candidates by title or ID" placeholder="Search imported title, source ID, IMDb, TVDB..." value={mergeQuery} onChange={(event) => setMergeQuery(event.target.value)} />
+        {mergeQuery && <button type="button" aria-label="Clear merge search" onClick={() => setMergeQuery("")}><X size={15} /></button>}
+      </div>
+      {stats && (
+        <section className="stats-grid" aria-label="Merge stats">
+          <article className="stat-card"><strong>{stats.unmerged}</strong><span>Unmerged</span></article>
+          <article className="stat-card"><strong>{stats.exact}</strong><span>Exact</span></article>
+          <article className="stat-card"><strong>{stats.review}</strong><span>Review</span></article>
+          <article className="stat-card"><strong>{candidates.length}</strong><span>Loaded</span></article>
+          <article className="stat-card"><strong>{visibleExactCount}</strong><span>Visible exact</span></article>
+          <article className="stat-card"><strong>{visibleReviewCount}</strong><span>Visible review</span></article>
+        </section>
+      )}
+      {(busy && !resolving) && candidates.length === 0 && <SkeletonGrid />}
+      {(!busy && !resolving) && candidates.length === 0 && <EmptyState icon={<Library size={24} />} title="No merge candidates" message="New imports or manual placeholder media will appear here when they can be matched." />}
+      <section className="merge-list" aria-label="Merge candidates">
+        {candidates.map((candidate) => <MergeCandidateCard key={candidate.source.localMediaId} candidate={candidate} busy={busy || bulkAccepting} onAccept={accept} />)}
+      </section>
+    </AppPage>
+  );
+}
+
+function MergeCandidateCard({ candidate, busy, onAccept }: { candidate: MergeCandidate; busy: boolean; onAccept: (candidate: MergeCandidate, providerResult?: ExploreResult) => Promise<void> }) {
+  const [manualQuery, setManualQuery] = useState(candidate.source.title);
+  const [manualResults, setManualResults] = useState<ExploreResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+
+  async function searchManual() {
+    if (manualQuery.trim().length < 2) return;
+    setSearching(true);
+    try {
+      const response = await apiJson<{ results: ExploreResult[] }>(`/api/merge/search?q=${encodeURIComponent(manualQuery.trim())}&type=${candidate.source.type}`);
+      setManualResults(response.results);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function acceptManual(result: ExploreResult) {
+    setManualOpen(false);
+    await onAccept(candidate, result);
+  }
+
+  return (
+    <article className={`merge-card ${candidate.candidate ? "has-match" : "needs-match"}`}>
+      <div className="merge-card-main">
+        <div className="merge-side">
+          <p className="eyebrow">Imported/local</p>
+          <ExploreResultMini result={candidate.source} />
+        </div>
+        <div className="merge-connector" aria-hidden="true"><ChevronRight size={18} /></div>
+        <div className="merge-side">
+          <div className="merge-confidence-row">
+            <span className={`merge-confidence ${candidate.confidence}`}>{mergeConfidenceLabel(candidate.confidence)}</span>
+          </div>
+          {candidate.candidate ? <ExploreResultMini result={candidate.candidate} /> : <p className="muted-copy">No suggested match yet.</p>}
+          <p className="muted-copy">{candidate.reason}</p>
+        </div>
+      </div>
+      <div className="merge-card-actions">
+        <button className="primary-button" disabled={busy || !candidate.candidate} onClick={() => void onAccept(candidate)}>Accept match</button>
+        <button className="secondary-button" disabled={busy} onClick={() => setManualOpen(true)}>Search manually</button>
+      </div>
+      <Modal title={`Find match for ${candidate.source.title}`} open={manualOpen} onClose={() => setManualOpen(false)}>
+        <div className="manual-search-sheet">
+          <ExploreResultMini result={candidate.source} />
+          <div className="dashboard-search">
+            <Search size={16} />
+            <input aria-label={`Manual search for ${candidate.source.title}`} value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchManual(); }} autoFocus />
+            {manualQuery && <button type="button" aria-label="Clear search" onClick={() => { setManualQuery(""); setManualResults([]); }}><X size={15} /></button>}
+          </div>
+          <button className="primary-button" disabled={searching || manualQuery.trim().length < 2} onClick={() => void searchManual()}>{searching ? "Searching..." : "Search provider matches"}</button>
+          {manualResults.length > 0 ? (
+            <div className="manual-match-list">
+              {manualResults.map((result) => (
+                <button key={`${result.provider}:${result.providerId}`} className="manual-match" onClick={() => void acceptManual(result)}>
+                  <ExploreResultMini result={result} />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="muted-copy">Search for the provider-backed record to merge into this imported item.</p>
+          )}
+        </div>
+      </Modal>
+    </article>
+  );
+}
+
+function mergeConfidenceLabel(confidence: MergeCandidate["confidence"]) {
+  if (confidence === "external_id_exact") return "ID match";
+  if (confidence === "title_year_strong") return "Title + year";
+  if (confidence === "title_only_review") return "Title search";
+  return "Needs review";
+}
+
+function ExploreResultMini({ result }: { result: ExploreResult }) {
+  return (
+    <div className="merge-mini">
+      <div className="explore-result-poster" style={result.posterPath ? { backgroundImage: `url(${result.posterPath})` } : undefined}>{!result.posterPath && <span>{result.title.slice(0, 2).toUpperCase()}</span>}</div>
+      <div>
+        <h2>{result.title}</h2>
+        <p>{result.type}{result.year ? ` · ${result.year}` : ""}</p>
+        <span>{result.attribution.label}</span>
+      </div>
+    </div>
+  );
+}
+
 type MediaDetailData = {
   media: {
     id: string;
@@ -1472,6 +2105,7 @@ type MediaDetailData = {
     sourceId: string | null;
     totalEpisodes: number | null;
     totalSeasons: number | null;
+    extendedDataJson: string | null;
   };
   userMedia: {
     id: string;
@@ -1505,6 +2139,7 @@ type EpisodeWithActivity = {
   runtimeMinutes: number | null;
   isSpecial: boolean;
   externalId: string | null;
+  extendedDataJson: string | null;
   activity: {
     id: string;
     userId: string;
@@ -1897,6 +2532,16 @@ function MediaDetailPage() {
     }
   };
 
+  const refreshInfo = async () => {
+    if (!id) return;
+    try {
+      await apiJson(`/api/merge/${id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
+      setMediaSettingsOpen(false);
+      triggerToast("Metadata refresh queued.");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Refresh could not be queued.");
+    }
+  };
   const initializeMockMedia = async () => {
     try {
       setLoading(true);
@@ -2021,7 +2666,7 @@ function MediaDetailPage() {
         <div className="detail-poster-column">
           <ResponsivePoster accent="linear-gradient(145deg, #2b2f36, #0f1115)" title={media.title} posterPath={media.posterPath} />
         </div>
-        
+
         <div className="detail-copy">
           <div className="metadata-row">
             {media.releaseDate && <span><CalendarDays size={16} />{new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}{media.airStatus === "continuing" ? " - Present" : ""}</span>}
@@ -2029,7 +2674,7 @@ function MediaDetailPage() {
             {media.language && <span>{media.language.toUpperCase()}</span>}
             {media.source !== "manual" && <span>{media.source.toUpperCase()}</span>}
           </div>
-          <div className="action-row" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "space-between" }}>
+          <div className="action-row" style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", justifyContent: "space-between", marginTop: "1rem" }}>
             {!userMedia ? (
               <button className="primary-button" onClick={() => addToLibrary()}>
                 <Plus size={18} aria-hidden="true" />
@@ -2135,7 +2780,7 @@ function MediaDetailPage() {
               return <section className="season-group" key={group.seasonNumber} style={{ "--season-progress": `${seasonProgress}%` } as CSSProperties}>
                 <header className="season-header">
                   <button className="season-toggle" onClick={() => setCollapsedSeasons((current) => { const next = new Set(current); next.has(group.seasonNumber) ? next.delete(group.seasonNumber) : next.add(group.seasonNumber); return next; })}><ChevronDown className={collapsed ? "collapsed" : ""} size={18} /><span>{group.seasonNumber === 0 ? "Specials" : `Season ${group.seasonNumber}`}</span><small>{watchedCount}/{group.episodes.length}</small></button>
-                  <IconButton className={watchedCount === group.episodes.length ? "watched-toggle active" : "watched-toggle"} label={watchedCount === group.episodes.length ? "Season actions" : "Mark season watched"} onClick={() => watchedCount === group.episodes.length ? setEpisodeAction({ type: "season", seasonNumber: group.seasonNumber, watchedCount, totalCount: group.episodes.length }) : void setSeasonWatched(group.seasonNumber, true)}><Check size={17} /></IconButton>
+                  <IconButton className={watchedCount === group.episodes.length ? "watched-toggle active" : "watched-toggle"} label={watchedCount === group.episodes.length ? "Season actions" : "Mark season watched"} onClick={() => watchedCount === group.episodes.length ? setEpisodeAction({ type: "season", seasonNumber: group.seasonNumber, watchedCount, totalCount: group.episodes.length }) : void setSeasonWatched(group.seasonNumber, true)}><WatchMark count={seasonWatchCount(group.episodes)} /></IconButton>
                 </header>
                 {!collapsed && <div className="episode-list">{group.episodes.map((ep) => {
                   const watched = ep.activity?.watched ?? false;
@@ -2170,6 +2815,7 @@ function MediaDetailPage() {
           <button className="secondary-button" disabled title="Backdrop editing will arrive with provider metadata tools.">
             Upload/update banner
           </button>
+          <button className="secondary-button" onClick={() => void refreshInfo()}>Refresh info</button>
           {userMedia && <button className="secondary-button danger-action" onClick={removeFromLibrary}>Remove from library</button>}
         </div>
       </Modal>
@@ -2200,7 +2846,7 @@ function EpisodeTile({ episode, media, watched, onToggle }: { episode: EpisodeWi
         <strong>{title}</strong>
       </NavLink>
       {watched || release.kind === "released" ? (
-        <IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Episode actions" : "Mark watched"} onClick={onToggle}><Check size={17} /></IconButton>
+        <IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Episode actions" : "Mark watched"} onClick={onToggle}><WatchMark count={episodeWatchCount(episode)} /></IconButton>
       ) : (
         <span className="release-countdown">{release.label}</span>
       )}
@@ -2208,18 +2854,63 @@ function EpisodeTile({ episode, media, watched, onToggle }: { episode: EpisodeWi
   );
 }
 
+function WatchMark({ count }: { count: number }) {
+  return count > 1 ? <span className="rewatch-count-mark">x{count}</span> : <Check size={17} />;
+}
+
+function episodeWatchCount(episode: EpisodeWithActivity) {
+  return episode.activity?.watched ? 1 + (episode.activity.rewatchCount ?? 0) : 1;
+}
+
+function seasonWatchCount(episodes: EpisodeWithActivity[]) {
+  const watched = episodes.filter((episode) => episode.activity?.watched);
+  if (watched.length !== episodes.length || watched.length === 0) return 1;
+  return Math.min(...watched.map(episodeWatchCount));
+}
+
 function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["media"] }) {
   const finished = media.airStatus === "ended" || media.airStatus === "released";
+  const ext = parseExtendedData(media.extendedDataJson);
+  const directors = peopleByJob(ext.crew, "Director");
+  const writers = peopleByJob(ext.crew, "Writer", "Screenplay");
+  const producers = peopleByJob(ext.crew, "Producer", "Executive Producer");
+  const creators = ext.creators?.map((person) => person.name).filter(Boolean) ?? [];
   return (
     <div className="rich-detail-grid">
-      <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div><p className="muted-copy">Provider availability will appear here after metadata integration.</p><div className="provider-row"><span>Netflix</span><span>Prime Video</span><span>Disney+</span></div></section>
-      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span>Release: {media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "TBA"}</span><span>Air time: Local schedule pending</span><span>Average duration: {media.runtimeMinutes ? `${media.runtimeMinutes} min` : "TBA"}</span><span>Director: TBA</span><span>Writer: TBA</span><span>Producer: TBA</span><span>Creator: TBA</span></div></section>
-      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div><div className="cast-scroll">{["Lead", "Supporting", "Guest"].map((label, index) => <NavLink className="cast-card" key={label} to={`/people/placeholder-${index + 1}`}><div className="cast-portrait">{label[0]}</div><strong>{label} actor</strong><span>{label} character</span></NavLink>)}</div></section>
-      <section className="detail-panel"><div><p className="eyebrow">Related</p><h2>Related media</h2></div><p className="muted-copy">Related shows and movies will appear after provider hydration.</p></section>
-      <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB TBA</span><span>IMDb TBA</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div>{ext.watchProviders?.length ? <div className="provider-row">{ext.watchProviders.map((provider) => <span key={provider.name}>{provider.logoPath && <img src={provider.logoPath} alt="" />}{provider.name}</span>)}</div> : <p className="muted-copy">Availability has not been hydrated yet.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span>Release: {media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "TBA"}</span><span>Average duration: {media.runtimeMinutes ? `${media.runtimeMinutes} min` : "TBA"}</span><span>Genres: {ext.genres?.map((genre) => genre.name).join(", ") || "TBA"}</span><span>Director: {directors.join(", ") || "TBA"}</span><span>Writer: {writers.join(", ") || "TBA"}</span><span>Producer: {producers.join(", ") || "TBA"}</span><span>Creator: {creators.join(", ") || "TBA"}</span></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div>{ext.cast?.length ? <div className="cast-scroll">{ext.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `cast-${index}`}`}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Cast"}</span></NavLink>)}</div> : <p className="muted-copy">Cast will appear after provider hydration.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Related</p><h2>Related media</h2></div>{ext.related?.length ? <div className="related-mini-row">{ext.related.map((item) => <div className="related-mini-card" key={`${item.type ?? media.type}-${item.id}`}><div style={item.posterPath ? { backgroundImage: `url(${item.posterPath})` } : undefined}>{!item.posterPath && item.title.slice(0, 2).toUpperCase()}</div></div>)}</div> : <p className="muted-copy">Related media will appear after provider hydration.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span>{ext.voteCount ? <span>{ext.voteCount.toLocaleString()} votes</span> : null}</div></section>
       <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div><p className="muted-copy">Spoiler-aware comments arrive in Phase 8.</p></section>
     </div>
   );
+}
+
+type ExtendedPerson = { id?: number | string; name: string; role?: string; job?: string; profilePath?: string | null };
+type ExtendedData = {
+  cast?: ExtendedPerson[];
+  crew?: ExtendedPerson[];
+  creators?: ExtendedPerson[];
+  watchProviders?: Array<{ name: string; logoPath?: string | null }>;
+  related?: Array<{ id: number | string; title: string; posterPath?: string | null; type?: string }>;
+  genres?: Array<{ id?: number; name: string }>;
+  rating?: number;
+  voteCount?: number;
+};
+
+function parseExtendedData(json: string | null): ExtendedData {
+  if (!json) return {};
+  try {
+    return JSON.parse(json) as ExtendedData;
+  } catch {
+    return {};
+  }
+}
+
+function peopleByJob(crew: ExtendedPerson[] | undefined, ...jobs: string[]) {
+  const wanted = new Set(jobs);
+  return (crew ?? []).filter((person) => person.job && wanted.has(person.job)).map((person) => person.name).filter(Boolean);
 }
 
 function formatEpisodeCode(episode: { seasonNumber: number; episodeNumber: number }) {
@@ -2297,24 +2988,38 @@ function EpisodeDetailPage() {
     }
   };
 
+  const refreshEpisodeInfo = async () => {
+    if (!id) return;
+    try {
+      await apiJson(`/api/merge/${id}/refresh`, { method: "POST", csrfToken: me.csrfToken });
+      setError("Metadata refresh queued.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Refresh could not be queued.");
+    }
+  };
+
   if (!data) return <AppPage eyebrow="Episode" title={error ? "Episode unavailable" : "Loading episode"} description={error ?? "Reading episode details..."}>{!error && <SkeletonGrid />}</AppPage>;
   const { episode, media, activity } = data;
   const watched = activity?.watched ?? false;
+  const episodeExt = parseExtendedData(episode.extendedDataJson);
+  const episodeDirectors = peopleByJob(episodeExt.crew, "Director");
+  const episodeWriters = peopleByJob(episodeExt.crew, "Writer");
   return (
     <AppPage eyebrow={media?.title ?? type ?? "Episode"} title={episode.name ?? `Episode ${episode.episodeNumber}`} description={episode.overview ?? "Synopsis has not been announced yet."}>
       <section className="episode-detail-hero">
         <div className="episode-still" style={episode.stillPath ? { backgroundImage: `url(${episode.stillPath})` } : undefined}><span>S{episode.seasonNumber} E{episode.episodeNumber}</span></div>
         <div className="episode-detail-copy">
           <div className="metadata-row"><span><CalendarDays size={16} />{episode.airDate ? new Date(`${episode.airDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date TBA"}</span><span><Clock3 size={16} />{episode.runtimeMinutes ? `${episode.runtimeMinutes} min` : "Runtime TBA"}</span></div>
-          <div className="episode-detail-actions"><IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Mark not watched" : "Mark watched"} onClick={() => void updateActivity({ watched: !watched })}><Check size={18} /></IconButton><span>{watched ? "Watched" : "Not watched"}</span></div>
+          <div className="episode-detail-actions"><IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Mark not watched" : "Mark watched"} onClick={() => void updateActivity({ watched: !watched })}><WatchMark count={watched ? 1 + (activity?.rewatchCount ?? 0) : 1} /></IconButton><span>{watched ? "Watched" : "Not watched"}</span></div>
+          <button className="secondary-button" onClick={() => void refreshEpisodeInfo()}>Refresh info</button>
           {activity?.watchedAt && <p className="muted-copy">Watched {new Date(activity.watchedAt).toLocaleString()}</p>}
           <div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} aria-label={`Rate ${rating} out of 10`} key={rating} onClick={() => void updateActivity({ rating })}>{rating}</button>)}</div></div>
           <label className="notes-field">Private episode notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void updateActivity({ notes: notes || null })} placeholder="What stood out?" /></label>
         </div>
       </section>
       <div className="rich-detail-grid">
-        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div><div className="cast-scroll">{["Main", "Guest", "Voice"].map((label, index) => <NavLink className="cast-card" key={label} to={`/people/episode-${episode.id}-${index}`}><div className="cast-portrait">{label[0]}</div><strong>{label} actor</strong><span>{label} character</span></NavLink>)}</div></section>
-        <section className="detail-panel"><div><p className="eyebrow">Episode info</p><h2>Credits</h2></div><div className="info-list"><span>Director: TBA</span><span>Writer: TBA</span><span>External ratings: TBA</span></div></section>
+        <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div>{episodeExt.cast?.length ? <div className="cast-scroll">{episodeExt.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `episode-${episode.id}-${index}`}`}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Guest"}</span></NavLink>)}</div> : <p className="muted-copy">Episode cast will appear after provider hydration.</p>}</section>
+        <section className="detail-panel"><div><p className="eyebrow">Episode info</p><h2>Credits</h2></div><div className="info-list"><span>Director: {episodeDirectors.join(", ") || "TBA"}</span><span>Writer: {episodeWriters.join(", ") || "TBA"}</span><span>TMDB rating: {episodeExt.rating ? `${Number(episodeExt.rating).toFixed(1)}/10` : "TBA"}</span></div></section>
         <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div>{watched ? <p className="muted-copy">Episode comments arrive in Phase 8.</p> : <p className="spoiler-lock"><ShieldCheck size={18} />Mark this episode watched to reveal spoiler comments.</p>}</section>
       </div>
     </AppPage>
@@ -2860,7 +3565,7 @@ function AppPage({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time"]);
+  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time", "/profile/merge"]);
   const isSubPage = !topLevelPaths.has(location.pathname) && location.pathname !== "/";
   const goBack = () => {
     document.documentElement.dataset.navDirection = "back";
@@ -2972,7 +3677,7 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
               <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
             </div>
           </div>
-          
+
           <div className="media-card-body">
             <div>
               <h2 style={{ fontSize: "0.95rem", fontWeight: 750, color: "#f8f7f2", margin: 0, textAlign: "left" }}>{entry.title}</h2>
@@ -3394,30 +4099,50 @@ async function apiJson<T = unknown>(
     headers.set("x-csrf-token", options.csrfToken);
   }
 
-  const response = await fetch(path, {
-    method: options.method ?? "GET",
-    body: options.body,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: options.method ?? "GET",
+      body: options.body,
+      headers,
+    });
+  } catch (error) {
+    const message = "Network connection failed. Check your internet connection or local Worker server.";
+    notify(message, "error");
+    throw new Error(error instanceof Error ? `${message} ${error.message}` : message);
+  }
   const text = await response.text();
   let payload: { data?: T; error?: { message: string } };
   try {
     payload = text ? JSON.parse(text) as { data?: T; error?: { message: string } } : {};
   } catch {
     const contentType = response.headers.get("content-type") ?? "unknown content";
-    throw new Error(
-      `API did not return JSON (${response.status} ${contentType}). Start the Worker with npm run dev:worker, or run Vite together with Wrangler on port 8787.`,
-    );
+    const message = `API did not return JSON (${response.status} ${contentType}). Start the Worker with npm run dev:worker, or run Vite together with Wrangler on port 8787.`;
+    notify(message, "error");
+    throw new Error(message);
   }
 
   if (!response.ok || !payload.data) {
     const errorDetails = payload.error as any;
-    const error = new Error(errorDetails?.message ?? "Request failed.") as any;
+    const message = apiNoticeMessage(response.status, errorDetails?.message);
+    notify(message, response.status >= 500 || response.status === 0 ? "error" : "info");
+    const error = new Error(errorDetails?.message ?? message) as any;
     error.code = errorDetails?.code;
     error.details = errorDetails?.details;
     throw error;
   }
   return payload.data;
+}
+
+function apiNoticeMessage(status: number, message?: string) {
+  if (status === 503) return "Backend service is unavailable. Check the Worker and database bindings.";
+  if (status >= 500) return message ? `Server error: ${message}` : "Server error. Please try again in a moment.";
+  if (status === 401) return "Your session expired. Please log in again.";
+  if (status === 403) return "This action is not allowed or the CSRF token expired.";
+  if (status === 404) return message ? `Not found: ${message}` : "The requested item was not found.";
+  if (status === 409) return message ?? "This change conflicts with existing data.";
+  if (status === 429) return "Too many requests. Please wait a moment and try again.";
+  return message ?? "Request failed.";
 }
 
 function initials(name: string) {

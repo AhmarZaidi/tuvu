@@ -403,6 +403,7 @@ async function resolveOrCreateMedia(db: D1Database, jobId: string, input: { type
     .run();
   await recordCreated(db, jobId, "media_items", mediaId, now);
   await addExternalIds(db, jobId, mediaId, input, now);
+  await upsertMediaSourceRecord(db, mediaId, "tv_time", input.sourceUuid ?? input.tvdbId ?? input.imdbId, input.title, input.type, input.year, { tvdbId: input.tvdbId, imdbId: input.imdbId, sourceUuid: input.sourceUuid }, now);
   await addWarning(db, jobId, input.sourceUuid ?? input.tvdbId ?? input.title, "warning", "placeholder_created", `Created a lightweight placeholder for ${input.title}.`, { title: input.title }, now);
   return mediaId;
 }
@@ -423,6 +424,15 @@ async function addExternalIds(db: D1Database, jobId: string, mediaId: string, in
       await recordCreated(db, jobId, "media_external_ids", id, now);
     }
   }
+}
+
+async function upsertMediaSourceRecord(db: D1Database, mediaId: string, sourceKind: string, sourceId: string | null, title: string, type: string, year: number | null, raw: unknown, now: string) {
+  if (!sourceId) return;
+  await db.prepare(`INSERT INTO media_source_records (id, media_id, source_kind, source_id, raw_title, raw_type, raw_year, normalized_title, cache_key, raw_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(source_kind, source_id) DO UPDATE SET media_id=excluded.media_id, raw_title=excluded.raw_title, raw_type=excluded.raw_type, raw_year=excluded.raw_year, normalized_title=excluded.normalized_title, raw_json=excluded.raw_json, updated_at=excluded.updated_at`)
+    .bind(randomId("msr"), mediaId, sourceKind, sourceId, title, type, year, normalizeMergeTitle(title), JSON.stringify(raw), now, now)
+    .run();
 }
 
 async function resolveOrCreateSeason(db: D1Database, jobId: string, mediaId: string, seasonNumber: number, isSpecial: boolean, episodeCount: number, now: string) {
@@ -544,4 +554,8 @@ function normalizeDateTime(value: string | null) {
   if (!value) return null;
   if (value.includes("T")) return value;
   return value.replace(" ", "T") + "Z";
+}
+
+function normalizeMergeTitle(value: string) {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }

@@ -49,7 +49,9 @@ export function createMediaRoutes() {
   // GET /api/media/:id — get media detail
   router.get("/:id", requireAuth(), async (c) => {
     const mediaRepo = c.get("mediaRepository");
-    const media = await mediaRepo.findMediaById(c.req.param("id"));
+    const requestedId = c.req.param("id");
+    const alias = c.env.DB ? await c.env.DB.prepare("SELECT target_media_id FROM media_merge_aliases WHERE source_media_id = ? AND status = 'merged'").bind(requestedId).first<{ target_media_id: string }>() : null;
+    const media = await mediaRepo.findMediaById(alias?.target_media_id ?? requestedId);
     if (!media) {
       return apiError(c, 404, "not_found", "Media item not found.");
     }
@@ -57,7 +59,7 @@ export function createMediaRoutes() {
     const auth = c.get("auth");
     const userMedia = await mediaRepo.findUserMedia(auth.user.id, media.id);
 
-    return c.json(apiSuccess({ media, userMedia }));
+    return c.json(apiSuccess({ media, userMedia, canonicalMediaId: media.id, aliasFromMediaId: alias ? requestedId : null }));
   });
 
   // GET /api/media/:id/seasons — list seasons

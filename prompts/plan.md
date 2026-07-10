@@ -912,6 +912,9 @@ Implementation details:
   - low-rate caching
 - Implement API cache table and cache helpers.
 - Implement local-first global search.
+- Route the top search box from every page into `/explore/search`, where debounced live results use local cache first and then provider APIs.
+- Cache provider search rows for about 12 hours and Open Library subject/search rows for about 24 hours; respect TMDB/RAWG/Open Library 429s and retry guidance.
+- Main Explore should hide media already tracked by the current user when possible and keep ample cached discovery rows for shows, movies, books, and games.
 - Implement Explore page:
   - all media search
   - media type filters
@@ -919,6 +922,7 @@ Implementation details:
   - genre rows
   - recommended rows
   - user search section
+- Implement provider-result add flow that creates or reuses compact canonical media rows before adding to the user's library.
 - Implement metadata hydration queue-like flow:
   - chunked batches
   - explicit user-triggered retry
@@ -937,6 +941,55 @@ Testing gate:
 Acceptance gate:
 
 - Users can search, discover, add media, and hydrate imported items without exhausting Worker limits.
+
+### Phase 6.5: Canonical Merge and Metadata Hydration
+
+Goal:
+
+Eliminate duplicate imported/manual/provider media by merging source records into one app-scoped canonical media item while preserving user-scoped tracking history.
+
+Implementation details:
+
+- Add app-scoped merge/source tables:
+  - media merge aliases
+  - media source records
+  - metadata refresh jobs
+  - metadata freshness markers
+- Keep canonical media metadata app-scoped.
+- Keep tracking, watched dates, rewatch counts, ratings, notes, lists, and activity user-scoped.
+- Match imported/manual media to providers by:
+  - exact external IDs first
+  - strong title/type/year fallback
+  - manual review for ambiguous matches
+- Add Profile -> Merge Media page.
+- Add type filters, candidate confidence, manual search override, accept selected, and accept all exact matches.
+- Redirect to merge page after TV Time import commit.
+- Collapse duplicate local/provider search results into a single canonical result whenever references match.
+- Merge operations must move user activity to the canonical target without losing history.
+- Hydrate canonical provider metadata after merge in bounded chunks:
+  - top-level details
+  - seasons and episodes
+  - episode stills, release dates, runtime, synopsis
+  - images/galleries
+  - credits/cast/crew
+  - ratings, related media, and watch providers where available
+- Add manual Refresh Info actions on media and episode pages.
+- Store compact normalized metadata in D1, cache raw provider JSON with TTL, and avoid copying large image files unless explicitly needed.
+
+Testing gate:
+
+- Matching confidence tests.
+- External-ID merge tests.
+- User activity preservation tests.
+- Episode activity mapping tests.
+- Idempotent merge retry tests.
+- Hydration tests with mocked providers.
+- Import commit redirects to merge review.
+- UI test for accept/manual-search/accept-all flows.
+
+Acceptance gate:
+
+- Imported items such as a TV Time `Rick and Morty` row and TMDB `Rick and Morty` resolve into one canonical media entry with preserved watched history and hydrated provider details.
 
 ### Phase 7: Anime, Games, and Books Tracking UX
 

@@ -25,6 +25,7 @@ const addProviderSchema = z.object({
   releaseDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   year: z.number().int().min(1000).max(2100).nullable().optional(),
   sourceUrl: z.string().max(500).nullable().optional(),
+  extendedDataJson: z.string().max(5000).nullable().optional(),
 });
 
 export function createExploreRoutes() {
@@ -59,7 +60,7 @@ export function createExploreRoutes() {
     const auth = c.get("auth");
     const repo = c.get("mediaRepository");
     const now = new Date().toISOString();
-    let media = c.env.DB ? await findMediaByExternalId(c.env.DB, body.data.provider, body.data.providerId) : null;
+    let media: MediaItemRecord | null = c.env.DB ? await findMediaByExternalId(c.env.DB, body.data.provider, body.data.providerId) : null;
     if (!media) {
       media = {
         id: randomId("med"),
@@ -78,6 +79,7 @@ export function createExploreRoutes() {
         sourceId: body.data.providerId,
         totalEpisodes: null,
         totalSeasons: null,
+        extendedDataJson: body.data.extendedDataJson ?? null,
         createdAt: now,
         updatedAt: now,
       };
@@ -140,6 +142,7 @@ function localProviderResult(media: MediaItemRecord): ProviderResult {
     popularity: null,
     attribution: { provider: "local", label: "Tuvu", url: "/" },
     localMediaId: media.id,
+    extendedDataJson: media.extendedDataJson ?? null,
   };
 }
 
@@ -257,12 +260,12 @@ function resultKey(result: ProviderResult) {
   return `${result.provider}:${result.providerId}:${result.type}`;
 }
 
-async function findMediaByExternalId(db: D1Database, provider: string, providerId: string) {
+async function findMediaByExternalId(db: D1Database, provider: string, providerId: string): Promise<MediaItemRecord | null> {
   const row = await db.prepare(`SELECT mi.* FROM media_items mi
     LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
     WHERE (mi.source = ? AND mi.source_id = ?) OR (ex.source = ? AND ex.external_id = ?)
     LIMIT 1`).bind(provider, providerId, provider, providerId).first<{
-      id: string; type: MediaType; title: string; overview: string | null; poster_path: string | null; backdrop_path: string | null; air_status: string | null; runtime_minutes: number | null; release_date: string | null; year: number | null; language: string | null; country: string | null; source: string; source_id: string | null; total_episodes: number | null; total_seasons: number | null; created_at: string; updated_at: string;
+      id: string; type: MediaType; title: string; overview: string | null; poster_path: string | null; backdrop_path: string | null; air_status: string | null; runtime_minutes: number | null; release_date: string | null; year: number | null; language: string | null; country: string | null; source: string; source_id: string | null; total_episodes: number | null; total_seasons: number | null; extended_data_json: string | null; created_at: string; updated_at: string;
     }>();
   return row ? {
     id: row.id,
@@ -281,6 +284,7 @@ async function findMediaByExternalId(db: D1Database, provider: string, providerI
     sourceId: row.source_id,
     totalEpisodes: row.total_episodes,
     totalSeasons: row.total_seasons,
+    extendedDataJson: row.extended_data_json,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } : null;

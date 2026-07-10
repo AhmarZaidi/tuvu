@@ -38,6 +38,7 @@ export function createMediaRoutes() {
       sourceId: body.data.sourceId ?? null,
       totalEpisodes: null,
       totalSeasons: null,
+      extendedDataJson: null,
       createdAt: now,
       updatedAt: now,
     };

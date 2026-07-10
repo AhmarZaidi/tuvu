@@ -302,14 +302,14 @@ export class D1MediaRepository implements MediaRepository {
         `INSERT INTO media_items
            (id, type, title, overview, poster_path, backdrop_path, air_status,
             runtime_minutes, release_date, year, language, country,
-            source, source_id, total_episodes, total_seasons, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            source, source_id, total_episodes, total_seasons, extended_data_json, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       )
       .bind(
         item.id, item.type, item.title, item.overview, item.posterPath, item.backdropPath,
         item.airStatus, item.runtimeMinutes, item.releaseDate, item.year, item.language,
         item.country, item.source, item.sourceId, item.totalEpisodes, item.totalSeasons,
-        item.createdAt, item.updatedAt,
+        item.extendedDataJson ?? null, item.createdAt, item.updatedAt,
       )
       .run();
   }

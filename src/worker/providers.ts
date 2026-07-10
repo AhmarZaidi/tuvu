@@ -23,6 +23,7 @@ export type ProviderResult = {
   attribution: ProviderAttribution;
   alreadyTracked?: boolean;
   localMediaId?: string | null;
+  extendedDataJson?: string | null;
 };
 
 export type ExploreRow = {
@@ -212,6 +213,14 @@ function normalizeRawg(item: unknown): ProviderResult | null {
     rating: numberValue(record.rating),
     popularity: numberValue(record.added),
     attribution: rawgAttribution,
+    extendedDataJson: JSON.stringify({
+      game: {
+        platforms: arrayNames(record.platforms, "platform"),
+        stores: arrayNames(record.stores, "store"),
+        rawgRating: numberValue(record.rating),
+      },
+      genres: arrayNames(record.genres).map((name) => ({ name })),
+    }),
   };
 }
 
@@ -236,6 +245,18 @@ function normalizeOpenLibrary(item: unknown): ProviderResult | null {
     rating: null,
     popularity: numberValue(record.edition_count),
     attribution: openLibraryAttribution,
+    extendedDataJson: JSON.stringify({
+      book: {
+        isbn10: firstString(record.isbn)?.length === 10 ? firstString(record.isbn) : undefined,
+        isbn13: firstString(record.isbn)?.length === 13 ? firstString(record.isbn) : undefined,
+        authors: Array.isArray(record.author_name) ? record.author_name.slice(0, 6).map((name) => ({ name: String(name), job: "Author" })) : [],
+        languages: Array.isArray(record.language) ? record.language.slice(0, 8).map(String) : [],
+        publisher: firstString(record.publisher),
+        pageCount: numberValue(record.number_of_pages_median),
+        editionCount: numberValue(record.edition_count),
+        rating: numberValue(record.ratings_average),
+      },
+    }),
   };
 }
 
@@ -267,6 +288,20 @@ function numberValue(value: unknown) {
 function numberOrString(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return stringValue(value);
+}
+
+function firstString(value: unknown) {
+  if (Array.isArray(value)) return (value.find((item) => typeof item === "string" && item.trim()) as string | undefined) ?? null;
+  return stringValue(value);
+}
+
+function arrayNames(value: unknown, nestedKey?: string) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    const record = item as Record<string, unknown>;
+    const target = nestedKey && record[nestedKey] && typeof record[nestedKey] === "object" ? record[nestedKey] as Record<string, unknown> : record;
+    return stringValue(target.name);
+  }).filter((item): item is string => Boolean(item));
 }
 
 function yearFromDate(value: string | null) {

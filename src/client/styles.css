@@ -657,6 +657,71 @@ a {
   background: rgba(244, 154, 76, 0.08);
 }
 
+.platform-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.55rem;
+  padding: 0.75rem;
+}
+
+.platform-picker legend {
+  padding: 0 0.35rem;
+  color: #ffcf5c;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.platform-picker label {
+  display: inline-flex;
+  min-height: 2.1rem;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.055);
+  padding: 0 0.65rem;
+}
+
+.requirements-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.requirements-grid div,
+.review-list article {
+  border-radius: 0.55rem;
+  background: rgba(255, 255, 255, 0.045);
+  padding: 0.75rem;
+}
+
+.requirements-grid p,
+.review-list p {
+  margin: 0.35rem 0 0;
+  color: #c9cac5;
+  line-height: 1.5;
+}
+
+.review-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.video-embed {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 0.65rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.video-embed iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 .tabs,
 .segmented-control,
 .filter-row,
@@ -2332,6 +2397,10 @@ a {
 
   .episode-guide-progress .secondary-button {
     width: 100%;
+  }
+
+  .requirements-grid {
+    grid-template-columns: 1fr;
   }
 
   .page-heading.mobile-help .heading-description {

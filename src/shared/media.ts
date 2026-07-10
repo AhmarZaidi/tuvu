@@ -103,7 +103,7 @@ export const updateMediaProgressSchema = z.object({
   value: z.number().nonnegative().nullable(),
   total: z.number().positive().nullable().optional(),
   unit: z.enum(["page", "percent", "hour", "chapter", "mission"]).nullable().optional(),
-  platform: z.string().trim().max(100).nullable().optional(),
+  platform: z.string().trim().max(1200).nullable().optional(),
 }).refine((data) => data.value === null || data.total == null || data.value <= data.total, { message: "Progress cannot exceed the total." });
 
 export const updateFavoriteSchema = z.object({

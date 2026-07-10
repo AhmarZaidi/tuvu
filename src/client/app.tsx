@@ -345,6 +345,7 @@ const navItems = [
 ] as const;
 
 const profileNav = [
+  { to: "/library", label: "All library", icon: Library },
   { to: "/profile/merge", label: "Merge media", icon: Library },
   { to: "/profile/messages", label: "Messages", icon: Mail },
   { to: "/profile/settings", label: "Settings", icon: Settings },
@@ -381,6 +382,7 @@ export function App() {
         <Route path="/auth" element={<AuthPage />} />
         <Route element={<ProtectedShell />}>
           <Route index element={<Navigate to="/shows" replace />} />
+          <Route path="/library" element={<AllLibraryPage />} />
           <Route path="/books" element={<BooksPage />} />
           <Route path="/games" element={<GamesPage />} />
           <Route path="/shows" element={<ShowsPage />} />
@@ -1203,6 +1205,100 @@ function GamesPage() {
   return <DashboardPage kind="games" mediaType="game" title="Games" description="Move between your backlog, current games, completed titles, and upcoming releases." />;
 }
 
+type LibraryItemPayload = {
+  item: NonNullable<MediaDetailData["userMedia"]>;
+  media: MediaDetailData["media"];
+};
+
+function AllLibraryPage() {
+  const [type, setType] = useState<"all" | MediaType>("all");
+  const [status, setStatus] = useState("all");
+  const [query, setQuery] = useState("");
+  const [items, setItems] = useState<LibraryItemPayload[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const params = new URLSearchParams();
+    params.set("limit", "5000");
+    if (type !== "all") params.set("type", type);
+    if (status !== "all") params.set("status", status);
+    setLoading(true);
+    apiJson<{ library: LibraryItemPayload[] }>(`/api/library?${params.toString()}`)
+      .then((data) => {
+        if (cancelled) return;
+        setItems(data.library);
+        setError(null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(friendlyErrorMessage(reason, "Library could not be loaded."));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [type, status]);
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return items.filter((entry) => !normalized || entry.media.title.toLowerCase().includes(normalized));
+  }, [items, query]);
+
+  const statusChoices = type === "all" ? allStatusChoices : statusOptionsForType(type);
+
+  return (
+    <AppPage eyebrow="Library" title="All Library" description="Filter everything you track across shows, movies, anime, books, and games." mobileHelp>
+      <div className="dashboard-toolbar">
+        <div className="dashboard-search"><Search size={16} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter library" aria-label="Filter all library" />{query && <IconButton className="search-clear" label="Clear filter" onClick={() => { setQuery(""); searchRef.current?.blur(); }}><X size={14} /></IconButton>}</div>
+      </div>
+      <div className="filter-row">
+        {(["all", "show", "movie", "anime", "book", "game"] as Array<"all" | MediaType>).map((option) => <button key={option} className={type === option ? "chip-button active" : "chip-button"} onClick={() => { setType(option); setStatus("all"); }}>{option === "all" ? "All" : option}</button>)}
+      </div>
+      <div className="filter-row">
+        <button className={status === "all" ? "chip-button active" : "chip-button"} onClick={() => setStatus("all")}>All statuses</button>
+        {statusChoices.map((option) => <button key={option} className={status === option ? "chip-button active" : "chip-button"} onClick={() => setStatus(option)}>{formatStatusLabel(option)}</button>)}
+      </div>
+      {error && <EmptyState icon={<Library size={24} />} title="Library unavailable" message={error} />}
+      {loading && <SkeletonGrid />}
+      {!loading && filtered.length === 0 && !error && <EmptyState icon={<Library size={24} />} title="No library matches" message="Try a different media type, status, or search term." />}
+      <section className="search-results-list" aria-label="All library results">
+        {filtered.map(({ item, media }) => <NavLink className="explore-result-card" key={media.id} to={`/media/${media.type}/${media.id}`}>
+          <div className="explore-result-poster" style={media.posterPath ? { backgroundImage: `url(${media.posterPath})` } : undefined}>{!media.posterPath && <span>{media.title.slice(0, 2).toUpperCase()}</span>}</div>
+          <div className="explore-result-copy">
+            <div><span className="status-chip planned">{displayMediaType(media)}</span><span className="muted-copy"> {formatStatusLabel(item.status)}</span></div>
+            <h2>{media.title}</h2>
+            {media.overview && <p>{media.overview}</p>}
+            <span className="muted-copy">{media.year ?? "Year TBA"}{item.rating ? ` - ${item.rating}/10` : ""}</span>
+          </div>
+          <ChevronRight size={18} />
+        </NavLink>)}
+      </section>
+    </AppPage>
+  );
+}
+
+const allStatusChoices = ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped", "watched", "planned", "playing", "paused", "dropped", "want_to_read", "reading", "finished"];
+
+function statusOptionsForType(type: MediaType) {
+  return {
+    show: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
+    anime: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
+    movie: ["watch_later", "watched"],
+    game: ["planned", "playing", "completed", "paused", "dropped"],
+    book: ["want_to_read", "reading", "finished", "paused", "dropped"],
+  }[type];
+}
+
+function formatStatusLabel(status: string) {
+  return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function displayMediaType(media: MediaDetailData["media"]) {
+  return isAnimeMedia(media) ? "anime" : media.type;
+}
+
 type DashboardPayload = {
   entries: DashboardEntry[];
   sections: DashboardSection[];
@@ -1538,6 +1634,7 @@ type ExploreResult = {
   attribution: ProviderAttribution;
   alreadyTracked?: boolean;
   localMediaId?: string | null;
+  extendedDataJson?: string | null;
 };
 
 type ExploreRow = {
@@ -2766,7 +2863,7 @@ function MediaDetailPage() {
   } as CSSProperties;
 
   return (
-    <AppPage eyebrow={media.type} title={media.title} description={media.overview ?? "No overview available."}>
+    <AppPage eyebrow={displayMediaType(media)} title={media.title} description={media.overview ?? "No overview available."}>
       <div className="media-visual-layer" style={mediaVisualStyle} aria-hidden="true" />
       <div className="media-detail-topbar">
         <div className="media-backdrop" style={media.backdropPath ? { backgroundImage: `url(${media.backdropPath})` } : undefined} aria-hidden="true" />
@@ -2779,6 +2876,7 @@ function MediaDetailPage() {
 
         <div className="detail-copy">
           <div className="metadata-row">
+            {isAnimeMedia(media) && <span className="status-chip paused"><Sparkles size={14} />Anime</span>}
             {media.releaseDate && <span><CalendarDays size={16} />{new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}{media.airStatus === "continuing" ? " - Present" : ""}</span>}
             {media.runtimeMinutes && <span><Clock3 size={16} />{media.runtimeMinutes} min{media.type === "show" || media.type === "anime" ? " average" : ""}</span>}
             {media.language && <span>{media.language.toUpperCase()}</span>}
@@ -2990,14 +3088,58 @@ function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["med
   const creators = ext.creators?.map((person) => person.name).filter(Boolean) ?? [];
   return (
     <div className="rich-detail-grid">
+      <TypeSpecificMetadataSections media={media} ext={ext} />
       <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div>{ext.watchProviders?.length ? <div className="provider-row">{ext.watchProviders.map((provider) => <span key={provider.name}>{provider.logoPath && <img src={provider.logoPath} alt="" />}{provider.name}</span>)}</div> : <p className="muted-copy">Availability has not been hydrated yet.</p>}</section>
-      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>Show info</h2></div><div className="info-list"><span><CalendarDays size={15} />{media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "Release TBA"}</span><span><Clock3 size={15} />{media.runtimeMinutes ? `${media.runtimeMinutes} min avg` : "Runtime TBA"}</span><span><Sparkles size={15} />{ext.genres?.map((genre) => genre.name).join(", ") || "Genres TBA"}</span><span><Clapperboard size={15} />Director: {directors.join(", ") || "TBA"}</span><span><BookOpen size={15} />Writer: {writers.join(", ") || "TBA"}</span><span className=""><Star size={15} />Producer: {producers.join(", ") || "TBA"}</span><span><User size={15} />Creator: {creators.join(", ") || "TBA"}</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>{media.type === "game" ? "Game info" : media.type === "book" ? "Book info" : isAnimeMedia(media) ? "Anime info" : "Show info"}</h2></div><div className="info-list"><span><CalendarDays size={15} />{media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "Release TBA"}</span><span><Clock3 size={15} />{media.runtimeMinutes ? `${media.runtimeMinutes} min${media.type === "show" || media.type === "anime" ? " avg" : ""}` : "Runtime TBA"}</span><span><Sparkles size={15} />{ext.genres?.map((genre) => genre.name).join(", ") || "Genres TBA"}</span><span><Clapperboard size={15} />Director: {directors.join(", ") || "TBA"}</span><span><BookOpen size={15} />Writer: {writers.join(", ") || "TBA"}</span><span><Star size={15} />Producer: {producers.join(", ") || "TBA"}</span><span><User size={15} />Creator: {creators.join(", ") || "TBA"}</span></div></section>
         <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div>{ext.cast?.length ? <div className="cast-scroll">{ext.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `cast-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: "Acting" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Cast"}</span></NavLink>)}</div> : <p className="muted-copy">Cast will appear after provider hydration.</p>}</section>
       <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Related</p><h2>Related media</h2></div>{ext.related?.length ? <RelatedMediaRow items={ext.related} /> : <p className="muted-copy">Related media will appear after provider hydration.</p>}</section>
       <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span>{ext.voteCount ? <span>{ext.voteCount.toLocaleString()} votes</span> : null}</div></section>
       <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div><p className="muted-copy">Spoiler-aware comments arrive in Phase 8.</p></section>
     </div>
   );
+}
+
+function TypeSpecificMetadataSections({ media, ext }: { media: MediaDetailData["media"]; ext: ExtendedData }) {
+  if (isAnimeMedia(media)) {
+    return <>
+      <section className="detail-panel"><div><p className="eyebrow">Anime</p><h2>Language & audio</h2></div><div className="info-list"><span><Sparkles size={15} />Original: {ext.anime?.originalLanguage ?? media.language?.toUpperCase() ?? "Japanese TBA"}</span><span><MessageSquare size={15} />Audio: {ext.anime?.audioLanguages?.join(", ") || "Audio languages TBA"}</span><span><Mail size={15} />Subtitles: {ext.anime?.subtitleLanguages?.join(", ") || "Subtitle languages TBA"}</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Studio</p><h2>Animation studios</h2></div>{ext.anime?.studios?.length ? <div className="provider-row">{ext.anime.studios.map((studio) => <span key={studio.name}>{studio.logoPath && <img src={studio.logoPath} alt="" />}{studio.name}</span>)}</div> : <p className="muted-copy">Studio logos will appear when anime metadata is available.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Voices</p><h2>Japanese cast</h2></div>{ext.anime?.japaneseCast?.length ? <CastRow people={ext.anime.japaneseCast} prefix="jp" /> : <p className="muted-copy">Original voice cast will appear when available.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Dub</p><h2>Dub cast</h2></div>{ext.anime?.dubCast?.length ? <CastRow people={ext.anime.dubCast} prefix="dub" /> : <p className="muted-copy">Dub cast can be shown here when provider metadata includes it.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Anime ratings</p><h2>External scores</h2></div><div className="provider-row"><span>MAL {ext.anime?.malRating ? `${ext.anime.malRating}/10` : "TBA"}</span><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span></div></section>
+    </>;
+  }
+
+  if (media.type === "book") {
+    return <>
+      <section className="detail-panel"><div><p className="eyebrow">Book</p><h2>Edition details</h2></div><div className="info-list"><span><BookOpen size={15} />ISBN: {ext.book?.isbn13 ?? ext.book?.isbn10 ?? "TBA"}</span><span><CalendarDays size={15} />Publisher: {ext.book?.publisher ?? "TBA"}</span><span><Library size={15} />Pages: {ext.book?.pageCount ?? "TBA"}</span><span><MessageSquare size={15} />Language: {ext.book?.languages?.join(", ") || media.language?.toUpperCase() || "TBA"}</span></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Authors</p><h2>Author section</h2></div>{ext.book?.authors?.length ? <CastRow people={ext.book.authors} prefix="author" fallbackRole="Author" /> : <p className="muted-copy">Authors will appear from Open Library metadata when available.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Characters</p><h2>Book characters</h2></div>{ext.book?.characters?.length ? <CastRow people={ext.book.characters} prefix="book-character" fallbackRole="Fictional character" /> : <p className="muted-copy">Fictional character profiles can be added manually or by a future provider.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Reviews</p><h2>Book reviews</h2></div>{ext.book?.reviews?.length ? <ReviewList reviews={ext.book.reviews} /> : <p className="muted-copy">Reviews arrive with the Phase 8 community layer or a compliant review provider.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>Book ratings</h2></div><div className="provider-row"><span>Open Library {ext.book?.rating ? `${ext.book.rating}/5` : "TBA"}</span><span>{ext.book?.editionCount ? `${ext.book.editionCount} editions` : "Editions TBA"}</span></div></section>
+    </>;
+  }
+
+  if (media.type === "game") {
+    return <>
+      <section className="detail-panel"><div><p className="eyebrow">Game</p><h2>Platforms</h2></div>{ext.game?.platforms?.length ? <div className="provider-row">{ext.game.platforms.map((platform) => <span key={platform}>{platform}</span>)}</div> : <p className="muted-copy">Provider platforms will appear after RAWG detail hydration.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Studio</p><h2>Development</h2></div><div className="info-list"><span><Gamepad2 size={15} />Developer: {ext.game?.developers?.join(", ") || "TBA"}</span><span><Library size={15} />Publisher: {ext.game?.publishers?.join(", ") || "TBA"}</span><span><Clock3 size={15} />Completion: {ext.game?.estimatedHours ? `${ext.game.estimatedHours}h estimate` : "TBA"}</span><span><Star size={15} />Sales/budget: {ext.game?.commercialInfo ?? "TBA"}</span></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Requirements</p><h2>System requirements</h2></div><div className="requirements-grid"><div><strong>Minimum</strong><p>{ext.game?.requirements?.minimum ?? "Minimum requirements TBA"}</p></div><div><strong>Recommended</strong><p>{ext.game?.requirements?.recommended ?? "Recommended requirements TBA"}</p></div></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Characters</p><h2>Characters & voices</h2></div>{ext.game?.characters?.length ? <CastRow people={ext.game.characters} prefix="game-character" fallbackRole="Character" /> : <p className="muted-copy">Game characters and voice actors can be shown here when metadata is available.</p>}</section>
+      <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>Game ratings</h2></div><div className="provider-row"><span>RAWG {ext.game?.rawgRating ?? (ext.rating ? Number(ext.rating).toFixed(1) : "TBA")}</span><span>Steam {ext.game?.steamRating ?? "TBA"}</span><span>IGN {ext.game?.ignRating ?? "TBA"}</span></div></section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Trailer</p><h2>Video</h2></div>{ext.game?.trailerKey ? <div className="video-embed"><iframe title={`${media.title} trailer`} src={`https://www.youtube.com/embed/${ext.game.trailerKey}`} allowFullScreen /></div> : <p className="muted-copy">Trailer embed will appear when a provider supplies a video.</p>}</section>
+    </>;
+  }
+
+  return null;
+}
+
+function CastRow({ people, prefix, fallbackRole }: { people: ExtendedPerson[]; prefix: string; fallbackRole?: string }) {
+  return <div className="cast-scroll">{people.map((person, index) => <NavLink className="cast-card" key={`${prefix}-${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `${prefix}-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: person.job ?? fallbackRole ?? "Cast" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || person.job || fallbackRole || "Cast"}</span></NavLink>)}</div>;
+}
+
+function ReviewList({ reviews }: { reviews: Array<{ source: string; author?: string; text: string; rating?: string | number }> }) {
+  return <div className="review-list">{reviews.slice(0, 4).map((review, index) => <article key={`${review.source}-${index}`}><strong>{review.source}{review.rating ? ` - ${review.rating}` : ""}</strong><p>{review.text}</p>{review.author && <span className="muted-copy">{review.author}</span>}</article>)}</div>;
 }
 
 type ExtendedPerson = { id?: number | string; name: string; role?: string; job?: string; profilePath?: string | null };
@@ -3010,6 +3152,42 @@ type ExtendedData = {
   genres?: Array<{ id?: number; name: string }>;
   rating?: number;
   voteCount?: number;
+  category?: string;
+  anime?: {
+    originalLanguage?: string;
+    audioLanguages?: string[];
+    subtitleLanguages?: string[];
+    studios?: Array<{ name: string; logoPath?: string | null }>;
+    japaneseCast?: ExtendedPerson[];
+    dubCast?: ExtendedPerson[];
+    malRating?: number;
+  };
+  book?: {
+    isbn10?: string;
+    isbn13?: string;
+    publisher?: string;
+    pageCount?: number;
+    languages?: string[];
+    authors?: ExtendedPerson[];
+    characters?: ExtendedPerson[];
+    reviews?: Array<{ source: string; author?: string; text: string; rating?: string | number }>;
+    rating?: number;
+    editionCount?: number;
+  };
+  game?: {
+    platforms?: string[];
+    stores?: string[];
+    developers?: string[];
+    publishers?: string[];
+    estimatedHours?: number;
+    commercialInfo?: string;
+    requirements?: { minimum?: string; recommended?: string };
+    characters?: ExtendedPerson[];
+    rawgRating?: number | string;
+    steamRating?: string;
+    ignRating?: string;
+    trailerKey?: string;
+  };
 };
 
 type RelatedMediaItem = {
@@ -3095,6 +3273,12 @@ function parseExtendedData(json: string | null): ExtendedData {
   } catch {
     return {};
   }
+}
+
+function isAnimeMedia(media: MediaDetailData["media"]) {
+  if (media.type === "anime") return true;
+  const ext = parseExtendedData(media.extendedDataJson);
+  return ext.category === "anime" || Boolean(ext.anime);
 }
 
 function EpisodeGuideProgress({ progress, onRefresh }: { progress: HydrationProgress; onRefresh: () => void }) {
@@ -3194,20 +3378,65 @@ function ProgressEditor({ mediaId, mediaType, userMedia, csrfToken, onSaved }: {
   const [value, setValue] = useState(String(userMedia.progressValue ?? ""));
   const [total, setTotal] = useState(String(userMedia.progressTotal ?? ""));
   const [unit, setUnit] = useState(userMedia.progressUnit ?? (mediaType === "book" ? "page" : "hour"));
-  const [platform, setPlatform] = useState(userMedia.platform ?? "");
+  const initialPrefs = parseUserPlatformPrefs(userMedia.platform);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(initialPrefs.platforms);
+  const [store, setStore] = useState(initialPrefs.store);
+  const [startedAt, setStartedAt] = useState(initialPrefs.startedAt);
+  const [playtimeHours, setPlaytimeHours] = useState(initialPrefs.playtimeHours != null ? String(initialPrefs.playtimeHours) : "");
+  const [plainPlatform, setPlainPlatform] = useState(initialPrefs.plain);
   const percent = userMedia.progressValue != null && userMedia.progressTotal ? Math.round((userMedia.progressValue / userMedia.progressTotal) * 100) : null;
+  const platformSummary = mediaType === "game" ? formatPlatformPrefs(parseUserPlatformPrefs(userMedia.platform)) : null;
   const save = async () => {
+    const platform = mediaType === "game"
+      ? stringifyUserPlatformPrefs({ platforms: selectedPlatforms, store, startedAt, playtimeHours: playtimeHours ? Number(playtimeHours) : null, plain: plainPlatform })
+      : null;
     const result = await apiJson<{ userMedia: NonNullable<MediaDetailData["userMedia"]> }>(`/api/library/${mediaId}/progress`, {
       method: "PATCH", csrfToken,
-      body: JSON.stringify({ value: value ? Number(value) : null, total: total ? Number(total) : null, unit, platform: mediaType === "game" ? platform || null : null }),
+      body: JSON.stringify({ value: value ? Number(value) : null, total: total ? Number(total) : null, unit, platform }),
     });
     onSaved(result.userMedia);
     setOpen(false);
   };
   return <>
-    <section className="progress-editor-summary"><div><span className="eyebrow">My progress</span><strong>{userMedia.progressValue ?? 0}{userMedia.progressUnit ? ` ${userMedia.progressUnit}${userMedia.progressValue === 1 ? "" : "s"}` : ""}{userMedia.progressTotal ? ` / ${userMedia.progressTotal}` : ""}</strong>{mediaType === "game" && userMedia.platform && <small>{userMedia.platform}</small>}</div>{percent != null && <ProgressBar value={percent} label={`${percent}% complete`} />}<button className="secondary-button" onClick={() => setOpen(true)}>Update progress</button></section>
-    <Modal title={`Update ${mediaType} progress`} open={open} onClose={() => setOpen(false)}><div className="progress-form"><label>Progress<input type="number" min={0} value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Total (optional)<input type="number" min={1} value={total} onChange={(event) => setTotal(event.target.value)} /></label><label>Measure<select value={unit} onChange={(event) => setUnit(event.target.value)}>{mediaType === "book" ? <><option value="page">Pages</option><option value="percent">Percent</option><option value="chapter">Chapters</option></> : <><option value="hour">Hours</option><option value="percent">Percent</option><option value="mission">Missions</option></>}</select></label>{mediaType === "game" && <label>Platform<input value={platform} onChange={(event) => setPlatform(event.target.value)} placeholder="PC, PlayStation 5, Switch..." /></label>}<button className="primary-button" onClick={() => void save()}>Save progress</button></div></Modal>
+    <section className="progress-editor-summary"><div><span className="eyebrow">My progress</span><strong>{userMedia.progressValue ?? 0}{userMedia.progressUnit ? ` ${userMedia.progressUnit}${userMedia.progressValue === 1 ? "" : "s"}` : ""}{userMedia.progressTotal ? ` / ${userMedia.progressTotal}` : ""}</strong>{platformSummary && <small>{platformSummary}</small>}</div>{percent != null && <ProgressBar value={percent} label={`${percent}% complete`} />}<button className="secondary-button" onClick={() => setOpen(true)}>Update progress</button></section>
+    <Modal title={`Update ${mediaType} progress`} open={open} onClose={() => setOpen(false)}><div className="progress-form"><label>Progress<input type="number" min={0} value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Total (optional)<input type="number" min={1} value={total} onChange={(event) => setTotal(event.target.value)} /></label><label>Measure<select value={unit} onChange={(event) => setUnit(event.target.value)}>{mediaType === "book" ? <><option value="page">Pages</option><option value="percent">Percent</option><option value="chapter">Chapters</option></> : <><option value="hour">Hours played</option><option value="percent">Percent</option><option value="mission">Missions</option></>}</select></label>{mediaType === "game" && <><fieldset className="platform-picker"><legend>Playing on</legend>{gamePlatformOptions.map((option) => <label key={option}><input type="checkbox" checked={selectedPlatforms.includes(option)} onChange={(event) => setSelectedPlatforms((current) => event.target.checked ? [...current, option] : current.filter((item) => item !== option))} />{option}</label>)}</fieldset><label>Other platform<input value={plainPlatform} onChange={(event) => setPlainPlatform(event.target.value)} placeholder="Steam Deck, cloud, emulator..." /></label><label>Library / store<select value={store} onChange={(event) => setStore(event.target.value)}><option value="">Not set</option>{gameStoreOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label><label>Started<input type="date" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} /></label><div className="action-row"><button className="secondary-button" type="button" onClick={() => setStartedAt(new Date().toISOString().slice(0, 10))}>Started now</button></div><label>Playtime hours<input type="number" min={0} step="0.1" value={playtimeHours} onChange={(event) => setPlaytimeHours(event.target.value)} placeholder="Optional" /></label></>}<button className="primary-button" onClick={() => void save()}>Save progress</button></div></Modal>
   </>;
+}
+
+const gamePlatformOptions = ["PC", "PlayStation", "Xbox", "Switch", "Mobile"];
+const gameStoreOptions = ["Steam", "GOG", "Epic", "PlayStation Store", "Xbox Store", "Nintendo eShop", "Game Pass", "Physical", "Other"];
+type UserPlatformPrefs = { platforms: string[]; store: string; startedAt: string; playtimeHours: number | null; plain: string };
+
+function parseUserPlatformPrefs(value: string | null): UserPlatformPrefs {
+  if (!value) return { platforms: [], store: "", startedAt: "", playtimeHours: null, plain: "" };
+  try {
+    const parsed = JSON.parse(value) as Partial<UserPlatformPrefs>;
+    return {
+      platforms: Array.isArray(parsed.platforms) ? parsed.platforms.filter((item): item is string => typeof item === "string") : [],
+      store: typeof parsed.store === "string" ? parsed.store : "",
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : "",
+      playtimeHours: typeof parsed.playtimeHours === "number" ? parsed.playtimeHours : null,
+      plain: typeof parsed.plain === "string" ? parsed.plain : "",
+    };
+  } catch {
+    return { platforms: value ? [value] : [], store: "", startedAt: "", playtimeHours: null, plain: "" };
+  }
+}
+
+function stringifyUserPlatformPrefs(prefs: UserPlatformPrefs) {
+  const normalized = {
+    platforms: [...new Set([...prefs.platforms, ...(prefs.plain.trim() ? [prefs.plain.trim()] : [])])],
+    store: prefs.store || "",
+    startedAt: prefs.startedAt || "",
+    playtimeHours: prefs.playtimeHours,
+  };
+  if (!normalized.platforms.length && !normalized.store && !normalized.startedAt && normalized.playtimeHours == null) return null;
+  return JSON.stringify(normalized);
+}
+
+function formatPlatformPrefs(prefs: UserPlatformPrefs) {
+  const parts = [prefs.platforms.join(", "), prefs.store, prefs.startedAt ? `Started ${new Date(`${prefs.startedAt}T00:00:00`).toLocaleDateString()}` : "", prefs.playtimeHours != null ? `${prefs.playtimeHours}h played` : ""].filter(Boolean);
+  return parts.join(" - ");
 }
 
 type EpisodeDetailPayload = {

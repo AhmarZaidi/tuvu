@@ -85,13 +85,15 @@ export function createLibraryRoutes() {
     const favParam = c.req.query("favorite");
     const isFavorite = favParam === "true" ? true : favParam === "false" ? false : undefined;
     const cursor = c.req.query("cursor");
+    const requestedLimit = Number(c.req.query("limit") ?? 50);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(5000, Math.max(1, Math.trunc(requestedLimit))) : 50;
 
     const entries = await mediaRepo.findUserLibrary(auth.user.id, {
       type,
       status,
       isFavorite,
       cursor,
-      limit: 50,
+      limit,
     });
 
     return c.json(apiSuccess({ library: entries }));

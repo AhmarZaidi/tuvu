@@ -123,12 +123,14 @@ export class MemoryMediaRepository implements MediaRepository {
   async findUnitActivity(userId: string, unitId: string) { return this.unitActivities.get(`${userId}:${unitId}`) ?? null; }
   async findUnitActivitiesForMedia(userId: string, mediaId: string) { return [...this.unitActivities.values()].filter((activity) => activity.userId === userId && activity.mediaId === mediaId); }
 
-  async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number) {
+  async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
+    const normalizedQuery = query?.trim().toLowerCase();
     const allowedTypes: MediaType[] = kind === "shows" ? ["show", "anime"] : [kind.slice(0, -1) as MediaType];
     const rows = [...this.userMedia.values()]
       .filter((item) => item.userId === userId)
       .map((item) => ({ item, media: this.mediaItems.get(item.mediaId) }))
       .filter((row): row is { item: UserMediaRecord; media: MediaItemRecord } => Boolean(row.media && allowedTypes.includes(row.media.type)))
+      .filter((row) => !normalizedQuery || row.media.title.toLowerCase().includes(normalizedQuery))
       .sort((a, b) => b.item.updatedAt.localeCompare(a.item.updatedAt) || a.media.title.localeCompare(b.media.title))
       .slice(offset, offset + limit);
 

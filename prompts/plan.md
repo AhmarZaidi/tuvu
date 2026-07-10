@@ -1001,6 +1001,9 @@ Implementation details:
 
 - Add Anime collection/filter view using the shared show/movie model.
 - Allow anime entries to be represented as show or movie format underneath while displaying category as anime.
+- Keep anime in the shared media model and mark it with `type = anime` or `extended_data_json.category = anime`; do not split anime into a separate tracking/activity schema.
+- Add anime-specific UI for languages/audio/subtitles, studios, Japanese cast, dub cast, and MAL-style ratings when cached provider metadata exists.
+- Use TMDB as the v1 anime-compatible provider where adequate. Do not add AniList as a primary provider without a separate terms/compliance review; MAL/Jikan-style data may be displayed only when acquired through an acceptable free/cached source.
 - Polish the Phase 4 Games library view and provider-hydrated metadata:
   - planned
   - playing
@@ -1009,6 +1012,8 @@ Implementation details:
   - dropped
   - platform
   - playtime/progress notes
+- Add game-specific UI for selected platforms, purchase/library source, started date, playtime hours, estimated completion, developers/publishers, system requirements, trailer, characters/voice actors, and provider ratings.
+- Store game user choices such as selected platforms, store/library, started date, and playtime in user-scoped tracking data. Keep common game metadata app-scoped and cached.
 - Polish the Phase 4 Books library view and provider-hydrated metadata:
   - want to read
   - reading
@@ -1017,8 +1022,12 @@ Implementation details:
   - dropped
   - page/percent progress
   - author metadata
+- Add book-specific UI for ISBN/edition details, authors, fictional characters, cover images, synopsis, reviews, related books, and ratings where available.
+- Treat chapters/parts/acts as optional `media_units` so imported/manual book structure can be tracked without assuming external APIs have chapter data.
+- Keep Open Library usage low-volume, identified, and cached; do not use it as a bulk chapter/review backend.
 - Add media-type-specific status controls.
 - Add unified "All Library" filters.
+- Add `/library` as the unified mixed-media filter view for all tracked media.
 - Ensure lists support every media type.
 
 Testing gate:

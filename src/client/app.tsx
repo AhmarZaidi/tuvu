@@ -37,6 +37,8 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type { DashboardEntry, DashboardKind, DashboardSection } from "@shared/dashboard";
+import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
+import { parseTvTimeFiles } from "./tv-time-parser";
 
 type MediaType = "show" | "movie" | "anime" | "game" | "book";
 type StatusTone = "watching" | "planned" | "complete" | "paused" | "stopped";
@@ -80,6 +82,71 @@ type AuthState = {
 };
 
 const AuthContext = createContext<AuthState | null>(null);
+
+type ImportJob = {
+  id: string;
+  status: string;
+  counts_json?: string;
+  error_message?: string;
+};
+
+type ImportState = {
+  activeJob: ImportJob | null;
+  importProgress: { processed: number; total: number; done: boolean } | null;
+  startBackgroundCommit: (jobId: string, csrfToken: string) => void;
+};
+
+const ImportContext = createContext<ImportState | null>(null);
+
+export function useImport() {
+  const ctx = useContext(ImportContext);
+  if (!ctx) throw new Error("useImport outside ImportProvider");
+  return ctx;
+}
+
+export function ImportProvider({ children }: { children: ReactNode }) {
+  const [activeJob, setActiveJob] = useState<ImportJob | null>(null);
+  const [importProgress, setImportProgress] = useState<{ processed: number; total: number; done: boolean } | null>(null);
+
+  const startBackgroundCommit = (jobId: string, csrfToken: string) => {
+    setActiveJob({ id: jobId, status: "committing" });
+    setImportProgress({ processed: 0, total: 100, done: false });
+
+    const runChunk = async () => {
+      try {
+        const response = await fetch(`/api/imports/tv-time/jobs/${jobId}/commit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
+        });
+        const res = await response.json();
+        
+        if (!response.ok || !res.success) {
+          setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
+          return;
+        }
+
+        if (res.data?.done) {
+          setActiveJob(null);
+          setImportProgress(null);
+        } else {
+          setImportProgress({ processed: res.data?.processed ?? 0, total: res.data?.total ?? 100, done: false });
+          setTimeout(runChunk, 300);
+        }
+      } catch (err) {
+        console.error("Background commit failed:", err);
+        setActiveJob({ id: jobId, status: "failed", error_message: err instanceof Error ? err.message : "Network error" });
+      }
+    };
+    
+    runChunk();
+  };
+
+  return (
+    <ImportContext.Provider value={{ activeJob, importProgress, startBackgroundCommit }}>
+      {children}
+    </ImportContext.Provider>
+  );
+}
 
 const mediaItems: MediaCardItem[] = [
   {
@@ -158,31 +225,37 @@ const exploreFilters: Array<{ label: string; icon: LucideIcon }> = [
 ];
 
 export function App() {
+  useEffect(() => {
+    const stored = localStorage.getItem("tuvu-theme");
+    document.documentElement.dataset.theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  }, []);
+
   return (
-    <Routes>
-      <Route path="/auth" element={<AuthPage />} />
-      <Route element={<ProtectedShell />}>
-        <Route index element={<Navigate to="/shows" replace />} />
-        <Route path="/books" element={<BooksPage />} />
-        <Route path="/games" element={<GamesPage />} />
-        <Route path="/shows" element={<ShowsPage />} />
-        <Route path="/movies" element={<MoviesPage />} />
-        <Route path="/profile/explore" element={<ExplorePage />} />
-        <Route path="/profile/messages" element={<MessagesPage />} />
-        <Route path="/profile/settings" element={<SettingsPage />} />
-        <Route path="/profile/import/tv-time" element={<ImportPage />} />
-        <Route path="/profile/:username?" element={<ProfilePage />} />
-        <Route path="/media/:type/:id" element={<MediaDetailPage />} />
-        <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
-        <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
-        <Route path="/lists/:id" element={<ListPage />} />
-      </Route>
-    </Routes>
+    <ImportProvider>
+      <Routes>
+        <Route path="/auth" element={<AuthPage />} />
+        <Route element={<ProtectedShell />}>
+          <Route index element={<Navigate to="/shows" replace />} />
+          <Route path="/books" element={<BooksPage />} />
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/shows" element={<ShowsPage />} />
+          <Route path="/movies" element={<MoviesPage />} />
+          <Route path="/profile/explore" element={<ExplorePage />} />
+          <Route path="/profile/messages" element={<MessagesPage />} />
+          <Route path="/profile/settings" element={<SettingsPage />} />
+          <Route path="/profile/import/tv-time" element={<ImportPage />} />
+          <Route path="/profile/:username?" element={<ProfilePage />} />
+          <Route path="/media/:type/:id" element={<MediaDetailPage />} />
+          <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
+          <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
+          <Route path="/lists/:id" element={<ListPage />} />
+        </Route>
+      </Routes>
+    </ImportProvider>
   );
 }
 
 const MediaCreationContext = createContext<{ openCreateModal: (type?: MediaType) => void } | null>(null);
-
 export function useMediaCreation() {
   const value = useContext(MediaCreationContext);
   if (!value) {
@@ -399,7 +472,34 @@ function AppShell() {
       </div>
 
       <CreateMediaModal open={isCreateOpen} onClose={() => setIsCreateOpen(false)} defaultType={defaultType} />
+      <GlobalImportProgress />
     </MediaCreationContext.Provider>
+  );
+}
+
+function GlobalImportProgress() {
+  const importState = useImport();
+  const location = useLocation();
+
+  if (!importState || !importState.activeJob || (importState.activeJob.status !== "committing" && importState.activeJob.status !== "failed") || !importState.importProgress) return null;
+  if (location.pathname === "/profile/import/tv-time") return null;
+
+  const percentage = Math.round((importState.importProgress.processed / importState.importProgress.total) * 100) || 0;
+  const isFailed = importState.activeJob.status === "failed";
+
+  return (
+    <div className="global-import-progress">
+      <NavLink to="/profile/import/tv-time" className="progress-pill">
+        <div className="progress-pill-fill" style={{ width: `${isFailed ? 100 : percentage}%`, backgroundColor: isFailed ? "rgba(255,107,107,0.15)" : undefined }} />
+        <div className="progress-pill-info">
+          <span className="progress-pill-label" style={{ color: isFailed ? "#ff6b6b" : undefined }}>{isFailed ? "Import failed" : "Importing library..."}</span>
+          {!isFailed && <span className="progress-pill-count">{importState.importProgress.processed} / {importState.importProgress.total}</span>}
+        </div>
+        {isFailed && importState.activeJob.error_message && (
+          <div className="progress-pill-error">{importState.activeJob.error_message}</div>
+        )}
+      </NavLink>
+    </div>
   );
 }
 
@@ -1732,7 +1832,7 @@ function SettingsPage() {
       </section>
       <ProfileSettingsForm me={me} onSaved={refresh} />
       <section className="settings-list">
-        <SettingRow icon={<Moon size={20} />} title="Theme" value="System" />
+        <ThemeSetting />
         <SettingRow icon={<User size={20} />} title="Profile visibility" value={me?.profile.visibility ?? "Private"} />
         <SettingRow icon={<Library size={20} />} title="Library defaults" value="Personal" />
       </section>
@@ -1741,11 +1841,289 @@ function SettingsPage() {
 }
 
 function ImportPage() {
+  const { me } = useAuth();
+  const importState = useImport();
+  const [summary, setSummary] = useState<TvTimeImportSummary | null>(null);
+  const [job, setJob] = useState<any | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [message, setMessage] = useState("Select the TV Time ZIP export or the individual export files.");
+  const [error, setError] = useState<string | null>(null);
+
+  const chooseFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true);
+    setError(null);
+    setJob(null);
+    try {
+      const parsed = await parseTvTimeFiles([...files]);
+      setSummary(parsed);
+      setMessage(`Parsed ${parsed.fileNames.length} file(s). Review data below before uploading.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Files could not be parsed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadData = async () => {
+    if (!summary) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let activeJob = job;
+      if (!activeJob || activeJob.status === "created") {
+        const created = await apiJson<{ job: any }>("/api/imports/tv-time/jobs", {
+          method: "POST",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ fileNames: summary.fileNames, counts: summary.counts }),
+        });
+        activeJob = created.job;
+      }
+
+      const chunks = chunkItems(summary.items, 25);
+      setUploadProgress({ current: 0, total: chunks.length });
+      for (let index = 0; index < chunks.length; index += 1) {
+        setMessage(`Uploading chunk ${index + 1} of ${chunks.length}...`);
+        setUploadProgress({ current: index + 1, total: chunks.length });
+        await apiJson(`/api/imports/tv-time/jobs/${activeJob.id}/chunks`, {
+          method: "POST",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ chunkIndex: index, items: chunks[index] }),
+        });
+      }
+      const refreshed = await apiJson<{ job: any }>(`/api/imports/tv-time/jobs/${activeJob.id}`);
+      setJob(refreshed.job);
+      setMessage("Chunks uploaded. Commit when ready.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Data upload failed.");
+    } finally {
+      setBusy(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const commit = async () => {
+    if (!job) return;
+    setBusy(true);
+    setError(null);
+    try {
+      importState.startBackgroundCommit(job.id, me.csrfToken);
+      setJob({ ...job, status: "committing" });
+      setMessage("Import started in background. You can navigate away.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Commit failed to start.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rollback = async () => {
+    if (!job || !window.confirm("Roll back records created by this import job?")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rolledBack = await apiJson<{ job: any; removed: number }>(`/api/imports/tv-time/jobs/${job.id}/rollback`, {
+        method: "POST",
+        csrfToken: me.csrfToken,
+      });
+      setJob(rolledBack.job);
+      setMessage(`Rollback complete. Removed ${rolledBack.removed} created record(s).`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Rollback failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <AppPage eyebrow="Import" title="TV Time import" description="The import wizard route is reserved for file selection, dry runs, chunked commits, and warnings." mobileHelp>
-      <EmptyState icon={<Upload size={24} />} title="Import wizard starts in Phase 5" message="The route exists now so navigation and layout can settle before data work begins." />
+    <AppPage eyebrow="Import" title="TV Time import" description="The import wizard route is reserved for file selection, chunked commits, and warnings." mobileHelp>
+      <section className="import-wizard">
+        <label className={`import-dropzone ${busy ? "busy" : ""}`}>
+          {busy && !uploadProgress ? (
+            <div className="import-spinner-container">
+              <div className="import-spinner"></div>
+              <strong>Processing export files...</strong>
+              <span>Please keep this window open while we process your export data.</span>
+            </div>
+          ) : (
+            <>
+              <Upload size={24} aria-hidden="true" />
+              <strong>Choose TV Time export</strong>
+              <span>Upload `tv time backup data.zip` or select the JSON, CSV, and summary HTML files together.</span>
+            </>
+          )}
+          <input type="file" multiple accept=".zip,.json,.csv,.html,text/csv,application/json,text/html" onChange={(event) => void chooseFiles(event.target.files)} disabled={busy} />
+        </label>
+        <p className="muted-copy">{message}</p>
+        {error && <p className="input-error" role="alert">{error}</p>}
+        {summary && <ImportReview summary={summary} />}
+        {job && <ImportJobPanel job={job} />}
+
+        {importState.activeJob?.status === "committing" && importState.importProgress && (
+          <div style={{ margin: "1.5rem 0", padding: "1rem", background: "rgba(255, 207, 92, 0.05)", border: "1px solid rgba(255, 207, 92, 0.2)", borderRadius: "0.5rem" }}>
+            <p className="eyebrow" style={{ marginBottom: "0.5rem", color: "#ffcf5c" }}>Active Import Progress</p>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.9rem" }}>
+              <span>Importing your library to the database...</span>
+              <span>{importState.importProgress.processed} / {importState.importProgress.total} items</span>
+            </div>
+            <ProgressBar value={Math.round((importState.importProgress.processed / importState.importProgress.total) * 100) || 0} label="Import database progress" />
+          </div>
+        )}
+
+        {importState.activeJob?.status === "failed" && importState.activeJob.error_message && (
+          <div style={{ margin: "1.5rem 0", padding: "1rem", background: "rgba(255, 107, 107, 0.05)", border: "1px solid rgba(255, 107, 107, 0.2)", borderRadius: "0.5rem" }}>
+             <p className="eyebrow" style={{ marginBottom: "0.5rem", color: "#ff6b6b" }}>Import Failed</p>
+             <p style={{ margin: 0, fontSize: "0.9rem", color: "#ff6b6b" }}>{importState.activeJob.error_message}</p>
+          </div>
+        )}
+
+        <div className="import-actions">
+          {(!job || job.status === "created") && summary && (
+            <div style={{ display: "flex", flexDirection: "column", width: "100%", gap: "0.5rem" }}>
+              <button className="primary-button" disabled={busy} onClick={() => void uploadData()}>Step 1: Push Data to Database (Chunked)</button>
+              {uploadProgress && (
+                <div style={{ marginTop: "0.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", marginBottom: "0.3rem" }}>
+                    <span>Uploading chunks...</span>
+                    <span>{uploadProgress.current} / {uploadProgress.total}</span>
+                  </div>
+                  <ProgressBar value={Math.round((uploadProgress.current / uploadProgress.total) * 100)} label="Chunk upload progress" />
+                </div>
+              )}
+            </div>
+          )}
+          {job && job.status === "uploaded" && (
+            <button className="primary-button" disabled={busy} onClick={() => void commit()}>Step 2: Start Import</button>
+          )}
+          {job && (job.status === "committed" || job.status === "rolled_back") && (
+            <button className="secondary-button danger-action" disabled={busy || job.status === "rolled_back"} onClick={() => void rollback()}>Rollback Import</button>
+          )}
+        </div>
+      </section>
+      <ImportHistory />
     </AppPage>
   );
+}
+
+function ImportHistory() {
+  const [jobs, setJobs] = useState<any[]>([]);
+  const { me } = useAuth();
+  
+  const fetchJobs = async () => {
+    try {
+      const res = await apiJson<{ jobs: any[] }>("/api/imports/tv-time/jobs");
+      setJobs(res.jobs);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchJobs();
+  }, []);
+
+  const deleteJobLog = async (id: string) => {
+    if (!window.confirm("Delete this import log from history? (This will not rollback imported data)")) return;
+    try {
+      await apiJson(`/api/imports/tv-time/jobs/${id}`, { method: "DELETE", csrfToken: me.csrfToken });
+      fetchJobs();
+    } catch (e) {
+      alert("Failed to delete log.");
+    }
+  };
+
+  const rollbackJob = async (id: string) => {
+    if (!window.confirm("Roll back records created by this import job?")) return;
+    try {
+      await apiJson(`/api/imports/tv-time/jobs/${id}/rollback`, { method: "POST", csrfToken: me.csrfToken });
+      fetchJobs();
+      alert("Rollback complete.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Rollback failed.");
+    }
+  };
+
+  if (jobs.length === 0) return null;
+
+  return (
+    <section className="import-history" style={{ marginTop: "3rem" }}>
+      <h2 style={{ fontSize: "1.1rem", marginBottom: "1rem" }}>Previous Imports</h2>
+      <div className="table-responsive">
+        <table className="list-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Shows</th>
+              <th>Movies</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((job) => (
+              <tr key={job.id}>
+                <td>{new Date(job.created_at).toLocaleDateString()}</td>
+                <td style={{ textTransform: "capitalize" }}>{job.status.replace("_", " ")}</td>
+                <td>{job.counts?.shows ?? "-"}</td>
+                <td>{job.counts?.movies ?? "-"}</td>
+                <td>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    {job.status === "committed" && (
+                       <button className="secondary-button danger-action" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem", border: "1px solid rgba(255, 107, 107, 0.2)" }} onClick={() => rollbackJob(job.id)}>
+                         Rollback
+                       </button>
+                    )}
+                    <button className="secondary-button" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }} onClick={() => deleteJobLog(job.id)}>
+                      Delete Log
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function ImportReview({ summary }: { summary: TvTimeImportSummary }) {
+  const countEntries = Object.entries(summary.counts) as Array<[keyof typeof summary.counts, number]>;
+  return (
+    <section className="import-review">
+      <div className="section-heading"><div><p className="eyebrow">Dry run</p><h2>Detected export data</h2></div><span>{summary.items.length} normalized items</span></div>
+      <div className="import-count-grid">
+        {countEntries.map(([key, value]) => {
+          const expected = tvTimeExpectedCounts[key];
+          const matches = expected === value;
+          return <article className={matches ? "import-count-card ok" : "import-count-card warn"} key={key}><span>{key.replace(/([A-Z])/g, " $1")}</span><strong>{value.toLocaleString()}</strong><small>Expected {expected.toLocaleString()}</small></article>;
+        })}
+      </div>
+      <div className="import-file-list">{summary.fileNames.map((name) => <span key={name}>{name}</span>)}</div>
+      {summary.warnings.length > 0 && <WarningList warnings={summary.warnings} />}
+    </section>
+  );
+}
+
+function ImportJobPanel({ job }: { job: any }) {
+  return (
+    <section className="import-job-panel">
+      <div><p className="eyebrow">Job</p><h2 style={{ textTransform: "capitalize" }}>{job.status.replaceAll("_", " ")}</h2></div>
+      <div className="import-file-list">{job.itemStats?.map((stat: any) => <span key={`${stat.item_kind}-${stat.status}`}>{stat.item_kind} {stat.status}: {stat.count}</span>)}</div>
+      {job.warnings?.length > 0 && <WarningList warnings={job.warnings} />}
+    </section>
+  );
+}
+
+function WarningList({ warnings }: { warnings: Array<{ severity: string; code: string; message: string }> }) {
+  return <div className="warning-list">{warnings.slice(0, 80).map((warning, index) => <p className={`warning ${warning.severity}`} key={`${warning.code}-${index}`}><strong>{warning.code}</strong>{warning.message}</p>)}</div>;
+}
+
+function chunkItems(items: TvTimeImportItem[], size: number) {
+  const chunks: TvTimeImportItem[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
 }
 
 function AppPage({
@@ -1964,7 +2342,9 @@ export function Modal({ title, children, open = true, onClose }: { title: string
   if (!open) return null;
 
   return (
-    <div className="modal-backdrop" role="presentation">
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose?.();
+    }}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <div className="modal-header">
           <h2 id="modal-title">{title}</h2>
@@ -1984,6 +2364,37 @@ export function Toast({ message }: { message: string }) {
       <Check size={16} aria-hidden="true" />
       {message}
     </div>
+  );
+}
+
+type ThemePreference = "light" | "dark" | "system";
+
+function ThemeSetting() {
+  const [theme, setTheme] = useState<ThemePreference>(() => {
+    const stored = localStorage.getItem("tuvu-theme");
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("tuvu-theme", theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  return (
+    <article className="setting-row theme-setting">
+      <div className="setting-icon"><Moon size={20} /></div>
+      <div>
+        <h2>Theme</h2>
+        <p>{theme === "system" ? "System" : theme === "dark" ? "Dark" : "Light"}</p>
+      </div>
+      <div className="theme-options" role="group" aria-label="Theme">
+        {(["light", "dark", "system"] as ThemePreference[]).map((option) => (
+          <button className={theme === option ? "active" : ""} key={option} onClick={() => setTheme(option)}>
+            {option}
+          </button>
+        ))}
+      </div>
+    </article>
   );
 }
 

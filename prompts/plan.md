@@ -828,11 +828,14 @@ Import the provided TV Time data accurately and safely.
 Implementation details:
 
 - Build `/import/tv-time` wizard.
+- Accept the full TV Time export ZIP in one upload and individual export files as a fallback.
 - Support JSON, CSV, and summary HTML upload.
+- Expand ZIP files in the browser before parsing.
 - Parse large files in browser.
 - Use Papa Parse for CSV.
 - Use browser JSON parsing for JSON, with clear error handling.
 - Normalize files into import chunks.
+- Upload normalized show/movie chunks to the Worker; do not upload raw large files to D1.
 - Add import job schema and APIs:
   - create job
   - dry run
@@ -842,6 +845,7 @@ Implementation details:
   - job status
   - warning list
 - Validate detected counts against known export totals.
+- Prefer TV Time JSON for rich episode names and watched counts; use CSV files for fallback and validation.
 - Import shows, seasons, episodes, watched states, watched dates, favorites, raw statuses, normalized statuses, rewatch counts, and watched counts.
 - Import movies, watched states, watched dates, favorites, rewatch counts, TVDB IDs, IMDb IDs, year, and raw UUID.
 - Store all source IDs.
@@ -850,6 +854,8 @@ Implementation details:
 - Preserve source IDs and tracking history on placeholders so later hydration can merge metadata without rewriting user activity.
 - Show unmatched and warning report after import.
 - Preserve all raw TV Time dates and display timezone warning.
+- Retry-safe chunk uploads should overwrite the same job item by TV Time item key.
+- Rollback removes only rows that were created by the import job; existing canonical media matched by external IDs must be preserved.
 
 Testing gate:
 

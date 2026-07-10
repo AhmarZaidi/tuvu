@@ -1102,6 +1102,8 @@ function GamesPage() {
 type DashboardPayload = {
   entries: DashboardEntry[];
   sections: DashboardSection[];
+  totalTracked?: number;
+  statusCounts?: Record<string, number>;
   page: { limit: number; offset: number; hasMore: boolean };
 };
 
@@ -1113,29 +1115,99 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("updated");
   const [view, setView] = useState<"grid" | "compact">("grid");
-  const [visible, setVisible] = useState(12);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const load = async () => {
+  const load = async (nextOffset = 0) => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
-      const next = await apiJson<DashboardPayload>(`/api/library/dashboard/${kind}?limit=2000`);
+      const next = await apiJson<DashboardPayload>(`/api/library/dashboard/${kind}?limit=50&offset=${nextOffset}`);
       const normalized: DashboardPayload = {
         entries: Array.isArray(next.entries) ? next.entries : [],
         sections: Array.isArray(next.sections) ? next.sections : [{ id: "all", label: `All ${title}`, entries: [] }],
-        page: next.page ?? { limit: 100, offset: 0, hasMore: false },
+        totalTracked: next.totalTracked,
+        statusCounts: next.statusCounts,
+        page: next.page ?? { limit: 50, offset: nextOffset, hasMore: false },
       };
-      setPayload(normalized);
-      setActiveSection((current) => normalized.sections.some((section) => section.id === current && section.entries.length) ? current : (normalized.sections.find((section) => section.entries.length)?.id ?? "all"));
+
+      setPayload((prev) => {
+        if (nextOffset === 0 || !prev) {
+          return normalized;
+        }
+
+        // Merge entries
+        const mergedEntries = [...prev.entries, ...normalized.entries];
+
+        // Merge sections
+        const mergedSections = prev.sections.map((prevSec) => {
+          const nextSec = normalized.sections.find((s) => s.id === prevSec.id);
+          return {
+            ...prevSec,
+            entries: [...prevSec.entries, ...(nextSec ? nextSec.entries : [])],
+          };
+        });
+
+        // Add any new sections
+        for (const nextSec of normalized.sections) {
+          if (!mergedSections.some((s) => s.id === nextSec.id)) {
+            mergedSections.push(nextSec);
+          }
+        }
+
+        return {
+          entries: mergedEntries,
+          sections: mergedSections,
+          totalTracked: normalized.totalTracked ?? prev.totalTracked,
+          statusCounts: normalized.statusCounts ?? prev.statusCounts,
+          page: normalized.page,
+        };
+      });
+
+      if (nextOffset === 0) {
+        setActiveSection((current) => normalized.sections.some((section) => section.id === current && section.entries.length) ? current : (normalized.sections.find((section) => section.entries.length)?.id ?? "all"));
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Dashboard could not be loaded.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => { void load(); }, [kind]);
-  useEffect(() => { setVisible(12); }, [activeSection, query, sort]);
+  const loadMore = async () => {
+    if (loading || !payload?.page.hasMore) return;
+    const nextOffset = (payload.page.offset ?? 0) + 50;
+    await load(nextOffset);
+  };
+
+  useEffect(() => { void load(0); }, [kind]);
+
+  // Set up intersection observer for infinite scroll
+  useEffect(() => {
+    if (!payload?.page.hasMore || loading) return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        void loadMore();
+      }
+    }, { rootMargin: "250px" });
+
+    const currentSentinel = sentinelRef.current;
+    if (currentSentinel) {
+      observer.observe(currentSentinel);
+    }
+
+    return () => {
+      if (currentSentinel) {
+        observer.unobserve(currentSentinel);
+      }
+    };
+  }, [payload?.page.hasMore, loading, payload?.page.offset]);
 
   const section = payload?.sections.find((candidate) => candidate.id === activeSection) ?? payload?.sections.at(-1);
+  
   const entries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const filtered = (section?.entries ?? []).filter((entry) => !normalized || entry.title.toLowerCase().includes(normalized));
@@ -1150,21 +1222,31 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   const markNextWatched = async (episodeId: string) => {
     try {
       await apiJson(`/api/episodes/${episodeId}/watched`, { method: "POST", csrfToken: me.csrfToken, body: JSON.stringify({}) });
-      await load();
+      await load(0);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Episode could not be updated.");
     }
   };
 
-  const sectionTabs = (payload?.sections ?? []).map((candidate) => ({
-    id: candidate.id,
-    label: candidate.label,
-    count: candidate.entries.length,
-  }));
+  const sectionTabs = (payload?.sections ?? []).map((candidate) => {
+    let count = candidate.entries.length;
+    if (payload?.statusCounts) {
+      if (candidate.id === "all") {
+        count = payload.totalTracked ?? count;
+      } else {
+        count = payload.statusCounts[candidate.id] ?? 0;
+      }
+    }
+    return {
+      id: candidate.id,
+      label: candidate.label,
+      count,
+    };
+  });
 
   return (
     <AppPage eyebrow="Library" title={title} description={description} mobileHelp action={<IconButton label={`Add ${mediaType}`} onClick={() => openCreateModal(mediaType)}><Plus size={18} /></IconButton>}>
-      {payload && <DashboardStats entries={payload.entries} kind={kind} />}
+      {payload && <DashboardStats entries={payload.entries} kind={kind} totalTracked={payload.totalTracked} statusCounts={payload.statusCounts} />}
       <div className="dashboard-toolbar">
         <SortMenu value={sort} onChange={setSort} />
         <div className="dashboard-search"><Search size={16} /><input aria-label={`Filter ${title}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Filter ${title.toLowerCase()}`} /></div>
@@ -1182,9 +1264,13 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
       ) : (
         <>
           <section className={view === "compact" ? "media-results compact" : "media-results poster-grid"} aria-label={section?.label}>
-            {entries.slice(0, visible).map((entry) => <DashboardMediaCard key={entry.mediaId} entry={entry} compact={view === "compact"} onMarkNext={markNextWatched} />)}
+            {entries.map((entry) => <DashboardMediaCard key={entry.mediaId} entry={entry} compact={view === "compact"} onMarkNext={markNextWatched} />)}
           </section>
-          {visible < entries.length && <button className="load-more" onClick={() => setVisible((count) => count + 12)}>Show more</button>}
+          {payload.page.hasMore && (
+            <div ref={sentinelRef} style={{ height: "60px", display: "flex", alignItems: "center", justifyContent: "center", margin: "1.5rem 0" }}>
+              <div className="import-spinner" style={{ width: "24px", height: "24px", borderColor: "rgba(255,207,92,0.2)", borderTopColor: "#ffcf5c" }} />
+            </div>
+          )}
         </>
       )}
     </AppPage>
@@ -2490,14 +2576,14 @@ function SortMenu({ value, onChange }: { value: string; onChange: (value: string
   );
 }
 
-function DashboardStats({ entries = [], kind = "shows" }: { entries?: DashboardEntry[]; kind?: DashboardKind }) {
-  const active = entries.filter((entry) => ["watching", "reading", "playing"].includes(entry.status)).length;
+function DashboardStats({ entries = [], kind = "shows", totalTracked, statusCounts }: { entries?: DashboardEntry[]; kind?: DashboardKind; totalTracked?: number; statusCounts?: Record<string, number> }) {
+  const active = statusCounts ? (statusCounts["watching"] || 0) : entries.filter((entry) => ["watching", "reading", "playing"].includes(entry.status)).length;
   const favorites = entries.filter((entry) => entry.isFavorite).length;
   return (
     <section className="stats-grid" aria-label="Library stats">
       <Stat icon={<Play size={20} />} label={kind === "shows" ? "Next up" : "In progress"} value={String(kind === "shows" ? entries.filter((entry) => entry.nextEpisode).length : active)} />
       <Stat icon={<Star size={20} />} label="Favorites" value={String(favorites)} />
-      <Stat icon={<BarChart3 size={20} />} label="Tracked" value={String(entries.length)} />
+      <Stat icon={<BarChart3 size={20} />} label="Tracked" value={String(totalTracked ?? entries.length)} />
     </section>
   );
 }
@@ -2525,14 +2611,89 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
       ? Math.min(100, Math.round((entry.progressValue / entry.progressTotal) * 100))
     : (["watched", "completed", "finished"].includes(entry.status) ? 100 : 0);
   const nextLabel = entry.nextEpisode ? `S${entry.nextEpisode.seasonNumber} E${entry.nextEpisode.episodeNumber}` : null;
+
+  if (compact) {
+    return (
+      <article className="media-card compact-card">
+        <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
+          <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.4rem" }}>
+            {/* Background poster with 0.5 opacity */}
+            <div style={{ opacity: 0.5, width: "100%", height: "100%" }}>
+              <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
+            </div>
+
+            {/* Foreground clipped poster with 1.0 opacity */}
+            <div style={{ position: "absolute", inset: 0, opacity: 1, clipPath: `polygon(0 0, ${percent}% 0, ${percent}% 100%, 0 100%)`, width: "100%", height: "100%" }}>
+              <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
+            </div>
+          </div>
+          
+          <div className="media-card-body">
+            <div>
+              <h2 style={{ fontSize: "0.95rem", fontWeight: 750, color: "#f8f7f2", margin: 0, textAlign: "left" }}>{entry.title}</h2>
+              <p style={{ margin: "0.15rem 0 0.35rem", fontSize: "0.82rem", color: "#aeb1ac", textAlign: "left" }}>
+                {nextLabel ?? (entry.year ? String(entry.year) : "")}
+              </p>
+            </div>
+            <div style={{ display: "flex" }}>
+              <StatusChip tone={toneForStatus(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusChip>
+            </div>
+          </div>
+        </NavLink>
+        {entry.nextEpisode && (
+          <button className="quick-watch thinner" onClick={() => void onMarkNext(entry.nextEpisode!.id)}>
+            <Check size={14} />Mark watched
+          </button>
+        )}
+      </article>
+    );
+  }
+
+  const displayYear = entry.year ? String(entry.year) : "";
   return (
-    <article className={compact ? "media-card compact-card" : "media-card"}>
+    <article className="media-card">
       <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
-        <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} />
-        <div className="media-card-body"><div><p>{nextLabel ?? (entry.year ? String(entry.year) : '')}</p></div><StatusChip tone={toneForStatus(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusChip></div>
+        <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.5rem" }}>
+          {/* Background poster with 0.5 opacity */}
+          <div style={{ opacity: 0.5, width: "100%", height: "100%" }}>
+            <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
+          </div>
+
+          {/* Foreground clipped poster with 1.0 opacity */}
+          <div style={{ position: "absolute", inset: 0, opacity: 1, clipPath: `polygon(0 0, ${percent}% 0, ${percent}% 100%, 0 100%)`, width: "100%", height: "100%" }}>
+            <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
+          </div>
+
+          {/* Status chip over top left */}
+          <div style={{ position: "absolute", top: "0.5rem", left: "0.5rem", zIndex: 10 }}>
+            <StatusChip tone={toneForStatus(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusChip>
+          </div>
+
+          {/* S1 E2 chip over top right */}
+          {nextLabel && (
+            <div style={{ position: "absolute", top: "0.5rem", right: "0.5rem", zIndex: 10 }}>
+              <span className="episode-chip">{nextLabel}</span>
+            </div>
+          )}
+
+          {/* Title and Year Overlay at the bottom */}
+          <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-end", padding: "0.85rem", zIndex: 10, background: "linear-gradient(transparent, rgba(0, 0, 0, 0.85))", borderRadius: "0 0 0.5rem 0.5rem" }}>
+            <span style={{ color: "#fff8e8", fontSize: "0.95rem", fontWeight: 850, lineHeight: 1.1, overflowWrap: "anywhere", marginRight: "0.5rem", flex: 1, textAlign: "left" }}>
+              {entry.title}
+            </span>
+            {displayYear && (
+              <span className="poster-year-chip">
+                {displayYear}
+              </span>
+            )}
+          </div>
+        </div>
       </NavLink>
-      <ProgressBar value={percent} label={`${percent}% complete`} />
-      {entry.nextEpisode && <button className="quick-watch" onClick={() => void onMarkNext(entry.nextEpisode!.id)}><Check size={16} />Mark {nextLabel} watched</button>}
+      {entry.nextEpisode && (
+        <button className="quick-watch thinner" onClick={() => void onMarkNext(entry.nextEpisode!.id)}>
+          <Check size={14} />Mark {nextLabel} watched
+        </button>
+      )}
     </article>
   );
 }
@@ -2568,7 +2729,7 @@ export function PosterGrid({ children }: { children: ReactNode }) {
   return <section className="poster-grid">{children}</section>;
 }
 
-export function ResponsivePoster({ accent, title, posterPath }: { accent: string; title: string; posterPath?: string | null }) {
+export function ResponsivePoster({ accent, title, posterPath, showTitle = true }: { accent: string; title: string; posterPath?: string | null; showTitle?: boolean }) {
   if (posterPath) {
     return (
       <div className="poster">
@@ -2578,7 +2739,7 @@ export function ResponsivePoster({ accent, title, posterPath }: { accent: string
   }
   return (
     <div className="poster" style={{ background: accent }}>
-      <span>{title}</span>
+      {showTitle && <span>{title}</span>}
     </div>
   );
 }

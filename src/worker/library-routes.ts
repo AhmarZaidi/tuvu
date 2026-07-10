@@ -28,12 +28,40 @@ export function createLibraryRoutes() {
     const requestedOffset = Number(c.req.query("offset") ?? 0);
     const limit = Number.isFinite(requestedLimit) ? Math.min(5000, Math.max(1, Math.trunc(requestedLimit))) : 60;
     const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.trunc(requestedOffset)) : 0;
-    const entries = await c.get("mediaRepository").findDashboardEntries(c.get("auth").user.id, kind.data, limit, offset);
+    const auth = c.get("auth");
+    
+    const entries = await c.get("mediaRepository").findDashboardEntries(auth.user.id, kind.data, limit, offset);
+
+    // Fetch total tracked and status count breakdowns for correct stats in client pagination
+    const types = kind.data === "shows" ? ["show", "anime"] : [kind.data.slice(0, -1)];
+    const typePlaceholders = types.map(() => "?").join(", ");
+    
+    const totalTrackedRow = await c.env.DB.prepare(`
+      SELECT COUNT(*) as count 
+      FROM user_media um 
+      JOIN media_items mi ON mi.id = um.media_id 
+      WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
+    `).bind(auth.user.id, ...types).first<{ count: number }>();
+    
+    const statusCountsRows = await c.env.DB.prepare(`
+      SELECT um.status, COUNT(*) as count 
+      FROM user_media um 
+      JOIN media_items mi ON mi.id = um.media_id 
+      WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
+      GROUP BY um.status
+    `).bind(auth.user.id, ...types).all<{ status: string; count: number }>();
+
+    const statusCounts: Record<string, number> = {};
+    for (const r of statusCountsRows.results) {
+      statusCounts[r.status] = r.count;
+    }
 
     return c.json(apiSuccess({
       kind: kind.data,
       entries,
       sections: buildDashboardSections(kind.data, entries),
+      totalTracked: totalTrackedRow?.count ?? 0,
+      statusCounts,
       page: { limit, offset, hasMore: entries.length === limit },
     }));
   });

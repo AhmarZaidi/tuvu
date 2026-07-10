@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | "conflict"
   | "csrf_failed"
   | "forbidden"
+  | "invalid_state"
   | "not_found"
   | "rate_limited"
   | "server_error"

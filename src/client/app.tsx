@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type { DashboardEntry, DashboardKind, DashboardSection } from "@shared/dashboard";
@@ -88,12 +88,16 @@ type ImportJob = {
   status: string;
   counts_json?: string;
   error_message?: string;
+  errorMessage?: string;
 };
 
 type ImportState = {
   activeJob: ImportJob | null;
   importProgress: { processed: number; total: number; done: boolean } | null;
   startBackgroundCommit: (jobId: string, csrfToken: string) => void;
+  startBackgroundRollback: (jobId: string, csrfToken: string) => void;
+  dismissActiveJob: () => void;
+  abandonJob: (jobId: string, csrfToken: string) => Promise<void>;
 };
 
 const ImportContext = createContext<ImportState | null>(null);
@@ -107,20 +111,29 @@ export function useImport() {
 export function ImportProvider({ children }: { children: ReactNode }) {
   const [activeJob, setActiveJob] = useState<ImportJob | null>(null);
   const [importProgress, setImportProgress] = useState<{ processed: number; total: number; done: boolean } | null>(null);
+  // Abort flag — incremented whenever we want to stop the current polling loop
+  const abortCountRef = useRef(0);
+  
+  const authContext = useContext(AuthContext);
+  const me = authContext?.me;
 
   const startBackgroundCommit = (jobId: string, csrfToken: string) => {
+    abortCountRef.current += 1;
+    const myAbort = abortCountRef.current;
     setActiveJob({ id: jobId, status: "committing" });
     setImportProgress({ processed: 0, total: 100, done: false });
 
     const runChunk = async () => {
+      if (abortCountRef.current !== myAbort) return; // aborted
       try {
         const response = await fetch(`/api/imports/tv-time/jobs/${jobId}/commit`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
         });
-        const res = await response.json();
+        if (abortCountRef.current !== myAbort) return;
+        const res = await response.json() as { data?: { done?: boolean; processed?: number; total?: number }; error?: { message?: string } };
         
-        if (!response.ok || !res.success) {
+        if (!response.ok || !res.data) {
           setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
           return;
         }
@@ -133,16 +146,120 @@ export function ImportProvider({ children }: { children: ReactNode }) {
           setTimeout(runChunk, 300);
         }
       } catch (err) {
+        if (abortCountRef.current !== myAbort) return;
         console.error("Background commit failed:", err);
         setActiveJob({ id: jobId, status: "failed", error_message: err instanceof Error ? err.message : "Network error" });
       }
     };
-    
     runChunk();
   };
 
+  const startBackgroundRollback = (jobId: string, csrfToken: string) => {
+    abortCountRef.current += 1;
+    const myAbort = abortCountRef.current;
+    setActiveJob({ id: jobId, status: "rolling_back" });
+    setImportProgress({ processed: 0, total: 100, done: false });
+
+    const runChunk = async () => {
+      if (abortCountRef.current !== myAbort) return;
+      try {
+        const response = await fetch(`/api/imports/tv-time/jobs/${jobId}/rollback`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken }
+        });
+        if (abortCountRef.current !== myAbort) return;
+        const res = await response.json() as { data?: { done?: boolean; remaining?: number }; error?: { message?: string } };
+        
+        if (!response.ok || !res.data) {
+          setActiveJob({ id: jobId, status: "failed", error_message: res.error?.message || "Server error" });
+          return;
+        }
+
+        if (res.data?.done) {
+          setActiveJob(null);
+          setImportProgress(null);
+        } else {
+          const remaining = res.data?.remaining ?? 0;
+          setImportProgress((prev) => ({
+            processed: (prev?.total ?? remaining + 50) - remaining,
+            total: prev?.total ? Math.max(prev.total, remaining) : remaining + 50,
+            done: false
+          }));
+          setTimeout(runChunk, 300);
+        }
+      } catch (err) {
+        if (abortCountRef.current !== myAbort) return;
+        console.error("Background rollback failed:", err);
+        setActiveJob({ id: jobId, status: "failed", error_message: err instanceof Error ? err.message : "Network error" });
+      }
+    };
+    runChunk();
+  };
+
+  const abandonJob = async (jobId: string, csrfToken: string) => {
+    // Stop the local polling loop first
+    abortCountRef.current += 1;
+    setActiveJob(null);
+    setImportProgress(null);
+    try {
+      await fetch(`/api/imports/tv-time/jobs/${jobId}/abandon`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+      });
+    } catch (err) {
+      console.error("Abandon failed:", err);
+    }
+  };
+
+  const dismissActiveJob = () => {
+    setActiveJob(null);
+    setImportProgress(null);
+  };
+
+  useEffect(() => {
+    if (!me) return;
+    const checkActiveJob = async () => {
+      try {
+        const res = await apiJson<{ jobs: any[] }>("/api/imports/tv-time/jobs");
+        const active = res.jobs.find((j) => j.status === "committing" || j.status === "rolling_back");
+        if (active) {
+          if (active.status === "committing") {
+            let processed = 0;
+            let total = 0;
+            if (active.itemStats && Array.isArray(active.itemStats)) {
+              for (const stat of active.itemStats) {
+                total += stat.count;
+                if (stat.status === "committed") {
+                  processed += stat.count;
+                }
+              }
+            }
+            if (total === 0 && active.counts) {
+              total = (active.counts.shows ?? 0) + (active.counts.movies ?? 0);
+            }
+            setActiveJob({ id: active.id, status: "committing", counts_json: JSON.stringify(active.counts), errorMessage: active.error_message });
+            setImportProgress({ processed, total: Math.max(total, 1), done: false });
+            startBackgroundCommit(active.id, me.csrfToken);
+          } else if (active.status === "rolling_back") {
+            let total = 100;
+            if (active.counts) {
+              total = (active.counts.shows ?? 0) + (active.counts.movies ?? 0);
+            }
+            const remaining = active.remainingCreatedRecords ?? 0;
+            setActiveJob({ id: active.id, status: "rolling_back", counts_json: JSON.stringify(active.counts), errorMessage: active.error_message });
+            setImportProgress({ processed: Math.max(0, total - remaining), total: Math.max(total, 1), done: false });
+            startBackgroundRollback(active.id, me.csrfToken);
+          }
+        }
+      } catch (e) {
+        console.error("Error checking active import job:", e);
+      }
+    };
+    void checkActiveJob();
+  }, [me]);
+
   return (
-    <ImportContext.Provider value={{ activeJob, importProgress, startBackgroundCommit }}>
+    <ImportContext.Provider value={{ activeJob, importProgress, startBackgroundCommit, startBackgroundRollback, dismissActiveJob, abandonJob }}>
       {children}
     </ImportContext.Provider>
   );
@@ -231,27 +348,25 @@ export function App() {
   }, []);
 
   return (
-    <ImportProvider>
-      <Routes>
-        <Route path="/auth" element={<AuthPage />} />
-        <Route element={<ProtectedShell />}>
-          <Route index element={<Navigate to="/shows" replace />} />
-          <Route path="/books" element={<BooksPage />} />
-          <Route path="/games" element={<GamesPage />} />
-          <Route path="/shows" element={<ShowsPage />} />
-          <Route path="/movies" element={<MoviesPage />} />
-          <Route path="/profile/explore" element={<ExplorePage />} />
-          <Route path="/profile/messages" element={<MessagesPage />} />
-          <Route path="/profile/settings" element={<SettingsPage />} />
-          <Route path="/profile/import/tv-time" element={<ImportPage />} />
-          <Route path="/profile/:username?" element={<ProfilePage />} />
-          <Route path="/media/:type/:id" element={<MediaDetailPage />} />
-          <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
-          <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
-          <Route path="/lists/:id" element={<ListPage />} />
-        </Route>
-      </Routes>
-    </ImportProvider>
+    <Routes>
+      <Route path="/auth" element={<AuthPage />} />
+      <Route element={<ProtectedShell />}>
+        <Route index element={<Navigate to="/shows" replace />} />
+        <Route path="/books" element={<BooksPage />} />
+        <Route path="/games" element={<GamesPage />} />
+        <Route path="/shows" element={<ShowsPage />} />
+        <Route path="/movies" element={<MoviesPage />} />
+        <Route path="/profile/explore" element={<ExplorePage />} />
+        <Route path="/profile/messages" element={<MessagesPage />} />
+        <Route path="/profile/settings" element={<SettingsPage />} />
+        <Route path="/profile/import/tv-time" element={<ImportPage />} />
+        <Route path="/profile/:username?" element={<ProfilePage />} />
+        <Route path="/media/:type/:id" element={<MediaDetailPage />} />
+        <Route path="/media/:type/:id/episodes/:episodeId" element={<EpisodeDetailPage />} />
+        <Route path="/media/:type/:id/units/:unitId" element={<UnitDetailPage />} />
+        <Route path="/lists/:id" element={<ListPage />} />
+      </Route>
+    </Routes>
   );
 }
 
@@ -480,25 +595,47 @@ function AppShell() {
 function GlobalImportProgress() {
   const importState = useImport();
   const location = useLocation();
+  const { me } = useAuth();
 
-  if (!importState || !importState.activeJob || (importState.activeJob.status !== "committing" && importState.activeJob.status !== "failed") || !importState.importProgress) return null;
+  if (!importState || !importState.activeJob || (importState.activeJob.status !== "committing" && importState.activeJob.status !== "rolling_back" && importState.activeJob.status !== "failed") || !importState.importProgress) return null;
   if (location.pathname === "/profile/import/tv-time") return null;
 
   const percentage = Math.round((importState.importProgress.processed / importState.importProgress.total) * 100) || 0;
   const isFailed = importState.activeJob.status === "failed";
+  const isActive = importState.activeJob.status === "committing" || importState.activeJob.status === "rolling_back";
+  const isRollingBack = importState.activeJob.status === "rolling_back";
+  const label = isFailed ? "Failed" : isRollingBack ? "Rolling back..." : "Importing library...";
+  const fillColor = isFailed ? "rgba(255,107,107,0.2)" : isRollingBack ? "rgba(255,207,92,0.1)" : undefined;
+  const jobId = importState.activeJob.id;
 
   return (
     <div className="global-import-progress">
-      <NavLink to="/profile/import/tv-time" className="progress-pill">
-        <div className="progress-pill-fill" style={{ width: `${isFailed ? 100 : percentage}%`, backgroundColor: isFailed ? "rgba(255,107,107,0.15)" : undefined }} />
-        <div className="progress-pill-info">
-          <span className="progress-pill-label" style={{ color: isFailed ? "#ff6b6b" : undefined }}>{isFailed ? "Import failed" : "Importing library..."}</span>
+      <div className="progress-pill" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div className="progress-pill-fill" style={{ width: `${isFailed ? 100 : percentage}%`, backgroundColor: fillColor }} />
+        <NavLink to="/profile/import/tv-time" className="progress-pill-info" style={{ flex: 1, textDecoration: "none" }}>
+          <span className="progress-pill-label" style={{ color: isFailed ? "#ff6b6b" : undefined }}>{label}</span>
           {!isFailed && <span className="progress-pill-count">{importState.importProgress.processed} / {importState.importProgress.total}</span>}
-        </div>
-        {isFailed && importState.activeJob.error_message && (
-          <div className="progress-pill-error">{importState.activeJob.error_message}</div>
+        </NavLink>
+        {isActive && (
+          <button
+            aria-label="Stop import"
+            title="Stop import"
+            onClick={(e) => { e.stopPropagation(); void importState.abandonJob(jobId, me.csrfToken); }}
+            style={{ position: "relative", zIndex: 2, background: "rgba(255,107,107,0.15)", border: "1px solid rgba(255,107,107,0.3)", borderRadius: "6px", cursor: "pointer", color: "#ff8080", fontSize: "0.72rem", fontWeight: 600, lineHeight: 1, padding: "0.2rem 0.45rem", flexShrink: 0 }}
+          >Stop</button>
         )}
-      </NavLink>
+        <button
+          aria-label="Dismiss"
+          onClick={(e) => { e.stopPropagation(); importState.dismissActiveJob(); }}
+          style={{ position: "relative", zIndex: 2, background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", lineHeight: 1, padding: "0.25rem", flexShrink: 0 }}
+        >✕</button>
+      </div>
+      {(isFailed && (importState.activeJob.error_message || importState.activeJob.errorMessage)) && (
+        <div className="progress-pill" style={{ marginTop: "0.25rem", background: "rgba(255, 107, 107, 0.07)", border: "1px solid rgba(255, 107, 107, 0.2)" }}>
+          <div className="progress-pill-error" style={{ padding: "0.25rem 0" }}>{importState.activeJob.error_message || importState.activeJob.errorMessage}</div>
+          <button aria-label="Dismiss error" onClick={() => importState.dismissActiveJob()} style={{ background: "none", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.4)", fontSize: "1.1rem", padding: "0.25rem" }}>✕</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -792,7 +929,9 @@ function ProtectedShell() {
 
   return (
     <AuthContext.Provider value={value}>
-      <AppShell />
+      <ImportProvider>
+        <AppShell />
+      </ImportProvider>
     </AuthContext.Provider>
   );
 }
@@ -980,7 +1119,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   const load = async () => {
     try {
       setError(null);
-      const next = await apiJson<DashboardPayload>(`/api/library/dashboard/${kind}?limit=100`);
+      const next = await apiJson<DashboardPayload>(`/api/library/dashboard/${kind}?limit=2000`);
       const normalized: DashboardPayload = {
         entries: Array.isArray(next.entries) ? next.entries : [],
         sections: Array.isArray(next.sections) ? next.sections : [{ id: "all", label: `All ${title}`, entries: [] }],
@@ -2009,7 +2148,11 @@ function ImportPage() {
 function ImportHistory() {
   const [jobs, setJobs] = useState<any[]>([]);
   const { me } = useAuth();
-  
+  const importState = useImport();
+  const [rollbackJobId, setRollbackJobId] = useState<string | null>(null);
+  const [deleteJobId, setDeleteJobId] = useState<string | null>(null);
+  const [abandonJobId, setAbandonJobId] = useState<string | null>(null);
+
   const fetchJobs = async () => {
     try {
       const res = await apiJson<{ jobs: any[] }>("/api/imports/tv-time/jobs");
@@ -2024,7 +2167,7 @@ function ImportHistory() {
   }, []);
 
   const deleteJobLog = async (id: string) => {
-    if (!window.confirm("Delete this import log from history? (This will not rollback imported data)")) return;
+    setDeleteJobId(null);
     try {
       await apiJson(`/api/imports/tv-time/jobs/${id}`, { method: "DELETE", csrfToken: me.csrfToken });
       fetchJobs();
@@ -2033,57 +2176,212 @@ function ImportHistory() {
     }
   };
 
-  const rollbackJob = async (id: string) => {
-    if (!window.confirm("Roll back records created by this import job?")) return;
-    try {
-      await apiJson(`/api/imports/tv-time/jobs/${id}/rollback`, { method: "POST", csrfToken: me.csrfToken });
-      fetchJobs();
-      alert("Rollback complete.");
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Rollback failed.");
-    }
-  };
-
   if (jobs.length === 0) return null;
 
+  function jobStatusChip(job: any) {
+    const isStopped = job.status === "failed" && (job.errorMessage === "Manually stopped." || job.error_message === "Manually stopped.");
+    const map: Record<string, { label: string; tone: string }> = {
+      committed: { label: "Committed", tone: "complete" },
+      rolling_back: { label: "Rolling back", tone: "watching" },
+      rolled_back: { label: "Rolled back", tone: "paused" },
+      failed: isStopped ? { label: "Stopped", tone: "stopped" } : { label: "Failed", tone: "stopped" },
+      uploading: { label: "Uploading", tone: "watching" },
+      uploaded: { label: "Uploaded", tone: "planned" },
+      committing: { label: "Committing", tone: "watching" },
+      created: { label: "Created", tone: "planned" },
+    };
+    const { label, tone } = map[job.status] ?? { label: job.status.replace(/_/g, " "), tone: "" };
+    return <span className={`status-chip ${tone}`} style={{ textTransform: "capitalize", fontSize: "0.78rem" }}>{label}</span>;
+  }
+
   return (
-    <section className="import-history" style={{ marginTop: "3rem" }}>
-      <h2 style={{ fontSize: "1.1rem", marginBottom: "1rem" }}>Previous Imports</h2>
-      <div className="table-responsive">
-        <table className="list-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Status</th>
-              <th>Shows</th>
-              <th>Movies</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.map((job) => (
-              <tr key={job.id}>
-                <td>{new Date(job.created_at).toLocaleDateString()}</td>
-                <td style={{ textTransform: "capitalize" }}>{job.status.replace("_", " ")}</td>
-                <td>{job.counts?.shows ?? "-"}</td>
-                <td>{job.counts?.movies ?? "-"}</td>
-                <td>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    {job.status === "committed" && (
-                       <button className="secondary-button danger-action" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem", border: "1px solid rgba(255, 107, 107, 0.2)" }} onClick={() => rollbackJob(job.id)}>
-                         Rollback
-                       </button>
-                    )}
-                    <button className="secondary-button" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }} onClick={() => deleteJobLog(job.id)}>
-                      Delete Log
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <section className="import-history-section">
+      <div className="section-heading" style={{ marginBottom: "1rem" }}>
+        <div>
+          <p className="eyebrow">History</p>
+          <h2>Previous Imports</h2>
+        </div>
       </div>
+
+      <div className="import-history-list">
+        {jobs.map((job) => {
+          const date = new Date(job.created_at);
+          const shows = job.counts?.shows;
+          const movies = job.counts?.movies;
+          const canRollback = job.status === "committed";
+          const isStopped = job.status === "failed" && (job.errorMessage === "Manually stopped." || job.error_message === "Manually stopped.");
+          const canStop = ["committing", "rolling_back", "uploaded", "created"].includes(job.status) || (job.status === "failed" && !isStopped);
+          const committedAt = job.committed_at ? new Date(job.committed_at) : null;
+
+          // Progress calculation for history card
+          let pct = 0;
+          let processed = 0;
+          let total = 0;
+          const isActiveProgress = job.status === "committing" || job.status === "rolling_back";
+
+          if (job.status === "committing") {
+            if (job.itemStats && Array.isArray(job.itemStats)) {
+              for (const stat of job.itemStats) {
+                total += stat.count;
+                if (stat.status === "committed") processed += stat.count;
+              }
+            }
+            if (total === 0 && job.counts) {
+              total = (job.counts.shows ?? 0) + (job.counts.movies ?? 0);
+            }
+            pct = Math.round((processed / Math.max(total, 1)) * 100) || 0;
+          } else if (job.status === "rolling_back") {
+            if (job.counts) {
+              total = (job.counts.shows ?? 0) + (job.counts.movies ?? 0);
+            }
+            const remaining = job.remainingCreatedRecords ?? 0;
+            processed = Math.max(0, total - remaining);
+            pct = Math.round((processed / Math.max(total, 1)) * 100) || 0;
+          }
+
+          return (
+            <article key={job.id} className="import-history-card">
+              <div className="import-history-card-main" style={{ width: "100%" }}>
+                <div className="import-history-card-meta">
+                  <div className="import-history-card-date">
+                    <CalendarDays size={13} aria-hidden="true" />
+                    <span>{date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</span>
+                    {committedAt && <span className="import-history-card-time">{committedAt.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>}
+                  </div>
+                  {jobStatusChip(job)}
+                </div>
+
+                <div className="import-history-card-stats">
+                  {shows != null && (
+                    <div className="import-stat-bubble">
+                      <Tv size={12} aria-hidden="true" />
+                      <strong>{shows.toLocaleString()}</strong>
+                      <span>shows</span>
+                    </div>
+                  )}
+                  {movies != null && (
+                    <div className="import-stat-bubble">
+                      <Film size={12} aria-hidden="true" />
+                      <strong>{movies.toLocaleString()}</strong>
+                      <span>movies</span>
+                    </div>
+                  )}
+                </div>
+
+                {isActiveProgress && (
+                  <div style={{ marginTop: "0.4rem", width: "100%", maxWidth: "320px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.78rem", color: "var(--text-color)", marginBottom: "0.2rem" }}>
+                      <span style={{ color: "#ffcf5c" }}>{job.status === "rolling_back" ? "Rolling back..." : "Importing..."}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>{pct}% ({processed}/{total})</span>
+                    </div>
+                    <ProgressBar value={pct} label="Job progress" />
+                  </div>
+                )}
+              </div>
+
+              <div className="import-history-card-actions">
+                {canStop && !canRollback && (
+                  <button
+                    className="secondary-button danger-action"
+                    style={{ fontSize: "0.8rem", padding: "0.35rem 0.8rem", display: "flex", alignItems: "center", gap: "0.35rem", borderColor: "rgba(255,107,107,0.25)" }}
+                    onClick={() => setAbandonJobId(job.id)}
+                  >
+                    <X size={13} aria-hidden="true" />
+                    Stop
+                  </button>
+                )}
+                {canRollback && (
+                  <button
+                    className="secondary-button danger-action"
+                    style={{ fontSize: "0.8rem", padding: "0.35rem 0.8rem", display: "flex", alignItems: "center", gap: "0.35rem", borderColor: "rgba(255,107,107,0.25)" }}
+                    onClick={() => setRollbackJobId(job.id)}
+                  >
+                    <X size={13} aria-hidden="true" />
+                    Rollback
+                  </button>
+                )}
+                <button
+                  className="secondary-button"
+                  style={{ fontSize: "0.8rem", padding: "0.35rem 0.8rem" }}
+                  onClick={() => setDeleteJobId(job.id)}
+                  aria-label="Delete log"
+                >
+                  Delete Log
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {/* Rollback confirmation modal */}
+      {rollbackJobId && (
+        <Modal title="Rollback Import" open={true} onClose={() => setRollbackJobId(null)}>
+          <div className="modal-confirm-body">
+            <div className="modal-confirm-icon" style={{ color: "#ff6b6b", background: "rgba(255,107,107,0.1)" }}>
+              <X size={24} />
+            </div>
+            <p className="modal-confirm-message">
+              This will remove all media, episodes, and activity records created by this import job. Items you manually modified after import will also be removed. This cannot be undone.
+            </p>
+            <div className="modal-confirm-actions">
+              <button className="secondary-button" style={{ flex: 1 }} onClick={() => setRollbackJobId(null)}>Cancel</button>
+              <button
+                className="primary-button"
+                style={{ flex: 1, background: "#c0392b", borderColor: "transparent", color: "#fff" }}
+                onClick={() => {
+                  importState?.startBackgroundRollback(rollbackJobId, me.csrfToken);
+                  setRollbackJobId(null);
+                }}
+              >
+                Confirm Rollback
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete log confirmation modal */}
+      {deleteJobId && (
+        <Modal title="Delete Import Log" open={true} onClose={() => setDeleteJobId(null)}>
+          <div className="modal-confirm-body">
+            <p className="modal-confirm-message">
+              This will delete the import log entry from history. <strong>It will not remove any imported data.</strong> To remove imported data, use Rollback instead.
+            </p>
+            <div className="modal-confirm-actions">
+              <button className="secondary-button" style={{ flex: 1 }} onClick={() => setDeleteJobId(null)}>Cancel</button>
+              <button className="primary-button" style={{ flex: 1 }} onClick={() => void deleteJobLog(deleteJobId)}>Delete Log</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Stop/abandon confirmation modal */}
+      {abandonJobId && (
+        <Modal title="Stop Import" open={true} onClose={() => setAbandonJobId(null)}>
+          <div className="modal-confirm-body">
+            <div className="modal-confirm-icon" style={{ color: "#ff8080", background: "rgba(255,107,107,0.1)" }}>
+              <X size={24} />
+            </div>
+            <p className="modal-confirm-message">
+              This will <strong>stop and abandon</strong> this import job. Any items already imported will remain, but the rest will not continue. You can start a new import afterwards.
+            </p>
+            <div className="modal-confirm-actions">
+              <button className="secondary-button" style={{ flex: 1 }} onClick={() => setAbandonJobId(null)}>Cancel</button>
+              <button
+                className="primary-button"
+                style={{ flex: 1, background: "#c0392b", borderColor: "transparent", color: "#fff" }}
+                onClick={() => {
+                  void importState?.abandonJob(abandonJobId, me.csrfToken).then(fetchJobs);
+                  setAbandonJobId(null);
+                }}
+              >
+                Stop Import
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </section>
   );
 }
@@ -2231,7 +2529,7 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
     <article className={compact ? "media-card compact-card" : "media-card"}>
       <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
         <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} />
-        <div className="media-card-body"><div><h2>{entry.title}</h2><p>{nextLabel ?? (entry.year ? String(entry.year) : '')}</p></div><StatusChip tone={toneForStatus(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusChip></div>
+        <div className="media-card-body"><div><p>{nextLabel ?? (entry.year ? String(entry.year) : '')}</p></div><StatusChip tone={toneForStatus(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusChip></div>
       </NavLink>
       <ProgressBar value={percent} label={`${percent}% complete`} />
       {entry.nextEpisode && <button className="quick-watch" onClick={() => void onMarkNext(entry.nextEpisode!.id)}><Check size={16} />Mark {nextLabel} watched</button>}
@@ -2257,7 +2555,6 @@ export function MediaCard({ item }: { item: MediaCardItem }) {
       </NavLink>
       <div className="media-card-body">
         <div>
-          <h2>{item.title}</h2>
           <p>{item.meta}</p>
         </div>
         <StatusChip tone={item.tone}>{item.status}</StatusChip>

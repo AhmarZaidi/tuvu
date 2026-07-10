@@ -103,50 +103,58 @@ export function createImportRoutes() {
   });
 
   router.post("/tv-time/jobs/:id/commit", requireAuth(), requireCsrf(), async (c) => {
-    if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
-    const auth = c.get("auth");
-    const job = await readJobRow(c.env.DB, auth.user.id, c.req.param("id"));
-    if (!job) return apiError(c, 404, "not_found", "Import job not found.");
-    if (job.status === "committed") return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id) }));
-    if (job.status === "rolled_back") return apiError(c, 409, "conflict", "Rolled back imports cannot be committed again.");
-    
-    const rows = await c.env.DB.prepare("SELECT * FROM import_job_items WHERE job_id = ? AND status = 'uploaded' ORDER BY chunk_index, item_key LIMIT 25").bind(job.id).all<ImportItemRow>();
-    const now = new Date().toISOString();
-    
-    if (job.status !== "committing") {
-      await c.env.DB.prepare("UPDATE import_jobs SET status = 'committing', updated_at = ? WHERE id = ?").bind(now, job.id).run();
-    }
-
-    if (rows.results.length === 0) {
-      await c.env.DB.prepare("UPDATE import_jobs SET status = 'committed', committed_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
-      return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id) }));
-    }
-
     try {
-      for (const row of rows.results) {
-        const item = JSON.parse(row.raw_json) as TvTimeImportItem;
-        const mediaId = item.kind === "show"
-          ? await commitShow(c.env.DB, auth.user.id, job.id, item, now)
-          : await commitMovie(c.env.DB, auth.user.id, job.id, item, now);
-        await c.env.DB.prepare("UPDATE import_job_items SET status = 'committed', media_id = ?, updated_at = ? WHERE id = ?")
-          .bind(mediaId, now, row.id)
-          .run();
+      if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
+      const auth = c.get("auth");
+      const job = await readJobRow(c.env.DB, auth.user.id, c.req.param("id"));
+      if (!job) return apiError(c, 404, "not_found", "Import job not found.");
+      if (job.status === "committed") return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id) }));
+      if (job.status === "rolled_back" || job.status === "abandoned") return apiError(c, 409, "conflict", "This import job can no longer be committed.");
+      if (job.status === "failed") return apiError(c, 409, "conflict", "Import has failed. Abandon and restart or rollback.");
+      
+      const rows = await c.env.DB.prepare("SELECT * FROM import_job_items WHERE job_id = ? AND status = 'uploaded' ORDER BY chunk_index, item_key LIMIT 15").bind(job.id).all<ImportItemRow>();
+      const now = new Date().toISOString();
+      
+      if (job.status !== "committing") {
+        await c.env.DB.prepare("UPDATE import_jobs SET status = 'committing', updated_at = ? WHERE id = ?").bind(now, job.id).run();
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Import commit failed.";
-      await c.env.DB.prepare("UPDATE import_jobs SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?").bind(message, now, job.id).run();
+
+      if (rows.results.length === 0) {
+        await c.env.DB.prepare("UPDATE import_jobs SET status = 'committed', committed_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
+        return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id) }));
+      }
+
+      try {
+        for (const row of rows.results) {
+          const item = JSON.parse(row.raw_json) as TvTimeImportItem;
+          const mediaId = item.kind === "show"
+            ? await commitShow(c.env.DB, auth.user.id, job.id, item, now)
+            : await commitMovie(c.env.DB, auth.user.id, job.id, item, now);
+          await c.env.DB.prepare("UPDATE import_job_items SET status = 'committed', media_id = ?, updated_at = ? WHERE id = ?")
+            .bind(mediaId, now, row.id)
+            .run();
+        }
+      } catch (error) {
+        console.error("IMPORT COMMIT CRASHED:", error);
+        const message = error instanceof Error ? (error.stack || error.message) : "Import commit failed.";
+        await c.env.DB.prepare("UPDATE import_jobs SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?").bind(message, now, job.id).run();
+        return apiError(c, 500, "server_error", message);
+      }
+
+      const stats = await c.env.DB.prepare("SELECT status, COUNT(*) as count FROM import_job_items WHERE job_id = ? GROUP BY status").bind(job.id).all<{ status: string; count: number }>();
+      let processed = 0;
+      let total = 0;
+      for (const stat of stats.results) {
+        total += stat.count;
+        if (stat.status === 'committed') processed += stat.count;
+      }
+      
+      return c.json(apiSuccess({ done: false, processed, total, job: await readJob(c.env.DB, auth.user.id, job.id) }));
+    } catch (outerError) {
+      console.error("OUTER IMPORT COMMIT CRASHED:", outerError);
+      const message = outerError instanceof Error ? (outerError.stack || outerError.message) : "Outer import commit failed.";
       return apiError(c, 500, "server_error", message);
     }
-
-    const stats = await c.env.DB.prepare("SELECT status, COUNT(*) as count FROM import_job_items WHERE job_id = ? GROUP BY status").bind(job.id).all<{ status: string; count: number }>();
-    let processed = 0;
-    let total = 0;
-    for (const stat of stats.results) {
-      total += stat.count;
-      if (stat.status === 'committed') processed += stat.count;
-    }
-    
-    return c.json(apiSuccess({ done: false, processed, total, job: await readJob(c.env.DB, auth.user.id, job.id) }));
   });
 
   router.post("/tv-time/jobs/:id/rollback", requireAuth(), requireCsrf(), async (c) => {
@@ -154,30 +162,38 @@ export function createImportRoutes() {
     const auth = c.get("auth");
     const job = await readJobRow(c.env.DB, auth.user.id, c.req.param("id"));
     if (!job) return apiError(c, 404, "not_found", "Import job not found.");
-    const created = await c.env.DB.prepare("SELECT table_name, record_id FROM import_created_records WHERE job_id = ? ORDER BY created_at DESC").bind(job.id).all<{ table_name: string; record_id: string }>();
-    const order = ["episode_activity", "user_media", "episodes", "seasons", "media_external_ids", "media_items"];
+
+    if (job.status !== "committed" && job.status !== "rolling_back") {
+      return apiError(c, 400, "invalid_state", "Only committed imports can be rolled back.");
+    }
     
-    // Batch deletes by table name to be extremely fast and avoid SQLite statement loops
-    const deleteStatements: D1PreparedStatement[] = [];
-    for (const tableName of order) {
-      const ids = created.results.filter((record) => record.table_name === tableName).map((record) => record.record_id);
-      if (ids.length > 0) {
-        const batchSize = 100;
-        for (let i = 0; i < ids.length; i += batchSize) {
-          const chunk = ids.slice(i, i + batchSize);
-          const placeholders = chunk.map(() => "?").join(",");
-          deleteStatements.push(
-            c.env.DB.prepare(`DELETE FROM ${tableName} WHERE id IN (${placeholders})`).bind(...chunk)
-          );
-        }
-      }
+    if (job.status === "committed") {
+      const now = new Date().toISOString();
+      await c.env.DB.prepare("UPDATE import_jobs SET status = 'rolling_back', updated_at = ? WHERE id = ?").bind(now, job.id).run();
     }
-    if (deleteStatements.length > 0) {
-      await c.env.DB.batch(deleteStatements);
+
+    const batch = await c.env.DB.prepare("SELECT id, table_name, record_id FROM import_created_records WHERE job_id = ? ORDER BY created_at DESC LIMIT 50").bind(job.id).all<{ id: string; table_name: string; record_id: string }>();
+
+    if (batch.results.length === 0) {
+      const now = new Date().toISOString();
+      await c.env.DB.prepare("UPDATE import_jobs SET status = 'rolled_back', rolled_back_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
+      await c.env.DB.prepare("UPDATE import_job_items SET status = 'rolled_back', media_id = NULL, updated_at = ? WHERE job_id = ?").bind(now, job.id).run();
+      return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id) }));
     }
-    const now = new Date().toISOString();
-    await c.env.DB.prepare("UPDATE import_jobs SET status = 'rolled_back', rolled_back_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
-    return c.json(apiSuccess({ job: await readJob(c.env.DB, auth.user.id, job.id), removed: created.results.length }));
+
+    const deleteStatements: any[] = [];
+    for (const record of batch.results) {
+      deleteStatements.push(c.env.DB.prepare(`DELETE FROM ${record.table_name} WHERE id = ?`).bind(record.record_id));
+    }
+    
+    const idsToDelete = batch.results.map(r => r.id);
+    const placeholders = idsToDelete.map(() => "?").join(",");
+    deleteStatements.push(c.env.DB.prepare(`DELETE FROM import_created_records WHERE id IN (${placeholders})`).bind(...idsToDelete));
+
+    await c.env.DB.batch(deleteStatements);
+
+    const remaining = await c.env.DB.prepare("SELECT COUNT(*) as count FROM import_created_records WHERE job_id = ?").bind(job.id).first<{ count: number }>();
+    return c.json(apiSuccess({ done: false, remaining: remaining?.count || 0 }));
   });
 
   router.get("/tv-time/jobs/:id", requireAuth(), async (c) => {
@@ -188,16 +204,52 @@ export function createImportRoutes() {
     return c.json(apiSuccess({ job }));
   });
 
+
+
   router.get("/tv-time/jobs", requireAuth(), async (c) => {
     if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
     const auth = c.get("auth");
     const rows = await c.env.DB.prepare("SELECT * FROM import_jobs WHERE user_id = ? ORDER BY created_at DESC").bind(auth.user.id).all();
-    const jobs = rows.results.map((r) => ({
-      ...r,
-      fileNames: JSON.parse(r.file_names_json as string),
-      counts: r.counts_json ? JSON.parse(r.counts_json as string) : null,
-    }));
+    const jobs = [];
+    for (const r of rows.results) {
+      const itemStats = await c.env.DB.prepare("SELECT item_kind, status, COUNT(*) AS count FROM import_job_items WHERE job_id = ? GROUP BY item_kind, status").bind(r.id).all<{ item_kind: string; status: string; count: number }>();
+      const warnings = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM import_warnings WHERE job_id = ?").bind(r.id).first<{ count: number }>();
+      const remainingCreated = await c.env.DB.prepare("SELECT COUNT(*) AS count FROM import_created_records WHERE job_id = ?").bind(r.id).first<{ count: number }>();
+
+      jobs.push({
+        id: r.id,
+        user_id: r.user_id,
+        source: r.source,
+        status: r.status,
+        fileNames: JSON.parse(r.file_names_json as string),
+        counts: r.counts_json ? JSON.parse(r.counts_json as string) : null,
+        error_message: r.error_message,
+        committed_at: r.committed_at,
+        rolled_back_at: r.rolled_back_at,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        itemStats: itemStats.results,
+        warningCount: warnings?.count ?? 0,
+        remainingCreatedRecords: remainingCreated?.count ?? 0,
+      });
+    }
     return c.json(apiSuccess({ jobs }));
+  });
+
+  router.post("/tv-time/jobs/:id/abandon", requireAuth(), requireCsrf(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
+    const auth = c.get("auth");
+    const job = await readJobRow(c.env.DB, auth.user.id, c.req.param("id"));
+    if (!job) return apiError(c, 404, "not_found", "Import job not found.");
+    const terminableStatuses = ["committing", "rolling_back", "uploaded", "created", "failed"];
+    if (!terminableStatuses.includes(job.status)) {
+      return apiError(c, 400, "invalid_state", `Cannot abandon a job with status '${job.status}'.`);
+    }
+    const now = new Date().toISOString();
+    await c.env.DB.prepare("UPDATE import_jobs SET status = 'failed', error_message = 'Manually stopped.', updated_at = ? WHERE id = ?")
+      .bind(now, job.id)
+      .run();
+    return c.json(apiSuccess({ job: await readJob(c.env.DB, auth.user.id, job.id) }));
   });
 
   router.delete("/tv-time/jobs/:id", requireAuth(), requireCsrf(), async (c) => {
@@ -212,6 +264,11 @@ export function createImportRoutes() {
   return router;
 }
 
+function prepareRecordCreated(db: D1Database, jobId: string, tableName: string, recordId: string, now: string) {
+  return db.prepare("INSERT OR IGNORE INTO import_created_records (id, job_id, table_name, record_id, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(randomId("icr"), jobId, tableName, recordId, now);
+}
+
 async function commitShow(db: D1Database, userId: string, jobId: string, item: TvTimeShow, now: string) {
   const mediaId = await resolveOrCreateMedia(db, jobId, {
     type: "show",
@@ -223,32 +280,91 @@ async function commitShow(db: D1Database, userId: string, jobId: string, item: T
     releaseDate: null,
     createdAt: item.createdAt,
   }, now);
-  const progressEpisodes = item.seasons.flatMap((season) => season.episodes).filter((episode) => episode.isWatched && !episode.isSpecial).length;
+
+  const progressEpisodes = item.seasons.flatMap((s) => s.episodes).filter((e) => e.isWatched && !e.isSpecial).length;
   const userMediaExisted = await rowExists(db, "user_media", "user_id = ? AND media_id = ?", [userId, mediaId]);
   const userMediaId = userMediaExisted ? await findUserMediaId(db, userId, mediaId) : randomId("ulm");
-  await db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, watched_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, 'private', ?, ?)
-    ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, progress_episodes=excluded.progress_episodes, updated_at=excluded.updated_at`)
-    .bind(userMediaId, userId, mediaId, normalizeShowStatus(item.status), item.isFavorite ? 1 : 0, progressEpisodes, item.createdAt ?? now, now)
-    .run();
-  if (!userMediaExisted) await recordCreated(db, jobId, "user_media", userMediaId, now);
 
+  const batchStatements: any[] = [];
+
+  batchStatements.push(
+    db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, watched_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, 'private', ?, ?)
+      ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, progress_episodes=excluded.progress_episodes, updated_at=excluded.updated_at`)
+      .bind(userMediaId, userId, mediaId, normalizeShowStatus(item.status), item.isFavorite ? 1 : 0, progressEpisodes, item.createdAt ?? now, now)
+  );
+
+  if (!userMediaExisted) {
+    batchStatements.push(prepareRecordCreated(db, jobId, "user_media", userMediaId, now));
+  }
+
+  // 2. Fetch existing seasons and map them
+  const existingSeasonsRows = await db.prepare("SELECT id, season_number FROM seasons WHERE media_id = ?").bind(mediaId).all<{ id: string; season_number: number }>();
+  const seasonMap = new Map<number, string>();
+  for (const s of existingSeasonsRows.results) {
+    seasonMap.set(s.season_number, s.id);
+  }
+
+  // 3. Fetch existing episodes and map them
+  const existingEpisodesRows = await db.prepare("SELECT id, season_number, episode_number FROM episodes WHERE media_id = ?").bind(mediaId).all<{ id: string; season_number: number; episode_number: number }>();
+  const episodeMap = new Map<string, string>();
+  for (const e of existingEpisodesRows.results) {
+    episodeMap.set(`${e.season_number}_${e.episode_number}`, e.id);
+  }
+
+  // 4. Fetch existing activities and map them
+  const existingActivitiesRows = await db.prepare("SELECT episode_id FROM episode_activity WHERE user_id = ? AND media_id = ?").bind(userId, mediaId).all<{ episode_id: string }>();
+  const activitySet = new Set<string>();
+  for (const a of existingActivitiesRows.results) {
+    activitySet.add(a.episode_id);
+  }
+
+  // 5. Loop through seasons and episodes
   for (const season of item.seasons) {
-    const seasonId = await resolveOrCreateSeason(db, jobId, mediaId, season.number, season.isSpecial, season.episodes.length, now);
+    let seasonId = seasonMap.get(season.number);
+    if (!seasonId) {
+      seasonId = randomId("sea");
+      seasonMap.set(season.number, seasonId);
+      batchStatements.push(
+        db.prepare("INSERT INTO seasons (id, media_id, season_number, name, overview, poster_path, episode_count, air_date, is_special, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, NULL, ?, NULL, ?, ?, ?)")
+          .bind(seasonId, mediaId, season.number, season.number === 0 ? "Specials" : `Season ${season.number}`, season.episodes.length, season.isSpecial ? 1 : 0, now, now)
+      );
+      batchStatements.push(prepareRecordCreated(db, jobId, "seasons", seasonId, now));
+    }
+
     for (const episode of season.episodes) {
-      const episodeId = await resolveOrCreateEpisode(db, jobId, mediaId, seasonId, episode, now);
+      const epKey = `${episode.seasonNumber}_${episode.episodeNumber}`;
+      let episodeId = episodeMap.get(epKey);
+      if (!episodeId) {
+        episodeId = randomId("epi");
+        episodeMap.set(epKey, episodeId);
+        batchStatements.push(
+          db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, name, overview, still_path, air_date, runtime_minutes, is_special, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)")
+            .bind(episodeId, mediaId, seasonId, episode.seasonNumber, episode.episodeNumber, episode.name, episode.isSpecial ? 1 : 0, episode.tvdbId, now, now)
+        );
+        batchStatements.push(prepareRecordCreated(db, jobId, "episodes", episodeId, now));
+      }
+
       if (episode.isWatched) {
-        const activityExisted = await rowExists(db, "episode_activity", "user_id = ? AND episode_id = ?", [userId, episodeId]);
-        const activityId = activityExisted ? await findEpisodeActivityId(db, userId, episodeId) : randomId("epa");
-        await db.prepare(`INSERT INTO episode_activity (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
-          ON CONFLICT(user_id, episode_id) DO UPDATE SET watched=1, watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count, updated_at=excluded.updated_at`)
-          .bind(activityId, userId, episodeId, mediaId, normalizeDateTime(episode.watchedAt), episode.rewatchCount, episode.watchedAt ?? now, now)
-          .run();
-        if (!activityExisted) await recordCreated(db, jobId, "episode_activity", activityId, now);
+        const activityId = randomId("epa");
+        batchStatements.push(
+          db.prepare(`INSERT INTO episode_activity (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+            ON CONFLICT(user_id, episode_id) DO UPDATE SET watched=1, watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count, updated_at=excluded.updated_at`)
+            .bind(activityId, userId, episodeId, mediaId, normalizeDateTime(episode.watchedAt), episode.rewatchCount, episode.watchedAt ?? now, now)
+        );
+        if (!activitySet.has(episodeId)) {
+          batchStatements.push(prepareRecordCreated(db, jobId, "episode_activity", activityId, now));
+        }
       }
     }
   }
+
+  // 6. Execute statements in chunks of 100
+  for (let i = 0; i < batchStatements.length; i += 100) {
+    await db.batch(batchStatements.slice(i, i + 100));
+  }
+
   return mediaId;
 }
 

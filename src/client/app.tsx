@@ -383,7 +383,6 @@ export function App() {
   useEffect(() => {
     const stored = localStorage.getItem("tuvu-theme");
     document.documentElement.dataset.theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
-    document.documentElement.dataset.navDirection ||= "forward";
   }, []);
 
   return (
@@ -1289,7 +1288,7 @@ function MoviesPage() {
 }
 
 function BooksPage() {
-  return <DashboardPage kind="books" mediaType="book" title="Books" description="Keep reading, plan the next book, and revisit finished favorites." />;
+  return <DashboardPage kind="books" mediaType="book" title="Books & Manga" description="Keep reading, plan the next book, and revisit finished favorites." />;
 }
 
 function GamesPage() {
@@ -1541,7 +1540,6 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
     window.addEventListener("scroll", saveScroll, { passive: true });
     window.addEventListener("pagehide", persistScroll);
     return () => {
-      persistScroll();
       window.removeEventListener("scroll", saveScroll);
       window.removeEventListener("pagehide", persistScroll);
     };
@@ -2544,7 +2542,6 @@ function MediaDetailPage() {
     window.addEventListener("scroll", saveScroll, { passive: true });
     window.addEventListener("pagehide", saveScroll);
     return () => {
-      saveScroll();
       window.removeEventListener("scroll", saveScroll);
       window.removeEventListener("pagehide", saveScroll);
     };
@@ -2967,10 +2964,10 @@ function MediaDetailPage() {
     <AppPage eyebrow={displayMediaType(media)} title={media.title} description={media.overview ?? "No overview available."}>
       <div className="media-visual-layer" style={mediaVisualStyle} aria-hidden="true" />
       <div className="media-detail-topbar">
-        <div className="media-backdrop" style={media.backdropPath ? { backgroundImage: `url(${media.backdropPath})` } : undefined} aria-hidden="true" />
+        <div className={`media-backdrop ${media.backdropPath ? "active" : "inactive"}`} style={media.backdropPath ? { backgroundImage: `url(${media.backdropPath})` } : undefined} aria-hidden="true" />
         {userMedia && <IconButton label="Media settings" onClick={() => setMediaSettingsOpen(true)}><MoreHorizontal size={19} /></IconButton>}
       </div>
-      <section className="detail-layout">
+      <section className={`detail-layout ${media.backdropPath ? "has-backdrop" : "no-backdrop"}`}>
         <div className="detail-poster-column">
           <ResponsivePoster accent="linear-gradient(145deg, #2b2f36, #0f1115)" title={media.title} posterPath={media.posterPath} />
         </div>
@@ -3771,7 +3768,6 @@ function PersonPlaceholderPage() {
             <span><User size={15} />{person.placeOfBirth ?? "Location TBA"}</span>
             <span><Clapperboard size={15} />{person.knownForDepartment ?? "Department TBA"}</span>
           </div>
-          <p className="muted-copy">{person.biography || "No biography has been published by the provider yet."}</p>
         </div>
       </section>
       <section className="detail-panel detail-panel-wide">
@@ -4300,6 +4296,8 @@ function chunkItems(items: TvTimeImportItem[], size: number) {
   return chunks;
 }
 
+let globalNavDirection: "forward" | "back" = "forward";
+
 function AppPage({
   eyebrow,
   title,
@@ -4319,21 +4317,48 @@ function AppPage({
   const navigate = useNavigate();
   const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time", "/profile/merge", "/anime", "/youtube"]);
   const isSubPage = !topLevelPaths.has(location.pathname) && location.pathname !== "/";
+  
+  // Snap the navigation direction at component mount time.
+  const [navDirection] = useState(globalNavDirection);
+  
+  // Expanded state for long descriptions (like biography)
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    // Reset global nav direction to "forward" for subsequent transitions
+    globalNavDirection = "forward";
+  }, []);
+
+  useEffect(() => {
+    // Reset scroll to top on every route change
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
+
   const goBack = () => {
-    document.documentElement.dataset.navDirection = "back";
-    window.setTimeout(() => {
-      navigate(-1);
-      window.setTimeout(() => { document.documentElement.dataset.navDirection = "forward"; }, 260);
-    }, 20);
+    globalNavDirection = "back";
+    navigate(-1);
   };
+
+  const isLongDescription = description.length > 280;
+  const displayDescription = isLongDescription && !expanded 
+    ? `${description.slice(0, 260)}...` 
+    : description;
+
   return (
-    <main className={isSubPage ? "page-shell sub-page-shell" : "page-shell"}>
+    <main className={`${isSubPage ? "page-shell sub-page-shell" : "page-shell"} ${navDirection === "back" ? "slide-back" : "slide-in"}`}>
       {isSubPage && <IconButton className="page-back-button" label="Go back" onClick={goBack}><ArrowLeft size={18} /></IconButton>}
       <section className={mobileHelp ? "page-heading mobile-help" : "page-heading"}>
         <div>
           <p className="eyebrow">{eyebrow}</p>
           <h1 tabIndex={mobileHelp ? 0 : undefined} data-help={mobileHelp ? description : undefined} title={mobileHelp ? description : undefined}>{title}</h1>
-          <p className="heading-description">{description}</p>
+          <p className="heading-description">
+            {displayDescription}
+            {isLongDescription && (
+              <button type="button" className="read-more-btn" onClick={() => setExpanded(!expanded)}>
+                {expanded ? "Collapse" : "Read more"}
+              </button>
+            )}
+          </p>
         </div>
         {action}
       </section>

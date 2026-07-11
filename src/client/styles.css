@@ -274,11 +274,14 @@ a {
   margin: 0 auto;
   padding: 1.25rem 1rem 6rem;
   padding-top: 5rem;
+}
+
+.page-shell.slide-in {
   animation: page-slide-in 220ms ease both;
 }
 
-:root[data-nav-direction="back"] .sub-page-shell {
-  animation-name: page-slide-back;
+.page-shell.slide-back {
+  animation: page-slide-back 220ms ease both;
 }
 
 .page-back-button {
@@ -335,6 +338,25 @@ a {
   max-width: 42rem;
   margin: 0.55rem 0 0;
   color: #c9cac5;
+}
+
+.read-more-btn {
+  display: inline-block;
+  margin-left: 0.45rem;
+  border: none;
+  background: none;
+  padding: 0;
+  color: #ffcf5c;
+  font-weight: 700;
+  cursor: pointer;
+  font-size: 0.95em;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.read-more-btn:hover {
+  color: #ffe08a;
+  text-decoration: underline;
 }
 
 .page-heading.mobile-help h1 {
@@ -402,7 +424,7 @@ a {
   gap: 0.45rem;
   border-radius: 0.45rem;
   color: #aeb1ac;
-  font-size: 0.6rem;
+  font-size: 0.8rem;
   font-weight: 750;
 }
 
@@ -1256,6 +1278,9 @@ a {
   display: grid;
   align-content: start;
   gap: 1rem;
+  border: 1px solid rgba(255, 255, 255, .08);
+  padding: .9rem;
+  border-radius: .5rem;
 }
 
 .settings-list {
@@ -1310,10 +1335,13 @@ a {
   }
 }
 
-@media (max-width: 520px) {
-  .detail-poster-column {
+@media (max-width: 759px) {
+  .detail-layout.has-backdrop .detail-poster-column {
     display: none;
   }
+}
+
+@media (max-width: 520px) {
 
   .stats-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1352,7 +1380,7 @@ a {
 
 @media (min-width: 760px) {
   .app-shell {
-    grid-template-columns: 15.5rem minmax(0, 1fr);
+    grid-template-columns: 12rem minmax(0, 1fr);
   }
 
   .desktop-rail {
@@ -1361,7 +1389,6 @@ a {
     display: grid;
     align-content: start;
     gap: 1.5rem;
-    height: 100vh;
     border-right: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(12, 13, 14, 0.74);
     padding: 1.25rem;
@@ -1391,10 +1418,6 @@ a {
     padding-inline: 1.4rem;
   }
 
-  .page-shell {
-    padding: 1.6rem 1.4rem 3rem;
-  }
-
   .detail-layout {
     grid-template-columns: 18rem minmax(0, 1fr);
   }
@@ -1413,6 +1436,11 @@ a {
 
   .media-detail-topbar .media-backdrop {
     display: none;
+  }
+
+  .media-detail-topbar .icon-button {
+    top: calc(0.7rem + 52px) !important;
+    right: calc(0.7rem - 5px) !important;
   }
 
   .toast {
@@ -1463,9 +1491,12 @@ a {
   }
 
   /* Full-width fields inside desktop modal settings form */
-  .modal form.settings-form label:nth-of-type(1), /* Title */
-  .modal form.settings-form label:nth-of-type(4), /* Cover Image URL */
-  .modal form.settings-form label:nth-of-type(5), /* Overview/Summary */
+  .modal form.settings-form label:nth-of-type(1),
+  /* Title */
+  .modal form.settings-form label:nth-of-type(4),
+  /* Cover Image URL */
+  .modal form.settings-form label:nth-of-type(5),
+  /* Overview/Summary */
   .modal form.settings-form .form-grid,
   .modal form.settings-form .season-builder,
   .modal form.settings-form button[type="submit"],
@@ -1498,7 +1529,6 @@ a {
 
   /* Horizontal buttons inside desktop media settings sheet */
   .modal .media-settings-sheet {
-    display: flex;
     gap: 1rem;
   }
 
@@ -2410,10 +2440,6 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .page-heading.mobile-help .heading-description {
-    display: none;
-  }
-
   .dashboard-toolbar {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 0.4rem;
@@ -3251,6 +3277,8 @@ a {
   color: #ffcf5c;
   font-size: 2rem;
   font-weight: 900;
+  background-position: center;
+  background-size: cover;
 }
 
 .cast-card strong,

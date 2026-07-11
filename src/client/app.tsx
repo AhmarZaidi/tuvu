@@ -37,6 +37,10 @@ import {
   X,
   Flame,
   Youtube,
+  Camera,
+  LogOut,
+  Trash2,
+  AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
@@ -663,8 +667,8 @@ function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClo
             </div>
           </div>
         )}
-        {(type === "book" || type === "game") && <div className="form-grid"><label>Trackable unit<select value={unitKind} onChange={(event) => setUnitKind(event.target.value as typeof unitKind)}>{type === "book" ? <><option value="chapter">Chapter</option><option value="act">Part / act</option></> : <><option value="mission">Mission</option><option value="quest">Quest</option><option value="act">Act</option></>}</select></label><label>How many (optional)<input type="number" min={0} max={200} value={unitCount} onChange={(event) => setUnitCount(Math.max(0, Number(event.target.value)))} /></label></div>}
-        {error && <span className="input-error">{error}</span>}        <div className="action-row">
+        {(type === "book" || type === "game") && <div className="form-grid"><label>Trackable unit<select value={unitKind} onChange={(event) => setUnitKind(event.target.value as typeof unitKind)}>{type === "book" ? <><option value="chapter">Chapter</option><option value="act">Part / act</option></> : <><option value="mission">Mission</option><option value="quest">Quest</option><option value="act">Act</option></>}</select></label><label>How many (optional)<input type="number" min={0} max={200} value={unitCount} onChange={(event) => setUnitCount(Math.max(0, Number(event.target.value)))} /></label></div>}        {error && <span className="input-error">{error}</span>}
+        <div className="action-row">
           <button className="primary-button" type="submit" disabled={busy}>
             {busy ? "Creating..." : "Create & Track"}
           </button>
@@ -685,6 +689,7 @@ function AppShell() {
   const location = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
   const [shellNavItems, setShellNavItems] = useState(() => navItemsForPreference(defaultNavigationPreference));
+  const [showLabelsMobile, setShowLabelsMobile] = useState(false);
   const globalSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const openCreateModal = (type: MediaType = "show") => {
@@ -693,13 +698,6 @@ function AppShell() {
   };
 
   const contextValue = useMemo(() => ({ openCreateModal }), []);
-
-  useEffect(() => {
-    if (location.pathname === "/explore/search") {
-      setGlobalSearch("");
-      globalSearchInputRef.current?.blur();
-    }
-  }, [location.pathname]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -715,10 +713,16 @@ function AppShell() {
     let cancelled = false;
     const loadNavigation = async () => {
       try {
-        const data = await apiJson<{ navigation: { items: string[] } }>("/api/settings/navigation");
-        if (!cancelled) setShellNavItems(navItemsForPreference(data.navigation.items));
+        const data = await apiJson<{ navigation: { items: string[]; showLabelsMobile?: boolean } }>("/api/settings/navigation");
+        if (!cancelled) {
+          setShellNavItems(navItemsForPreference(data.navigation.items));
+          setShowLabelsMobile(data.navigation.showLabelsMobile ?? false);
+        }
       } catch {
-        if (!cancelled) setShellNavItems(navItemsForPreference(defaultNavigationPreference));
+        if (!cancelled) {
+          setShellNavItems(navItemsForPreference(defaultNavigationPreference));
+          setShowLabelsMobile(false);
+        }
       }
     };
     const onNavigationUpdated = () => { void loadNavigation(); };
@@ -772,11 +776,11 @@ function AppShell() {
           <Outlet />
         </div>
 
-        <nav className="bottom-nav" aria-label="Primary" style={{ gridTemplateColumns: `repeat(${shellNavItems.length}, minmax(0, 1fr))` }}>
+        <nav className={showLabelsMobile ? "bottom-nav show-labels" : "bottom-nav"} aria-label="Primary" style={{ gridTemplateColumns: `repeat(${shellNavItems.length}, minmax(0, 1fr))` }}>
           {shellNavItems.map((item) => (
             <ShellNavLink key={item.to} {...item} compact />
           ))}
-        </nav>
+          </nav>
       </div>
 
       <CreateMediaModal open={isCreateOpen} onClose={() => setIsCreateOpen(false)} defaultType={defaultType} />
@@ -1981,6 +1985,19 @@ function parseExploreTypes(value: string | null): MediaType[] {
 function ProfilePage() {
   const { username } = useParams();
   const { me } = useAuth();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function handleLogoutConfirm() {
+    try {
+      await apiJson("/api/auth/logout", { method: "POST", csrfToken: me.csrfToken });
+      window.location.assign("/auth");
+    } catch (error) {
+      setMessage("Logout failed.");
+    } finally {
+      setShowLogoutModal(false);
+    }
+  }
 
   return (
     <AppPage eyebrow="Profile" title={username ? `@${username}` : "Your profile"} description="Stats, recent activity, favorites, and public lists will gather here." mobileHelp>
@@ -2012,6 +2029,36 @@ function ProfilePage() {
         message={`Profile visibility is ${me.profile.visibility}.`}
       />
       <DashboardStats />
+
+      {/* Logout Section */}
+      <section className="settings-list" style={{ marginTop: "1.5rem" }}>
+        <article className="setting-row">
+          <div className="setting-icon"><LogOut size={20} /></div>
+          <div>
+            <h2>Session Management</h2>
+            <p>Log out of your current session on this device.</p>
+          </div>
+          <button className="danger-button" type="button" onClick={() => setShowLogoutModal(true)}>
+            Log out
+          </button>
+        </article>
+      </section>
+
+      {/* Logout Confirmation Modal */}
+      <Modal title="Confirm Logout" open={showLogoutModal} onClose={() => setShowLogoutModal(false)}>
+        <div style={{ padding: "1.25rem", display: "grid", gap: "1rem" }}>
+          <p>Are you sure you want to log out? You will need to sign back in to access your media library.</p>
+          {message && <p className="form-message error-message" style={{ color: "var(--color-danger)" }}>{message}</p>}
+          <div className="action-row" style={{ marginTop: "0.5rem" }}>
+            <button className="secondary-button" type="button" onClick={() => setShowLogoutModal(false)}>
+              Cancel
+            </button>
+            <button className="danger-button" type="button" onClick={() => void handleLogoutConfirm()}>
+              Log out
+            </button>
+          </div>
+        </div>
+      </Modal>
     </AppPage>
   );
 }
@@ -3897,16 +3944,6 @@ function SettingsPage() {
 function AccountSettingsPanel({ me, refresh }: { me: MePayload; refresh: () => Promise<void> }) {
   return (
     <SettingsPanel title="Account" description="Profile identity, uploads, visibility, and session controls.">
-      <section className="profile-hero settings-preview" aria-label="Current profile media">
-        <div className="profile-banner" style={me.profile.bannerUrl ? { backgroundImage: `url(${me.profile.bannerUrl})` } : undefined} />
-        <div className="profile-row">
-          <div className="avatar">{me.profile.avatarUrl ? <img src={me.profile.avatarUrl} alt="" /> : initials(me.user.displayName)}</div>
-          <div>
-            <h2>{me.user.displayName}</h2>
-            <p>@{me.user.username}</p>
-          </div>
-        </div>
-      </section>
       <ProfileSettingsForm me={me} onSaved={refresh} />
     </SettingsPanel>
   );
@@ -3927,14 +3964,19 @@ const navigationChoices = navItems.filter((item) => item.label !== "Explore").ma
 
 function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
   const [items, setItems] = useState<string[]>(["shows", "anime", "movies", "books", "games"]);
+  const [showLabelsMobile, setShowLabelsMobile] = useState(false);
   const [draggedItem, setDraggedItem] = useState<string | null>(null);
+  const [touchActiveId, setTouchActiveId] = useState<string | null>(null);
   const [message, setMessage] = useState("Choose 2 to 6 navigation items. Explore is always available.");
 
   useEffect(() => {
     let cancelled = false;
-    apiJson<{ navigation: { items: string[] } }>("/api/settings/navigation")
+    apiJson<{ navigation: { items: string[]; showLabelsMobile?: boolean } }>("/api/settings/navigation")
       .then((data) => {
-        if (!cancelled) setItems(data.navigation.items);
+        if (!cancelled) {
+          setItems(data.navigation.items);
+          setShowLabelsMobile(data.navigation.showLabelsMobile ?? false);
+        }
       })
       .catch(() => {});
     return () => { cancelled = true; };
@@ -3972,7 +4014,7 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
 
   const save = async () => {
     try {
-      await apiJson("/api/settings/navigation", { method: "PUT", csrfToken, body: JSON.stringify({ items }) });
+      await apiJson("/api/settings/navigation", { method: "PUT", csrfToken, body: JSON.stringify({ items, showLabelsMobile }) });
       notify("Navigation preference saved.", "success");
       window.dispatchEvent(new Event(navigationUpdatedEventName));
       setMessage("Saved. Your navigation updated on this device.");
@@ -3981,10 +4023,67 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
     }
   };
 
+  const handleTouchStart = (id: string) => {
+    setTouchActiveId(id);
+  };
+
+  const handleTouchMove = (event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    const element = document.elementFromPoint(touch.clientX, touch.clientY);
+    if (!element) return;
+    const targetButton = element.closest("[data-nav-id]");
+    if (targetButton) {
+      const targetId = targetButton.getAttribute("data-nav-id");
+      if (targetId && touchActiveId && targetId !== touchActiveId) {
+        moveTo(touchActiveId, targetId);
+      }
+    }
+  };
+
+  const handleTouchEnd = () => {
+    setTouchActiveId(null);
+  };
+
+  const midpoint = Math.ceil(items.length / 2);
+
+  const renderOrderItem = (id: string, labelNumber: number) => {
+    const choice = navigationChoices.find((item) => item.id === id);
+    if (!choice) return null;
+    const Icon = choice.icon;
+    return (
+      <button
+        className={draggedItem === id || touchActiveId === id ? "nav-settings-icon ordered dragging" : "nav-settings-icon ordered"}
+        draggable
+        data-nav-id={id}
+        key={id}
+        onDragStart={() => setDraggedItem(id)}
+        onDragEnd={() => setDraggedItem(null)}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (draggedItem) moveTo(draggedItem, id);
+          setDraggedItem(null);
+        }}
+        onTouchStart={() => handleTouchStart(id)}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        title={`Drag to reorder ${choice.label}`}
+      >
+        <Icon size={18} aria-hidden="true" />
+        <small>{labelNumber}</small>
+      </button>
+    );
+  };
+
   return (
     <SettingsPanel title="Navigation" description="Choose what appears in your personal media nav.">
+      <div className="nav-settings-row-info">
+        <h3>1. Select navigation pages</h3>
+        <p>Tap items to add or remove them from your active navigation bar.</p>
+      </div>
       <div className="nav-settings-bar" aria-label="Choose navigation items">
-        {navigationChoices.map(({ id, label, icon: Icon }) => (
+        {navigationChoices.slice(0, 3).map(({ id, label, icon: Icon }) => (
           <button className={items.includes(id) ? "nav-settings-icon active" : "nav-settings-icon"} key={id} onClick={() => toggle(id)} aria-pressed={items.includes(id)} title={label}>
             <Icon size={18} aria-hidden="true" />
           </button>
@@ -3992,37 +4091,50 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
         <article className="nav-settings-icon locked" title="Explore is always available">
           <Compass size={18} aria-hidden="true" />
         </article>
+        {navigationChoices.slice(3).map(({ id, label, icon: Icon }) => (
+          <button className={items.includes(id) ? "nav-settings-icon active" : "nav-settings-icon"} key={id} onClick={() => toggle(id)} aria-pressed={items.includes(id)} title={label}>
+            <Icon size={18} aria-hidden="true" />
+          </button>
+        ))}
       </div>
-      <section className="nav-settings-bar nav-order-preview" aria-label="Drag selected navigation items to reorder">
-        {items.map((id, index) => {
-          const choice = navigationChoices.find((item) => item.id === id);
-          if (!choice) return null;
-          const Icon = choice.icon;
-          return (
-            <button
-              className={draggedItem === id ? "nav-settings-icon ordered dragging" : "nav-settings-icon ordered"}
-              draggable
-              key={id}
-              onDragStart={() => setDraggedItem(id)}
-              onDragEnd={() => setDraggedItem(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (draggedItem) moveTo(draggedItem, id);
-                setDraggedItem(null);
-              }}
-              title={`Drag to reorder ${choice.label}`}
-            >
-              <Icon size={18} aria-hidden="true" />
-              <small>{index + 1}</small>
-            </button>
-          );
-        })}
-        <article className="nav-settings-icon locked ordered" title="Explore is always inserted automatically">
+
+      <div className="nav-settings-row-info" style={{ marginTop: "1.5rem" }}>
+        <h3>2. Set page order</h3>
+        <p>Drag items on desktop or touch-and-drag on mobile to arrange your navbar order.</p>
+      </div>
+      <section className="nav-settings-bar nav-order-preview" style={{ gridTemplateColumns: `repeat(${items.length + 1}, minmax(0, 1fr))` }} aria-label="Drag selected navigation items to reorder">
+        {items.slice(0, midpoint).map((id, index) => renderOrderItem(id, index + 1))}
+        
+        <article className="nav-settings-icon locked ordered" title="Explore is always inserted automatically in the middle">
           <Compass size={18} aria-hidden="true" />
         </article>
+
+        {items.slice(midpoint).map((id, index) => renderOrderItem(id, midpoint + index + 2))}
       </section>
-      <div className="action-row">
+
+      <div className="nav-settings-row-info" style={{ marginTop: "1.5rem" }}>
+        <h3>3. Mobile Display Preferences</h3>
+        <p>Choose whether navigation icons show text labels on smaller screens.</p>
+      </div>
+      <section className="settings-list" style={{ border: "1px solid var(--color-border)", borderRadius: "var(--radius-panel)", background: "var(--color-surface)", overflow: "hidden" }}>
+        <article className="setting-row" style={{ border: "none" }}>
+          <div className="setting-icon"><Compass size={20} /></div>
+          <div>
+            <h2>Show text labels on mobile</h2>
+            <p>{showLabelsMobile ? "Labels enabled on mobile navigation" : "Labels hidden on mobile (icons only)"}</p>
+          </div>
+          <div className="theme-options" role="group" aria-label="Show text labels on mobile">
+            <button className={!showLabelsMobile ? "active" : ""} onClick={() => setShowLabelsMobile(false)}>
+              Hide
+            </button>
+            <button className={showLabelsMobile ? "active" : ""} onClick={() => setShowLabelsMobile(true)}>
+              Show
+            </button>
+          </div>
+        </article>
+      </section>
+
+      <div className="action-row" style={{ marginTop: "1.25rem" }}>
         <button className="primary-button" onClick={() => void save()}>Save navigation</button>
       </div>
       <p className="form-message" role="status">{message}</p>
@@ -4573,7 +4685,7 @@ function ImportHistory() {
               <X size={24} />
             </div>
             <p className="modal-confirm-message">
-              This will remove all media, episodes, and activity records created by this import job. Items you manually modified after import will also be removed. This cannot be undone.
+              This will remove all media, episodes, and activity records created by this import job. Items you manually modified after import will also be removed.
             </p>
             <div className="modal-confirm-actions">
               <button className="secondary-button" style={{ flex: 1 }} onClick={() => setRollbackJobId(null)}>Cancel</button>
@@ -4968,6 +5080,14 @@ function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Pr
   const [visibility, setVisibility] = useState(me.profile.visibility);
   const [message, setMessage] = useState("Profile changes use CSRF-protected requests.");
 
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const bannerInputRef = useRef<HTMLInputElement | null>(null);
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
@@ -5002,55 +5122,138 @@ function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Pr
     }
   }
 
-  async function logout() {
+
+  async function handleDeleteConfirm() {
+    if (deleteConfirmUsername !== me.user.username) return;
     try {
-      await apiJson("/api/auth/logout", { method: "POST", csrfToken: me.csrfToken });
+      setDeleting(true);
+      setDeleteError(null);
+      await apiJson("/api/me", {
+        method: "DELETE",
+        csrfToken: me.csrfToken,
+      });
       window.location.assign("/auth");
     } catch (error) {
-      setMessage("Logout failed.");
+      setDeleteError(error instanceof Error ? error.message : "Failed to delete account.");
+    } finally {
+      setDeleting(false);
     }
   }
 
   return (
-    <form className="settings-form" onSubmit={saveProfile}>
-      <label>
-        Display name
-        <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-      </label>
-      <label>
-        Username
-        <input value={username} onChange={(event) => setUsername(event.target.value)} />
-      </label>
-      <label>
-        Bio
-        <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
-      </label>
-      <label>
-        Visibility
-        <select value={visibility} onChange={(event) => setVisibility(event.target.value as MePayload["profile"]["visibility"])}>
-          <option value="private">Private</option>
-          <option value="connections">Connections</option>
-          <option value="public">Public</option>
-        </select>
-      </label>
-      <div className="file-row">
+    <>
+      <form className="settings-form" onSubmit={saveProfile}>
+        <section className="profile-hero settings-preview" aria-label="Current profile media" style={{ marginBottom: "1.5rem" }}>
+          <div className="profile-banner" style={me.profile.bannerUrl ? { backgroundImage: `url(${me.profile.bannerUrl})` } : undefined}>
+            <button className="banner-edit-btn" type="button" onClick={() => bannerInputRef.current?.click()} title="Change banner" aria-label="Change banner">
+              <Camera size={16} />
+            </button>
+            <input ref={bannerInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" style={{ display: "none" }} onChange={(event) => void uploadImage("banner", event.target.files?.[0])} />
+          </div>
+          <div className="profile-row">
+            <div className="avatar-wrapper">
+              <div className="avatar">{me.profile.avatarUrl ? <img src={me.profile.avatarUrl} alt="" /> : initials(displayName)}</div>
+              <button className="avatar-edit-btn" type="button" onClick={() => avatarInputRef.current?.click()} title="Change avatar" aria-label="Change avatar">
+                <Camera size={12} />
+              </button>
+              <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" style={{ display: "none" }} onChange={(event) => void uploadImage("avatar", event.target.files?.[0])} />
+            </div>
+            <div>
+              <h2>{displayName || me.user.displayName}</h2>
+              <p>@{username || me.user.username}</p>
+            </div>
+          </div>
+        </section>
+
         <label>
-          Avatar
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => void uploadImage("avatar", event.target.files?.[0])} />
+          Display name
+          <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
         </label>
         <label>
-          Banner
-          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(event) => void uploadImage("banner", event.target.files?.[0])} />
+          Username
+          <input value={username} onChange={(event) => setUsername(event.target.value)} />
         </label>
-      </div>
-      <div className="action-row">
-        <button className="primary-button">Save profile</button>
-        <button className="secondary-button" type="button" onClick={() => void logout()}>
-          Log out
-        </button>
-      </div>
-      <p className="form-message" role="status">{message}</p>
-    </form>
+        <label>
+          Email address
+          <input value={me.user.email ?? ""} readOnly disabled className="readonly-input" style={{ opacity: 0.6, cursor: "not-allowed" }} />
+        </label>
+        <label>
+          Bio
+          <textarea value={bio} onChange={(event) => setBio(event.target.value)} />
+        </label>
+        <label>
+          Visibility
+          <div className="theme-options" style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }} role="group" aria-label="Visibility">
+            {(["private", "connections", "public"] as const).map((option) => (
+              <button
+                type="button"
+                className={visibility === option ? "active" : ""}
+                key={option}
+                onClick={() => setVisibility(option)}
+                style={{ flex: 1, textTransform: "capitalize" }}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </label>
+        <div className="action-row">
+          <button className="primary-button">Save profile</button>
+        </div>
+        <p className="form-message" role="status">{message}</p>
+      </form>
+
+      {/* Delete Account Section */}
+      <section className="settings-list" style={{ marginTop: "1rem" }}>
+        <article className="setting-row">
+          <div className="setting-icon" style={{ color: "var(--color-danger)" }}><Trash2 size={20} /></div>
+          <div>
+            <h2>Danger Zone</h2>
+            <p style={{ color: "var(--color-danger)" }}>Permanently delete your account and all tracked data. This cannot be undone.</p>
+          </div>
+          <button className="danger-button" type="button" onClick={() => setShowDeleteModal(true)}>
+            Delete Account
+          </button>
+        </article>
+      </section>
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal title="Delete Account" open={showDeleteModal} onClose={() => setShowDeleteModal(false)}>
+        <div style={{ padding: "1.25rem", display: "grid", gap: "1.25rem" }}>
+          <div style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", padding: "0.75rem", background: "rgba(255, 107, 107, 0.1)", border: "1px solid rgba(255, 107, 107, 0.2)", borderRadius: "var(--radius-panel)" }}>
+            <AlertTriangle size={20} style={{ color: "var(--color-danger)", flexShrink: 0 }} />
+            <div>
+              <strong style={{ color: "var(--color-text)" }}>This action is permanent and irreversible!</strong>
+              <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.82rem", color: "var(--color-text-muted)" }}>
+                Deleting your account will purge all your custom media items, library entries, tracking history, notes, and credentials from the system database immediately.
+              </p>
+            </div>
+          </div>
+          <p>To confirm, please type your username <strong>{me.user.username}</strong> below:</p>
+          <div className="settings-form">
+            <input
+              value={deleteConfirmUsername}
+              onChange={(event) => setDeleteConfirmUsername(event.target.value)}
+              placeholder="Type username to confirm"
+            />
+          </div>
+          <div className="action-row" style={{ marginTop: "0.5rem" }}>
+            <button className="secondary-button" type="button" onClick={() => { setShowDeleteModal(false); setDeleteConfirmUsername(""); }}>
+              Cancel
+            </button>
+            <button
+              className="danger-button"
+              type="button"
+              disabled={deleteConfirmUsername !== me.user.username || deleting}
+              onClick={() => void handleDeleteConfirm()}
+            >
+              {deleting ? "Deleting..." : "Permanently Delete Account"}
+            </button>
+          </div>
+          {deleteError && <p className="form-message error-message" style={{ color: "var(--color-danger)" }}>{deleteError}</p>}
+        </div>
+      </Modal>
+    </>
   );
 }
 

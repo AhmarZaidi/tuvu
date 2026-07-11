@@ -301,10 +301,15 @@
 
 .bottom-nav .nav-link span {
   display: none;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.bottom-nav.show-labels .nav-link span {
+  display: block;
 }
 
 .nav-link.active {
   color: #ffcf5c;
   background: rgba(255, 207, 92, 0.1);
 }
-

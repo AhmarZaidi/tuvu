@@ -308,6 +308,7 @@
 
 .nav-settings-icon.ordered {
   cursor: grab;
+  touch-action: none;
 }
 
 .nav-settings-icon.dragging {
@@ -326,6 +327,23 @@
 
 .nav-order-preview {
   border-style: dashed;
+}
+
+.nav-settings-row-info {
+  margin-bottom: 0.6rem;
+}
+
+.nav-settings-row-info h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.nav-settings-row-info p {
+  margin: 0.15rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
 }
 
 .provider-settings-grid {

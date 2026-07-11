@@ -110,5 +110,18 @@ export function createProfileRoutes(dependencies: ProfileRouteDependencies = {})
     return c.json(apiSuccess({ upload, profile: await publicProfileWithUploads(repository, profile) }));
   });
 
+  routes.delete("/me", requireAuth(), requireCsrf(), async (c) => {
+    const auth = c.get("auth");
+    if (!c.env.DB) {
+      return apiError(c, 503, "server_error", "Database is unavailable.");
+    }
+    try {
+      await c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(auth.user.id).run();
+      return c.json(apiSuccess({ deleted: true }));
+    } catch (error) {
+      return apiError(c, 500, "server_error", error instanceof Error ? error.message : "Failed to delete account.");
+    }
+  });
+
   return routes;
 }

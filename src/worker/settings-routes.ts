@@ -11,6 +11,7 @@ const providerCredentialSchema = z.object({
 });
 const navigationSchema = z.object({
   items: z.array(z.enum(["shows", "anime", "movies", "books", "youtube", "games"])).min(2).max(6),
+  showLabelsMobile: z.boolean().optional(),
 });
 
 type ProviderCredentialRow = {
@@ -80,7 +81,8 @@ export function createSettingsRoutes() {
 
   router.get("/navigation", requireAuth(), async (c) => {
     const stored = await readUserSetting(c.env.DB, c.get("auth").user.id, "navigation");
-    return c.json(apiSuccess({ navigation: stored ?? { items: ["shows", "anime", "movies", "books", "games"] } }));
+    const navigation = stored ? { showLabelsMobile: false, ...stored } : { items: ["shows", "anime", "movies", "books", "games"], showLabelsMobile: false };
+    return c.json(apiSuccess({ navigation }));
   });
 
   router.put("/navigation", requireAuth(), requireCsrf(), async (c) => {

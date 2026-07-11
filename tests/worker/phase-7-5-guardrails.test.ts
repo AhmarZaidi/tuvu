@@ -312,7 +312,7 @@ describe("phase 7.5.0 refactor guardrails", () => {
 
     const updated = await app.request(
       `/api/units/${createdBody.data.unit.id}/activity`,
-      { method: "PATCH", body: JSON.stringify({ completed: true, rating: 8, notes: "Done" }), headers },
+      { method: "PATCH", body: JSON.stringify({ completed: true, rating: 5, notes: "Done" }), headers },
       testEnv(),
     );
     expect(updated.status).toBe(200);
@@ -320,6 +320,6 @@ describe("phase 7.5.0 refactor guardrails", () => {
     const detail = await app.request(`/api/units/${createdBody.data.unit.id}`, { headers: { cookie } }, testEnv());
     const detailBody = await detail.json() as { data: { media: { title: string }; activity: { completed: boolean; rating: number; notes: string } } };
     expect(detailBody.data.media.title).toBe("Guardrail Book");
-    expect(detailBody.data.activity).toMatchObject({ completed: true, rating: 8, notes: "Done" });
+    expect(detailBody.data.activity).toMatchObject({ completed: true, rating: 5, notes: "Done" });
   });
 });

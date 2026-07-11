@@ -7,8 +7,8 @@ const STATUS_MAP: Record<MediaType, readonly AnyStatus[]> = {
   show:  ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
   anime: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
   movie: ["watch_later", "watched"],
-  game:  ["planned", "playing", "completed", "paused", "dropped"],
-  book:  ["want_to_read", "reading", "finished", "paused", "dropped"],
+  game:  ["planned", "playing", "completed", "dropped"],
+  book:  ["want_to_read", "reading", "finished", "dropped"],
 };
 
 const DEFAULT_STATUS: Record<MediaType, AnyStatus> = {

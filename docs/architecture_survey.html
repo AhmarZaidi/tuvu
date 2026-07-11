@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tuvu - Architectural Survey</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0a0a0f;
+            --bg-surface: #14141d;
+            --bg-surface-elevated: #1e1e2d;
+            --text-primary: #f0f0f5;
+            --text-secondary: #9a9cae;
+            --accent-primary: #6366f1;
+            --accent-glow: rgba(99, 102, 241, 0.4);
+            --accent-secondary: #a855f7;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --border: #2a2a3c;
+            --sidebar-width: 280px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.6;
+            display: flex;
+            overflow-x: hidden;
+        }
+
+        h1, h2, h3, h4 { font-family: 'Outfit', sans-serif; }
+        
+        a { color: var(--accent-primary); text-decoration: none; transition: color 0.2s; }
+        a:hover { color: var(--accent-secondary); }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: rgba(20, 20, 29, 0.8);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--border);
+            position: fixed;
+            top: 0; left: 0;
+            padding: 2rem 1.5rem;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar h2 {
+            font-size: 1.5rem;
+            margin-bottom: 2rem;
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .nav-links { list-style: none; }
+        .nav-links li { margin-bottom: 0.5rem; }
+        .nav-links a {
+            display: block;
+            padding: 0.75rem 1rem;
+            color: var(--text-secondary);
+            border-radius: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 0.95rem;
+            font-weight: 500;
+        }
+        .nav-links a:hover, .nav-links a.active {
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--accent-primary);
+            transform: translateX(4px);
+        }
+
+        /* Main Content */
+        .content {
+            margin-left: var(--sidebar-width);
+            padding: 3rem 4rem;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .header {
+            margin-bottom: 4rem;
+            position: relative;
+        }
+        
+        .header::after {
+            content: '';
+            position: absolute;
+            top: -50px;
+            left: -50px;
+            width: 300px;
+            height: 300px;
+            background: var(--accent-glow);
+            filter: blur(100px);
+            z-index: -1;
+            border-radius: 50%;
+        }
+
+        .header h1 {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            letter-spacing: -0.02em;
+        }
+        .header p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+        }
+
+        /* Sections */
+        section {
+            margin-bottom: 5rem;
+            scroll-margin-top: 2rem;
+            animation: fadeIn 0.8s ease-out forwards;
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        section h2 {
+            font-size: 2.2rem;
+            margin-bottom: 2rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+            display: inline-block;
+        }
+
+        .card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), 0 0 15px var(--accent-glow);
+        }
+
+        .card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+            color: var(--accent-primary);
+        }
+
+        /* Diagrams & Grids */
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
+
+        .diagram-box {
+            background: var(--bg-surface-elevated);
+            padding: 1.5rem;
+            border-radius: 12px;
+            border: 1px dashed var(--accent-secondary);
+            text-align: center;
+            font-family: monospace;
+            color: #d1d5db;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: rgba(99, 102, 241, 0.15);
+            color: #818cf8;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        .badge.danger { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .badge.success { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .badge.warning { background: rgba(234, 179, 8, 0.15); color: #facc15; }
+
+        ul.custom-list { list-style: none; }
+        ul.custom-list li {
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        ul.custom-list li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--accent-primary);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+            background: var(--bg-surface);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: var(--bg-surface-elevated);
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+        tr:last-child td { border-bottom: none; }
+
+        /* Animations */
+        @keyframes fadeIn {
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            .sidebar { transform: translateX(-100%); }
+            .content { margin-left: 0; padding: 2rem; }
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="sidebar">
+        <h2>Tuvu Architect</h2>
+        <ul class="nav-links">
+            <li><a href="#overview">Overview & Hosting</a></li>
+            <li><a href="#architecture">System Architecture</a></li>
+            <li><a href="#database">Database Schema Map</a></li>
+            <li><a href="#apis">APIs & Integrations</a></li>
+            <li><a href="#data-flow">Data Strategy & Flows</a></li>
+            <li><a href="#caching">Caching & Loading</a></li>
+            <li><a href="#codebase">Codebase Mapping</a></li>
+            <li><a href="#optimization">Optimization & Consolidation</a></li>
+        </ul>
+    </nav>
+
+    <main class="content">
+        <div class="header">
+            <h1>Tuvu Architectural Survey</h1>
+            <p>A comprehensive technical deep-dive into the Tuvu web application, mapping infrastructure, data flows, and the Phase 7.5 refactor trajectory.</p>
+        </div>
+
+        <!-- Overview & Hosting -->
+        <section id="overview" style="animation-delay: 0.1s">
+            <h2>Overview & Hosting setup</h2>
+            <div class="grid-2">
+                <div class="card">
+                    <h3>Deployment Architecture</h3>
+                    <p>Tuvu is designed as a fast, cost-effective personal media tracker tailored for <strong>Cloudflare Workers</strong>.</p>
+                    <ul class="custom-list">
+                        <li><strong>Client:</strong> Vite-built React Single Page App (SPA).</li>
+                        <li><strong>API:</strong> Hono routing framework deployed on Cloudflare Workers.</li>
+                        <li><strong>Database:</strong> Cloudflare D1 (Serverless SQLite).</li>
+                        <li><strong>Asset Delivery:</strong> Cloudflare Static Assets (run-worker-first configuration for <code>/api/*</code>).</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>Hosting Limitations</h3>
+                    <p>The architecture is intentionally bounded by Free-tier limits:</p>
+                    <ul class="custom-list">
+                        <li><strong>Cloudflare D1:</strong> SQLite limits apply. Heavy aggregations (dashboard stats) must not be computed per-request.</li>
+                        <li><strong>Supabase Storage:</strong> Free tier limits to 1 GB storage and 5 GB egress. File limits are capped (50MB total, but Avatars bounded to ~2MB, Banners ~5MB). Media caches must be easily evictable.</li>
+                        <li><strong>Workers Execution:</strong> External API hydration must be asynchronous (<code>ctx.waitUntil</code>) to avoid exceeding request timeouts or blocking UI.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Architecture -->
+        <section id="architecture" style="animation-delay: 0.2s">
+            <h2>System Architecture</h2>
+            <div class="card">
+                <h3>High-Level Topology</h3>
+                <div class="diagram-box" style="margin-bottom: 2rem; padding: 2.5rem 1rem;">
+                    [ React Client (Browser) ] <br>
+                    ↓ (REST / JSON) ↓ <br>
+                    [ Cloudflare Static Assets (SPA Fallback) ] <br>
+                    ↓ ( /api/* routes ) ↓ <br>
+                    [ Hono Worker (Cloudflare) ] <br>
+                    ↙ &nbsp; ↓ &nbsp; ↘ <br>
+                    [ D1 SQLite ] &nbsp; [ Supabase Storage ] &nbsp; [ External Providers ]
+                </div>
+                <p>The client leverages <strong>React Query / Zustand</strong> for UI state and cache, fetching from the Hono Worker. The worker validates Auth (Passkeys/OAuth via session cookies), retrieves data from <strong>D1</strong>, and proxies/hydrates missing metadata from <strong>External APIs</strong> (TMDB, RAWG, etc.) using a Stale-While-Revalidate caching pattern.</p>
+            </div>
+        </section>
+
+        <!-- Database Schema -->
+        <section id="database" style="animation-delay: 0.3s">
+            <h2>Database Schema Map</h2>
+            <p style="margin-bottom: 1.5rem; color: var(--text-secondary)">Cloudflare D1 acts as the single source of truth. The schema is highly normalized to support imports without requiring perfect external metadata immediately.</p>
+            
+            <div class="grid-3">
+                <div class="card">
+                    <h3>Auth & Identity</h3>
+                    <span class="badge">users</span> <span class="badge">sessions</span>
+                    <span class="badge">user_profiles</span> <span class="badge">auth_passwords</span>
+                    <span class="badge">oauth_accounts</span> <span class="badge">webauthn_credentials</span>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">Uses secure HTTP-only cookies. Supports Passkeys as primary, OAuth (GitHub) as convenience.</p>
+                </div>
+                <div class="card">
+                    <h3>Global Media Catalog</h3>
+                    <span class="badge">media_items</span> <span class="badge">media_external_ids</span>
+                    <span class="badge">media_metadata</span> <span class="badge">media_images</span>
+                    <span class="badge">seasons</span> <span class="badge">episodes</span>
+                    <span class="badge">media_units</span> <span class="badge">people</span>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Canonical strategy:</strong> One global item per real-world object. Provider data is mapped to these rows.</p>
+                </div>
+                <div class="card">
+                    <h3>User Tracking</h3>
+                    <span class="badge">user_media</span> <span class="badge">episode_activity</span>
+                    <span class="badge">unit_activity</span> <span class="badge">activity_events</span>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">Strictly user-scoped. Tracks status, favorites, ratings, notes, platform choices, and append-only activity logs.</p>
+                </div>
+                <div class="card">
+                    <h3>Import & Hydration</h3>
+                    <span class="badge warning">import_jobs</span> <span class="badge warning">import_job_items</span>
+                    <span class="badge warning">provider_cache</span> <span class="badge warning">metadata_refresh_jobs</span>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">Tracks async TV Time import chunking and external metadata hydration freshness.</p>
+                </div>
+                <div class="card">
+                    <h3>Future 7.5 Additions</h3>
+                    <span class="badge success">user_provider_credentials</span>
+                    <span class="badge success">user_library_versions</span>
+                    <span class="badge success">user_stats_snapshots</span>
+                    <p style="margin-top: 1rem; font-size: 0.9rem;">Supports encrypted user API keys, cross-device cache invalidation, and pre-calculated dashboard stats.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- APIs -->
+        <section id="apis" style="animation-delay: 0.4s">
+            <h2>APIs & Endpoints Map</h2>
+            <div class="card">
+                <h3>External Metadata Providers</h3>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Provider</th>
+                            <th>Target Media</th>
+                            <th>Status / Integration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>TMDB</strong></td>
+                            <td>Shows, Movies, Anime</td>
+                            <td>Primary source. Cached via Worker to avoid rate limits.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>RAWG</strong> / <strong>IGDB</strong></td>
+                            <td>Games</td>
+                            <td>Video game metadata and platform parsing.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Open Library</strong></td>
+                            <td>Books</td>
+                            <td>Requires Contact Email header.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Jikan / MAL</strong></td>
+                            <td>Anime</td>
+                            <td>Used for Anime-specific extended traits.</td>
+                        </tr>
+                        <tr>
+                            <td><strong>YouTube / NewsAPI</strong></td>
+                            <td>Videos / Media News</td>
+                            <td>Video data & media-specific news rails.</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.9rem;"><strong>Strategy:</strong> Provider credentials will move from app-level <code>.dev.vars</code> to user-scoped encrypted rows in 7.5, with app secrets as a fallback.</p>
+            </div>
+
+            <div class="card">
+                <h3>Internal Hono Endpoints (Worker)</h3>
+                <ul class="custom-list">
+                    <li><code>/api/auth/*</code> - Passkey / OAuth / Session handling.</li>
+                    <li><code>/api/media/*</code> - Detail retrieval, episode guides, unit tracking, cover uploads.</li>
+                    <li><code>/api/library/*</code> - User mutations (add/remove, rating, status). <em>7.5 moves stats calculation away from here to a batch snapshot service.</em></li>
+                    <li><code>/api/explore/*</code> - Search bridging local DB and Provider Caches.</li>
+                    <li><code>/api/import/*</code> - TV Time ZIP/CSV uploads, chunk processing, commits, and rollbacks.</li>
+                    <li><code>/api/merge/*</code> - Alias resolution for manually created/imported items vs canonical provider items.</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Data Flows -->
+        <section id="data-flow" style="animation-delay: 0.5s">
+            <h2>Data Strategy & Flows</h2>
+            
+            <div class="card">
+                <h3>1. The Search & Add Flow</h3>
+                <p>The app prioritizes local database speed, falling back to providers.</p>
+                <ol style="margin: 1rem 0 1rem 2rem; color: var(--text-secondary);">
+                    <li style="margin-bottom: 0.5rem">Client hits <code>/api/explore/search</code>.</li>
+                    <li style="margin-bottom: 0.5rem">Worker searches <strong>local D1 canonical media</strong> first.</li>
+                    <li style="margin-bottom: 0.5rem">If debounced and user-triggered, hits Provider Caches, then External Providers.</li>
+                    <li style="margin-bottom: 0.5rem">User adds item: Worker creates a <strong>lightweight global canonical row</strong> (if it didn't exist) and attaches a <strong>user-scoped library row</strong>.</li>
+                    <li>Async hydration job is queued to fetch heavy metadata (episodes, credits) in the background.</li>
+                </ol>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <h3>2. Import & Merge Flow</h3>
+                    <p>Designed to handle incomplete metadata from TV Time exports.</p>
+                    <ul class="custom-list" style="margin-top: 1rem;">
+                        <li><strong>Parse:</strong> Client parses CSV/ZIP locally via Papa Parse.</li>
+                        <li><strong>Chunking:</strong> Worker commits in bounded batches to avoid D1 timeouts.</li>
+                        <li><strong>Placeholders:</strong> Creates local canonical placeholders for imported items.</li>
+                        <li><strong>Merge:</strong> The Merge UI allows users to resolve placeholders against real Provider IDs, migrating tracking data and queueing hydration.</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>3. Manual Data & Authorization</h3>
+                    <p>Users can bypass providers for niche items.</p>
+                    <ul class="custom-list" style="margin-top: 1rem;">
+                        <li>Users can manually create media if search fails.</li>
+                        <li>Creates a <code>media_source_records</code> entry mapping to a canonical ID.</li>
+                        <li><strong>Auth Strategy:</strong> All mutation routes require valid HTTP-only cookies validated via <code>auth-repository</code>.</li>
+                        <li><strong>Future Social:</strong> Placeholder tables exist for Comments & Reactions.</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Caching & Loading -->
+        <section id="caching" style="animation-delay: 0.6s">
+            <h2>Caching & Loading Strategies</h2>
+            
+            <div class="grid-2">
+                <div class="card">
+                    <h3>Server-Side Strategy</h3>
+                    <span class="badge warning">Stale-While-Revalidate</span>
+                    <ul class="custom-list" style="margin-top: 1rem">
+                        <li><strong>provider_cache:</strong> Saves raw provider JSON to bypass rate limits (429s).</li>
+                        <li><strong>media_metadata_freshness:</strong> Tracks detail/episode hydration expiry.</li>
+                        <li>If a media page is requested and metadata is stale, the Worker returns the cached D1 data immediately and uses <code>ctx.waitUntil</code> to trigger a background refresh.</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3>Client-Side Strategy</h3>
+                    <span class="badge success">Version-Based Invalidation</span>
+                    <ul class="custom-list" style="margin-top: 1rem">
+                        <li><strong>Phase 7.5 Query Cache:</strong> Moving away from ad-hoc maps to a formal query cache (<code>api/query-cache.ts</code>).</li>
+                        <li><strong>Library Versions:</strong> Each user mutation bumps a <code>user_library_versions.version</code> in D1.</li>
+                        <li>Client checks version on window focus or mutation return; if bumped, it invalidates local caches (Dashboards, Detail pages) ensuring cross-device sync.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>UI Loading & Notices</h3>
+                <p>Loading states rely entirely on client-side rendering logic.</p>
+                <ul class="custom-list" style="margin-top: 1rem; color: var(--text-secondary);">
+                    <li><strong>Skeletons:</strong> <code>SkeletonGrid</code> and inline skeletons used while React Query fetches data.</li>
+                    <li><strong>Global Snackbar:</strong> Dedupes identical error/success notices, replacing page-local <code>Toast</code> components (7.5 refactor).</li>
+                    <li><strong>Job Banners:</strong> Persistent <code>JobProgressBanner</code> used for long-running imports/merges instead of ephemeral toasts.</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Codebase & Optimization -->
+        <section id="codebase" style="animation-delay: 0.7s">
+            <h2>Codebase Mapping & 7.5 Optimization</h2>
+            
+            <div class="card">
+                <h3>The "Monolith" Problem (Pre-7.5)</h3>
+                <p>The app developed rapid feature bloat resulting in significant duplication:</p>
+                <ul class="custom-list" style="margin-top: 1rem;">
+                    <li><strong>Client Monolith:</strong> <code>src/client/app.tsx</code> contains Routing, App Shell, Fetching, Dashboard logic, and Media detail layouts.</li>
+                    <li><strong>CSS Drift:</strong> <code>src/client/styles.css</code> has hard-coded colors and duplicate light/system theme rules.</li>
+                    <li><strong>Worker Monolith:</strong> <code>media-repository.ts</code> handles catalog, library, dashboard count SQL, and activity.</li>
+                    <li><strong>Ad-Hoc Stats:</strong> Dashboard counts (Shows vs Anime) are recalculated dynamically on every request.</li>
+                </ul>
+            </div>
+
+            <div class="card" style="border-color: var(--accent-secondary)">
+                <h3>Phase 7.5 Restructuring Plan</h3>
+                <p>The codebase is actively being fragmented into highly cohesive domain modules.</p>
+                
+                <h4 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--accent-primary)">1. Shared Domain Definitions</h4>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Media types (Shows, Anime, Books, Games, Movies) are centralized into a <code>MediaTypeConfig</code> registry to prevent scattered `if/switch` statements across client & API.</p>
+                
+                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">2. Client Architecture (Design System)</h4>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Moving to <code>features/</code> (auth, profile, library), <code>design/</code> (tokens, UI components like Button, Sheet, Snackbar), and <code>shell/</code>. CSS is moving to CSS Variables (Tokens) to easily support future themes and compactness settings.</p>
+
+                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">3. Worker Architecture (Services/Repos)</h4>
+                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Routes validate input. <strong>Services</strong> (<code>media-canonical-service</code>, <code>stats-service</code>, <code>hydration-service</code>) own orchestration. <strong>Repositories</strong> own SQL. Provider fetches are isolated into <code>tmdb.ts</code>, <code>rawg.ts</code>, etc.</p>
+
+                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">4. Batched Stats</h4>
+                <p style="color: var(--text-secondary); font-size: 0.95rem;">Moving away from real-time paginated counts. Import/Merge flows now trigger a batched recalculation saved to <code>user_stats_snapshots</code>.</p>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // Simple Intersection Observer for Sidebar Highlighting
+        const sections = document.querySelectorAll('section');
+        const navLinks = document.querySelectorAll('.nav-links a');
+
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.3
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.getAttribute('id');
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${id}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            });
+        }, observerOptions);
+
+        sections.forEach(section => observer.observe(section));
+    </script>
+</body>
+</html>

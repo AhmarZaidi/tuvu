@@ -21,6 +21,7 @@ export const externalApiEndpoints = {
   jikanApi: "https://api.jikan.moe/v4",
   myAnimeList: "https://myanimelist.net",
   youtubeWeb: "https://www.youtube.com",
+  newsApi: "https://newsapi.org/v2",
 } as const;
 
 export const providerNames = {
@@ -30,6 +31,7 @@ export const providerNames = {
   openlibrary: "Open Library",
   jikan: "MyAnimeList (Jikan)",
   youtube: "YouTube",
+  newsapi: "NewsAPI",
   local: appConstants.name,
 } as const;
 

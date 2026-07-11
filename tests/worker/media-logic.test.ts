@@ -30,15 +30,17 @@ describe("validateStatus", () => {
   });
 
   it("accepts valid game statuses", () => {
-    for (const status of ["planned", "playing", "completed", "paused", "dropped"]) {
+    for (const status of ["planned", "playing", "completed", "dropped"]) {
       expect(validateStatus("game", status)).toBe(true);
     }
+    expect(validateStatus("game", "paused")).toBe(false);
   });
 
   it("accepts valid book statuses", () => {
-    for (const status of ["want_to_read", "reading", "finished", "paused", "dropped"]) {
+    for (const status of ["want_to_read", "reading", "finished", "dropped"]) {
       expect(validateStatus("book", status)).toBe(true);
     }
+    expect(validateStatus("book", "paused")).toBe(false);
   });
 
   it("rejects a show status on a movie", () => {

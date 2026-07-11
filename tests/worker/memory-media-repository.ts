@@ -35,6 +35,13 @@ export class MemoryMediaRepository implements MediaRepository {
     }
   }
 
+  async updateMediaExtendedData(mediaId: string, extendedDataJson: string | null, now: string) {
+    const existing = this.mediaItems.get(mediaId);
+    if (existing) {
+      this.mediaItems.set(mediaId, { ...existing, extendedDataJson, updatedAt: now });
+    }
+  }
+
   async findMediaById(id: string) {
     return this.mediaItems.get(id) ?? null;
   }

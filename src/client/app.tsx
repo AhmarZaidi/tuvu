@@ -1233,8 +1233,6 @@ function mergeMediaItems(staticItems: MediaCardItem[], library: LibraryEntry[]):
         tone = "watching";
       } else if (matchingLib.item.status === "completed" || matchingLib.item.status === "watched" || matchingLib.item.status === "finished") {
         tone = "complete";
-      } else if (matchingLib.item.status === "paused") {
-        tone = "paused";
       } else if (matchingLib.item.status === "dropped" || matchingLib.item.status === "stopped") {
         tone = "stopped";
       }
@@ -1267,8 +1265,6 @@ function mergeMediaItems(staticItems: MediaCardItem[], library: LibraryEntry[]):
         tone = "watching";
       } else if (entry.item.status === "completed" || entry.item.status === "watched" || entry.item.status === "finished") {
         tone = "complete";
-      } else if (entry.item.status === "paused") {
-        tone = "paused";
       } else if (entry.item.status === "dropped" || entry.item.status === "stopped") {
         tone = "stopped";
       }
@@ -1437,7 +1433,7 @@ function AllLibraryPage() {
             <div><span className="status-chip planned">{displayMediaType(media)}</span><span className="muted-copy"> {formatStatusLabel(item.status)}</span></div>
             <h2>{media.title}</h2>
             {media.overview && <p>{media.overview}</p>}
-            <span className="muted-copy">{media.year ?? "Year TBA"}{item.rating ? ` - ${item.rating}/10` : ""}</span>
+            <span className="muted-copy">{media.year ?? "Year TBA"}{item.rating ? ` - ${Math.min(5, item.rating)}/5` : ""}</span>
           </div>
           <ChevronRight size={18} />
         </NavLink>)}
@@ -2472,6 +2468,16 @@ type MediaDetailData = {
   } | null;
 };
 
+type MediaNewsArticle = {
+  sourceName: string;
+  author: string | null;
+  title: string;
+  description: string | null;
+  url: string;
+  imageUrl: string | null;
+  publishedAt: string | null;
+};
+
 type EpisodeWithActivity = {
   id: string;
   mediaId: string;
@@ -2558,15 +2564,21 @@ function MediaDetailPage() {
   const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(() => new Set(initialCache?.collapsedSeasons ?? []));
   const [mediaSettingsOpen, setMediaSettingsOpen] = useState(false);
   const [episodeAction, setEpisodeAction] = useState<{ type: "episode"; episode: EpisodeWithActivity } | { type: "season"; seasonNumber: number; watchedCount: number; totalCount: number } | null>(null);
+  const [movieActionOpen, setMovieActionOpen] = useState(false);
   const [hydrationProgress, setHydrationProgress] = useState<HydrationProgress | null>(null);
+  const [newsArticles, setNewsArticles] = useState<MediaNewsArticle[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsWarning, setNewsWarning] = useState<string | null>(null);
+  const [animeDateMode, setAnimeDateMode] = useState<"sub" | "dub">("sub");
   const autoHydrateRef = useRef(new Set<string>());
   const hydrationNoticeRef = useRef<string | null>(null);
+  const wasHydratingRef = useRef(false);
 
   const triggerToast = (msg: string, tone: NoticeTone = "info") => notify(msg, tone);
 
-  const loadData = async () => {
+  const loadData = async (options: { background?: boolean } = {}) => {
     try {
-      setLoading(true);
+      if (!options.background) setLoading(true);
       setError(null);
       const mediaData = await apiJson<MediaDetailData>(`/api/media/${id}`);
       setDetail(mediaData);
@@ -2575,7 +2587,7 @@ function MediaDetailPage() {
       if (mediaData.media.type === "show" || mediaData.media.type === "anime") {
         const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
         setEpisodes(epData.episodes);
-        setCollapsedSeasons(new Set(epData.episodes.map((episode) => episode.seasonNumber)));
+        setCollapsedSeasons((current) => current.size && options.background ? current : new Set(epData.episodes.map((episode) => episode.seasonNumber)));
         setUnits([]);
       } else if (mediaData.media.type === "book" || mediaData.media.type === "game") {
         const unitData = await apiJson<{ units: TrackableUnit[] }>(`/api/media/${id}/units`);
@@ -2587,9 +2599,13 @@ function MediaDetailPage() {
       }
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : "Failed to load media.");
+      if (options.background) {
+        triggerToast(friendlyErrorMessage(err, "Saved details are visible, but fresh metadata could not be loaded right now."), "info");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to load media.");
+      }
     } finally {
-      setLoading(false);
+      if (!options.background) setLoading(false);
     }
   };
 
@@ -2609,6 +2625,29 @@ function MediaDetailPage() {
       }
     }
   }, [me.user.id, version, id]);
+
+  const loadNews = async (manual = false) => {
+    if (!id) return;
+    try {
+      setNewsLoading(true);
+      setNewsWarning(null);
+      const data = await apiJson<{ articles: MediaNewsArticle[]; warning?: string | null; cached?: boolean }>(`/api/media/${id}/news${manual ? "?refresh=1" : ""}`);
+      setNewsArticles(data.articles ?? []);
+      setNewsWarning(data.warning ?? null);
+      if (manual && data.warning) notify(data.warning, "info");
+      if (manual && !data.warning) notify(data.articles?.length ? "News refreshed." : "No news articles found yet.", "info");
+    } catch (reason) {
+      const message = friendlyErrorMessage(reason, "News could not be loaded right now.");
+      setNewsWarning(message);
+      if (manual) notify(message, "info");
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadNews(false);
+  }, [id]);
 
   useEffect(() => {
     if (!id || !detail) return;
@@ -2725,7 +2764,7 @@ function MediaDetailPage() {
         body: JSON.stringify({ rating }),
       });
       setDetail({ ...detail, userMedia: result.userMedia });
-      triggerToast(rating ? `Rated ${rating}/10` : "Rating cleared");
+      triggerToast(rating ? `Rated ${rating}/5` : "Rating cleared");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to rate.");
     }
@@ -2750,18 +2789,20 @@ function MediaDetailPage() {
     }
   };
 
-  const markMovieWatched = async () => {
+  const markMovieWatched = async (mode: "not_watched" | "watched_once" | "rewatched" = "watched_once") => {
     if (!id || !detail || !detail.userMedia) return;
     try {
       const result = await apiJson<{ userMedia: MediaDetailData["userMedia"] }>(`/api/library/${id}/watched`, {
         method: "PATCH",
         csrfToken: me.csrfToken,
+        body: JSON.stringify({ mode }),
       });
       setDetail({ ...detail, userMedia: result.userMedia });
       clearDashboardCaches(me.user.id);
-      triggerToast("Watched movie!", "success");
+      setMovieActionOpen(false);
+      triggerToast(mode === "not_watched" ? "Movie marked not watched." : mode === "rewatched" ? "Movie rewatch logged." : "Movie marked watched.", "success");
     } catch (err) {
-      triggerToast(err instanceof Error ? err.message : "Failed to watch.");
+      triggerToast(err instanceof Error ? err.message : "Movie watch state could not be saved.");
     }
   };
 
@@ -2798,7 +2839,7 @@ function MediaDetailPage() {
   const setSeasonWatched = async (seasonNumber: number, watched: boolean) => {
     if (!id) return;
     try {
-      await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ watched }) });
+      await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ watched, mode: watched ? "watched_once" : "not_watched" }) });
       const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
       setEpisodes(refreshed.episodes);
       clearDashboardCaches(me.user.id);
@@ -2811,18 +2852,11 @@ function MediaDetailPage() {
   const applySeasonAction = async (seasonNumber: number, action: "not_watched" | "watched_once" | "rewatched") => {
     if (!id) return;
     try {
-      if (action === "rewatched") {
-        const seasonEpisodes = episodes.filter((episode) => episode.seasonNumber === seasonNumber);
-        for (const episode of seasonEpisodes) {
-          await apiJson(`/api/episodes/${episode.id}/watched`, { method: "POST", csrfToken: me.csrfToken, body: JSON.stringify({}) });
-        }
-      } else {
-        await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, {
-          method: "PATCH",
-          csrfToken: me.csrfToken,
-          body: JSON.stringify({ watched: action !== "not_watched", mode: action }),
-        });
-      }
+      await apiJson(`/api/episodes/media/${id}/seasons/${seasonNumber}`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ watched: action !== "not_watched", mode: action }),
+      });
       const refreshed = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
       setEpisodes(refreshed.episodes);
       setEpisodeAction(null);
@@ -2879,6 +2913,23 @@ function MediaDetailPage() {
     }
   };
 
+  const setAnimeClassification = async (anime: boolean) => {
+    if (!id || !detail) return;
+    try {
+      const result = await apiJson<{ media: MediaDetailData["media"] }>(`/api/media/${id}/classification`, {
+        method: "PATCH",
+        csrfToken: me.csrfToken,
+        body: JSON.stringify({ anime }),
+      });
+      setDetail({ ...detail, media: result.media });
+      clearDashboardCaches(me.user.id);
+      clearMediaDetailCache(me.user.id, id);
+      triggerToast(anime ? "Marked as anime." : "Anime tag removed.", "success");
+    } catch (err) {
+      triggerToast(err instanceof Error ? err.message : "Anime classification could not be saved.");
+    }
+  };
+
   const refreshInfo = async () => {
     if (!id) return;
     try {
@@ -2920,7 +2971,7 @@ function MediaDetailPage() {
         window.setTimeout(() => {
           clearMediaDetailCache(me.user.id, id);
           void (async () => {
-            await loadData();
+            await loadData({ background: true });
             await reportHydrationIfStillMissing(detail.media.id, detail.media.title);
           })();
         }, 4500);
@@ -2939,7 +2990,12 @@ function MediaDetailPage() {
       const progress = await loadHydrationProgress();
       if (cancelled) return;
       if (progress?.activeJobs || progress?.status === "refreshing") {
+        wasHydratingRef.current = true;
         timeoutId = window.setTimeout(poll, 5000);
+      } else if (wasHydratingRef.current) {
+        wasHydratingRef.current = false;
+        clearMediaDetailCache(me.user.id, id);
+        await loadData({ background: true });
       }
     };
 
@@ -3037,24 +3093,20 @@ function MediaDetailPage() {
 
   const { media, userMedia } = detail;
   const regularEpisodes = episodes.filter((ep) => !ep.isSpecial);
-  const totalRegularCount = regularEpisodes.length;
-  const watchedRegularCount = regularEpisodes.filter((ep) => ep.activity?.watched).length;
+  const availableRegularEpisodes = progressEligibleEpisodes(regularEpisodes);
+  const totalRegularCount = availableRegularEpisodes.length;
+  const watchedRegularCount = availableRegularEpisodes.filter((ep) => ep.activity?.watched).length;
   const progressPercent = totalRegularCount > 0 ? Math.round((watchedRegularCount / totalRegularCount) * 100) : 0;
 
-  const nextEp = regularEpisodes
+  const nextEp = availableRegularEpisodes
     .sort((a, b) => a.seasonNumber - b.seasonNumber || a.episodeNumber - b.episodeNumber)
     .find((ep) => !ep.activity?.watched);
   const episodeGroups = [...new Set(episodes.map((episode) => episode.seasonNumber))]
     .sort((a, b) => a - b)
     .map((seasonNumber) => ({ seasonNumber, episodes: episodes.filter((episode) => episode.seasonNumber === seasonNumber) }));
 
-  const statusOptions = {
-    show: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
-    anime: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
-    movie: ["watch_later", "watched"],
-    game: ["planned", "playing", "completed", "paused", "dropped"],
-    book: ["want_to_read", "reading", "finished", "paused", "dropped"],
-  }[media.type] ?? [];
+  const manualStatusOptions = manualStatusOptionsForMedia(media.type);
+  const dateRangeLabel = formatMediaDateRange(media, regularEpisodes);
   const backdropImage = media.backdropPath ?? media.posterPath;
   const posterImage = media.posterPath ?? media.backdropPath;
   const mediaVisualStyle = {
@@ -3077,7 +3129,8 @@ function MediaDetailPage() {
         <div className="detail-copy">
           <div className="metadata-row">
             {isAnimeMedia(media) && <span className="status-chip paused"><Sparkles size={14} />Anime</span>}
-            {media.releaseDate && <span><CalendarDays size={16} />{new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" })}{media.airStatus === "continuing" ? " - Present" : ""}</span>}
+            {isAnimeMedia(media) && <span className="status-chip planned">{animeFormatLabel(media)}</span>}
+            {dateRangeLabel && <span><CalendarDays size={16} />{dateRangeLabel}</span>}
             {media.runtimeMinutes && <span><Clock3 size={16} />{media.runtimeMinutes} min{media.type === "show" || media.type === "anime" ? " average" : ""}</span>}
             {media.language && <span>{media.language.toUpperCase()}</span>}
             {media.source !== "manual" && <span>{media.source.toUpperCase()}</span>}
@@ -3090,7 +3143,7 @@ function MediaDetailPage() {
               </button>
             ) : (
               <>
-                <div className="tracking-status"><span className="eyebrow">Tracking status</span><div>{statusOptions.map((option) => <button className={userMedia.status === option ? "active" : ""} key={option} onClick={() => void updateStatus(option)}>{option.replaceAll("_", " ")}</button>)}</div></div>
+                {manualStatusOptions.length > 0 && <ManualStatusControls options={manualStatusOptions} active={userMedia.status} onChange={(option) => void updateStatus(option)} />}
 
                 <IconButton
                   label="Favorite"
@@ -3100,19 +3153,18 @@ function MediaDetailPage() {
                   <Heart size={18} fill={userMedia.isFavorite ? "currentColor" : "none"} />
                 </IconButton>
 
-                <div className="rating-summary"><button onClick={() => void updateRating(userMedia.rating === 10 ? null : (userMedia.rating ?? 0) + 1)}><Star size={17} fill={userMedia.rating ? "currentColor" : "none"} />{userMedia.rating ? `${userMedia.rating}/10` : "Rate"}</button></div>
+                <EmojiRating value={userMedia.rating} onChange={updateRating} label="Your rating" />
               </>
             )}
           </div>
 
           {userMedia && media.type === "movie" && (
-            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "0.5rem" }}>
-              <button className="primary-button" onClick={markMovieWatched}>
-                <Check size={18} />
-                Mark Watched
-              </button>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", background: "rgba(255,255,255,0.03)", padding: "1rem", borderRadius: "0.5rem" }}>
+              <IconButton className={userMedia.status === "watched" ? "watched-toggle active" : "watched-toggle"} label={userMedia.status === "watched" ? "Movie watch actions" : "Mark movie watched"} onClick={() => userMedia.status === "watched" ? setMovieActionOpen(true) : void markMovieWatched("watched_once")}>
+                <WatchMark count={userMedia.status === "watched" ? 1 + userMedia.rewatchCount : 1} />
+              </IconButton>
               <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                <span style={{ fontSize: "0.85rem", color: "#aeb1ac" }}>Rewatches: {userMedia.rewatchCount}</span>
+                <span style={{ fontSize: "0.85rem", color: "#aeb1ac" }}>{userMedia.status === "watched" ? "Watched" : "Not watched"} · Rewatches: {userMedia.rewatchCount}</span>
                 {userMedia.watchedAt && (
                   <span style={{ fontSize: "0.85rem", color: "#aeb1ac" }}>
                     Last: {new Date(userMedia.watchedAt).toLocaleDateString()}
@@ -3127,7 +3179,7 @@ function MediaDetailPage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: "0.9rem", fontWeight: "bold" }}>Progress</span>
                 <span style={{ fontSize: "0.85rem", color: "#ffbf47" }}>
-                  {watchedRegularCount} / {totalRegularCount} episodes ({progressPercent}%)
+                  {watchedRegularCount} / {totalRegularCount} available episodes ({progressPercent}%)
                 </span>
               </div>
               <ProgressBar value={progressPercent} label={`${progressPercent}% watched`} />
@@ -3138,6 +3190,7 @@ function MediaDetailPage() {
                   <EpisodeTile
                     episode={nextEp}
                     media={media}
+                    dateMode={animeDateMode}
                     watched={false}
                     onToggle={() => void toggleEpisodeWatched(nextEp.id, false)}
                     onOpenActions={() => setEpisodeAction({ type: "episode", episode: nextEp })}
@@ -3177,21 +3230,32 @@ function MediaDetailPage() {
         </div>
       </section>
 
-      {(media.type === "show" || media.type === "anime") && (episodes.length > 0 || hydrationProgress) && (
+      {(media.type === "show" || media.type === "anime") && (
         <section className="episodes-section">
-          <div className="section-heading"><div><p className="eyebrow">Episode guide</p><h2>Seasons & Episodes</h2></div><span>{watchedRegularCount} of {totalRegularCount} watched</span></div>
+          <div className="section-heading"><div><p className="eyebrow">Episode guide</p><h2>Seasons & Episodes</h2></div><span>{watchedRegularCount} of {totalRegularCount} available watched</span></div>
+          {isAnimeMedia(media) && <div className="segmented-control compact-toggle" aria-label="Anime release date mode"><button className={animeDateMode === "sub" ? "active" : ""} onClick={() => setAnimeDateMode("sub")}>Sub dates</button><button className={animeDateMode === "dub" ? "active" : ""} onClick={() => setAnimeDateMode("dub")}>Dub dates</button></div>}
           {hydrationProgress && <EpisodeGuideProgress progress={hydrationProgress} />}
           {episodes.length === 0 ? (
             <EmptyState icon={<RefreshCw size={24} />} title="Episode guide is being prepared" message="Episode details will appear here as provider data is loaded." />
           ) : <div className="season-stack">
             {episodeGroups.map((group) => {
               const collapsed = collapsedSeasons.has(group.seasonNumber);
-              const watchedCount = group.episodes.filter((episode) => episode.activity?.watched).length;
-              const seasonProgress = group.episodes.length > 0 ? Math.round((watchedCount / group.episodes.length) * 100) : 0;
+              const availableSeasonEpisodes = releasableEpisodesForSeason(group.episodes);
+              const watchedCount = availableSeasonEpisodes.filter((episode) => episode.activity?.watched).length;
+              const seasonTotal = availableSeasonEpisodes.length;
+              const seasonProgress = seasonTotal > 0 ? Math.round((watchedCount / seasonTotal) * 100) : 0;
               return <section className="season-group" key={group.seasonNumber} style={{ "--season-progress": `${seasonProgress}%` } as CSSProperties}>
                 <header className="season-header">
-                  <button className="season-toggle" onClick={() => setCollapsedSeasons((current) => { const next = new Set(current); next.has(group.seasonNumber) ? next.delete(group.seasonNumber) : next.add(group.seasonNumber); return next; })}><ChevronDown className={collapsed ? "collapsed" : ""} size={18} /><span>{group.seasonNumber === 0 ? "Specials" : `Season ${group.seasonNumber}`}</span><small>{watchedCount}/{group.episodes.length}</small></button>
-                  <IconButton className={watchedCount === group.episodes.length ? "watched-toggle active" : "watched-toggle"} label={watchedCount === group.episodes.length ? "Season actions" : "Mark season watched"} onClick={() => watchedCount === group.episodes.length ? setEpisodeAction({ type: "season", seasonNumber: group.seasonNumber, watchedCount, totalCount: group.episodes.length }) : void setSeasonWatched(group.seasonNumber, true)}><WatchMark count={seasonWatchCount(group.episodes)} /></IconButton>
+                  <button className="season-toggle" onClick={() => setCollapsedSeasons((current) => { const next = new Set(current); next.has(group.seasonNumber) ? next.delete(group.seasonNumber) : next.add(group.seasonNumber); return next; })}><ChevronDown className={collapsed ? "collapsed" : ""} size={18} /><span>{group.seasonNumber === 0 ? "Specials" : `Season ${group.seasonNumber}`}</span><small>{watchedCount}/{seasonTotal || group.episodes.length}</small></button>
+                  <IconButton className={seasonTotal > 0 && watchedCount === seasonTotal ? "watched-toggle active" : "watched-toggle"} label={seasonTotal > 0 && watchedCount === seasonTotal ? "Season actions" : "Mark released episodes watched"} onClick={() => {
+                    if (seasonTotal === 0) {
+                      triggerToast("No released episodes are available in this season yet.", "info");
+                    } else if (watchedCount === seasonTotal) {
+                      setEpisodeAction({ type: "season", seasonNumber: group.seasonNumber, watchedCount, totalCount: seasonTotal });
+                    } else {
+                      void setSeasonWatched(group.seasonNumber, true);
+                    }
+                  }}><WatchMark count={seasonWatchCount(availableSeasonEpisodes)} /></IconButton>
                 </header>
                 {!collapsed && <div className="episode-list">{group.episodes.map((ep) => {
                   const watched = ep.activity?.watched ?? false;
@@ -3199,6 +3263,7 @@ function MediaDetailPage() {
                     <EpisodeTile
                       episode={ep}
                       media={media}
+                      dateMode={animeDateMode}
                       watched={watched}
                       onToggle={() => watched ? setEpisodeAction({ type: "episode", episode: ep }) : void toggleEpisodeWatched(ep.id, false)}
                       onOpenActions={() => setEpisodeAction({ type: "episode", episode: ep })}
@@ -3214,7 +3279,7 @@ function MediaDetailPage() {
 
       {(media.type === "book" || media.type === "game") && units.length > 0 && <section className="episodes-section"><div className="section-heading"><div><p className="eyebrow">Progress guide</p><h2>{media.type === "book" ? "Chapters & Parts" : "Missions & Acts"}</h2></div><span>{units.filter((unit) => unit.activity?.completed).length} of {units.length} complete</span></div><div className="episode-list">{units.map((unit) => <article className={unit.activity?.completed ? "episode-row watched" : "episode-row"} key={unit.id}><NavLink className="episode-copy" to={`/media/${media.type}/${media.id}/units/${unit.id}`}><span>{unit.kind} {unit.position}</span><strong>{unit.title ?? `${unit.kind} ${unit.position}`}</strong><small>{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString() : "Optional tracking unit"}</small></NavLink><IconButton className={unit.activity?.completed ? "watched-toggle active" : "watched-toggle"} label={unit.activity?.completed ? "Mark incomplete" : "Mark complete"} onClick={async () => { await apiJson(`/api/units/${unit.id}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify({ completed: !unit.activity?.completed }) }); const refreshed = await apiJson<{ units: TrackableUnit[] }>(`/api/media/${media.id}/units`); setUnits(refreshed.units); }}><Check size={17} /></IconButton><NavLink className="episode-open" aria-label={`Open ${unit.title ?? unit.kind}`} to={`/media/${media.type}/${media.id}/units/${unit.id}`}><ChevronRight size={18} /></NavLink></article>)}</div></section>}
 
-      <MediaDetailPlaceholderSections media={media} />
+      <MediaTemplateSections media={media} newsArticles={newsArticles} newsLoading={newsLoading} newsWarning={newsWarning} onReloadNews={() => void loadNews(true)} dateRangeLabel={dateRangeLabel} />
 
       <Modal title="Media settings" open={mediaSettingsOpen} onClose={() => setMediaSettingsOpen(false)}>
         <div className="media-settings-sheet">
@@ -3227,6 +3292,7 @@ function MediaDetailPage() {
             Upload/update banner
           </button>
           <button className="secondary-button" onClick={() => void refreshInfo()}>Refresh info</button>
+          {(media.type === "show" || media.type === "movie" || media.type === "anime") && <button className="secondary-button" onClick={() => void setAnimeClassification(!isAnimeMedia(media))}>{isAnimeMedia(media) ? "Remove anime tag" : "Mark as anime"}</button>}
           {userMedia && <button className="secondary-button danger-action" onClick={removeFromLibrary}>Remove from library</button>}
         </div>
       </Modal>
@@ -3239,12 +3305,25 @@ function MediaDetailPage() {
         </div>}
       </Modal>
 
+      <Modal title="Movie watch state" open={movieActionOpen} onClose={() => setMovieActionOpen(false)}>
+        <div className="watch-action-sheet">
+          <button className="secondary-button" onClick={() => void markMovieWatched("not_watched")}>Not watched</button>
+          <button className="secondary-button" onClick={() => void markMovieWatched("rewatched")}>Rewatched</button>
+          <button className="primary-button" onClick={() => void markMovieWatched("watched_once")}>Watched once</button>
+        </div>
+      </Modal>
+
     </AppPage>
   );
 }
 
-function EpisodeTile({ episode, media, watched, onToggle }: { episode: EpisodeWithActivity; media: MediaDetailData["media"]; watched: boolean; onToggle: () => void; onOpenActions?: () => void }) {
-  const release = releaseStatus(episode.airDate);
+function EpisodeTile({ episode, media, watched, onToggle, dateMode = "sub" }: { episode: EpisodeWithActivity; media: MediaDetailData["media"]; watched: boolean; onToggle: () => void; onOpenActions?: () => void; dateMode?: "sub" | "dub" }) {
+  const episodeExt = parseExtendedData(episode.extendedDataJson);
+  const animeEpisode = episodeExt.animeEpisode;
+  const isAnime = isAnimeMedia(media);
+  const effectiveAirDate = isAnime && dateMode === "dub" ? (animeEpisode?.dubAirDate ?? episode.airDate) : episode.airDate;
+  const release = releaseStatus(effectiveAirDate);
+  const dubAvailable = Boolean(animeEpisode?.dubAvailable || animeEpisode?.dubAirDate);
   const title = episode.name ?? (release.kind === "future" ? "TBA" : `Episode ${episode.episodeNumber}`);
   return (
     <div className="episode-tile">
@@ -3253,7 +3332,7 @@ function EpisodeTile({ episode, media, watched, onToggle }: { episode: EpisodeWi
       </NavLink>
       <NavLink className="episode-tile-copy" to={`/media/${media.type}/${media.id}/episodes/${episode.id}`}>
         <span>{formatEpisodeCode(episode)}{episode.isSpecial ? " - Special" : ""}</span>
-        <strong>{title}</strong>
+        <strong>{title}{isAnime && dubAvailable ? <em className="dub-tag">Dub</em> : null}</strong>
       </NavLink>
       {watched || release.kind === "released" ? (
         <IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Episode actions" : "Mark watched"} onClick={onToggle}><WatchMark count={episodeWatchCount(episode)} /></IconButton>
@@ -3268,6 +3347,62 @@ function WatchMark({ count }: { count: number }) {
   return count > 1 ? <span className="rewatch-count-mark">x{count}</span> : <Check size={17} />;
 }
 
+const ratingEmojis = ["😐", "🙂", "😄", "😍", "🤩"];
+
+function EmojiRating({ value, onChange, label = "Rating" }: { value: number | null; onChange: (rating: number | null) => void | Promise<void>; label?: string }) {
+  const normalizedValue = value ? Math.min(5, Math.max(1, value)) : null;
+  return (
+    <div className="emoji-rating" aria-label={label}>
+      <span>{label}</span>
+      <div>
+        {ratingEmojis.map((emoji, index) => {
+          const rating = index + 1;
+          return (
+            <button
+              className={normalizedValue === rating ? "active" : ""}
+              aria-label={`Rate ${rating} out of 5`}
+              key={rating}
+              onClick={() => void onChange(normalizedValue === rating ? null : rating)}
+              type="button"
+            >
+              {emoji}
+            </button>
+          );
+        })}
+      </div>
+      {normalizedValue ? <small>{normalizedValue}/5</small> : <small>Not rated</small>}
+    </div>
+  );
+}
+
+function ManualStatusControls({ options, active, onChange }: { options: string[]; active: string; onChange: (status: string) => void }) {
+  return (
+    <div className="manual-status-controls">
+      <span className="eyebrow">Manual status</span>
+      <div>
+        {options.map((option) => (
+          <button className={active === option ? "active" : ""} key={option} onClick={() => onChange(option)} type="button">
+            {statusIcon(option)}
+            {formatStatusLabel(option)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function statusIcon(status: string) {
+  if (status === "stopped" || status === "dropped") return <Square size={14} />;
+  if (status === "watch_later") return <Clock3 size={14} />;
+  return <Sparkles size={14} />;
+}
+
+function manualStatusOptionsForMedia(type: MediaType) {
+  if (type === "show" || type === "anime") return ["watch_later", "stopped"];
+  if (type === "book" || type === "game") return ["dropped"];
+  return [];
+}
+
 function episodeWatchCount(episode: EpisodeWithActivity) {
   return episode.activity?.watched ? 1 + (episode.activity.rewatchCount ?? 0) : 1;
 }
@@ -3278,8 +3413,7 @@ function seasonWatchCount(episodes: EpisodeWithActivity[]) {
   return Math.min(...watched.map(episodeWatchCount));
 }
 
-function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["media"] }) {
-  const finished = media.airStatus === "ended" || media.airStatus === "released";
+function MediaTemplateSections({ media, newsArticles, newsLoading, newsWarning, onReloadNews, dateRangeLabel }: { media: MediaDetailData["media"]; newsArticles: MediaNewsArticle[]; newsLoading: boolean; newsWarning: string | null; onReloadNews: () => void; dateRangeLabel: string | null }) {
   const ext = parseExtendedData(media.extendedDataJson);
   const directors = peopleByJob(ext.crew, "Director");
   const writers = peopleByJob(ext.crew, "Writer", "Screenplay");
@@ -3287,9 +3421,10 @@ function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["med
   const creators = ext.creators?.map((person) => person.name).filter(Boolean) ?? [];
   return (
     <div className="rich-detail-grid">
+      <NewsRail articles={newsArticles} loading={newsLoading} warning={newsWarning} onReload={onReloadNews} />
       <TypeSpecificMetadataSections media={media} ext={ext} />
       <section className="detail-panel"><div><p className="eyebrow">Where to watch</p><h2>Streaming</h2></div>{ext.watchProviders?.length ? <div className="provider-row">{ext.watchProviders.map((provider) => <span key={provider.name}>{provider.logoPath && <img src={provider.logoPath} alt="" />}{provider.name}</span>)}</div> : <p className="muted-copy">Availability has not been hydrated yet.</p>}</section>
-      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>{media.type === "game" ? "Game info" : media.type === "book" ? "Book info" : isAnimeMedia(media) ? "Anime info" : "Show info"}</h2></div><div className="info-list"><span><CalendarDays size={15} />{media.releaseDate ? `${new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString()}${finished ? "" : " - Present"}` : "Release TBA"}</span><span><Clock3 size={15} />{media.runtimeMinutes ? `${media.runtimeMinutes} min${media.type === "show" || media.type === "anime" ? " avg" : ""}` : "Runtime TBA"}</span><span><Sparkles size={15} />{ext.genres?.map((genre) => genre.name).join(", ") || "Genres TBA"}</span><span><Clapperboard size={15} />Director: {directors.join(", ") || "TBA"}</span><span><BookOpen size={15} />Writer: {writers.join(", ") || "TBA"}</span><span><Star size={15} />Producer: {producers.join(", ") || "TBA"}</span><span><User size={15} />Creator: {creators.join(", ") || "TBA"}</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Info</p><h2>{media.type === "game" ? "Game info" : media.type === "book" ? "Book info" : isAnimeMedia(media) ? "Anime info" : "Show info"}</h2></div><div className="info-list"><span><CalendarDays size={15} />{dateRangeLabel ?? "Release TBA"}</span><span><Clock3 size={15} />{media.runtimeMinutes ? `${media.runtimeMinutes} min${media.type === "show" || media.type === "anime" ? " avg" : ""}` : "Runtime TBA"}</span><span><Sparkles size={15} />{ext.genres?.map((genre) => genre.name).join(", ") || "Genres TBA"}</span><span><Clapperboard size={15} />Director: {directors.join(", ") || "TBA"}</span><span><BookOpen size={15} />Writer: {writers.join(", ") || "TBA"}</span><span><Star size={15} />Producer: {producers.join(", ") || "TBA"}</span><span><User size={15} />Creator: {creators.join(", ") || "TBA"}</span></div></section>
         <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Cast & Characters</h2></div>{ext.cast?.length ? <div className="cast-scroll">{ext.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `cast-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: "Acting" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Cast"}</span></NavLink>)}</div> : <p className="muted-copy">Cast will appear after provider hydration.</p>}</section>
       <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Related</p><h2>Related media</h2></div>{ext.related?.length ? <RelatedMediaRow items={ext.related} /> : <p className="muted-copy">Related media will appear after provider hydration.</p>}</section>
       <section className="detail-panel"><div><p className="eyebrow">Ratings</p><h2>External ratings</h2></div><div className="provider-row"><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span>{ext.voteCount ? <span>{ext.voteCount.toLocaleString()} votes</span> : null}</div></section>
@@ -3298,11 +3433,40 @@ function MediaDetailPlaceholderSections({ media }: { media: MediaDetailData["med
   );
 }
 
+function NewsRail({ articles, loading, warning, onReload }: { articles: MediaNewsArticle[]; loading: boolean; warning: string | null; onReload: () => void }) {
+  return (
+    <section className="detail-panel detail-panel-wide">
+      <div className="section-heading news-heading"><div><p className="eyebrow">News</p><h2>Latest articles</h2></div><button className="secondary-button" type="button" disabled={loading} onClick={onReload}>{loading ? "Loading..." : "Reload"}</button></div>
+      {articles.length ? (
+        <div className="news-scroll">
+          {articles.slice(0, 5).map((article) => (
+            <a className="news-card" href={article.url} target="_blank" rel="noreferrer" key={article.url}>
+              <div className="news-card-image" style={article.imageUrl ? { backgroundImage: `url(${article.imageUrl})` } : undefined}>{!article.imageUrl && <span>{article.sourceName.slice(0, 2).toUpperCase()}</span>}</div>
+              <div>
+                <small>{article.sourceName}{article.publishedAt ? ` - ${new Date(article.publishedAt).toLocaleDateString()}` : ""}</small>
+                <strong>{article.title}</strong>
+                {article.description && <p>{article.description}</p>}
+              </div>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <div className="news-empty">
+          <p>{warning ?? "No cached news yet. Reload to fetch the latest articles."}</p>
+        </div>
+      )}
+      {warning && articles.length > 0 && <p className="muted-copy">{warning}</p>}
+    </section>
+  );
+}
+
 function TypeSpecificMetadataSections({ media, ext }: { media: MediaDetailData["media"]; ext: ExtendedData }) {
   if (isAnimeMedia(media)) {
     return <>
       <section className="detail-panel"><div><p className="eyebrow">Anime</p><h2>Language & audio</h2></div><div className="info-list"><span><Sparkles size={15} />Original: {ext.anime?.originalLanguage ?? media.language?.toUpperCase() ?? "Japanese TBA"}</span><span><MessageSquare size={15} />Audio: {ext.anime?.audioLanguages?.join(", ") || "Audio languages TBA"}</span><span><Mail size={15} />Subtitles: {ext.anime?.subtitleLanguages?.join(", ") || "Subtitle languages TBA"}</span></div></section>
+      <section className="detail-panel"><div><p className="eyebrow">Titles</p><h2>Anime titles</h2></div><div className="info-list"><span><Sparkles size={15} />English: {ext.anime?.englishTitle ?? media.title}</span><span><BookOpen size={15} />Japanese: {ext.anime?.japaneseTitle ?? "Japanese title TBA"}</span><span><MessageSquare size={15} />Dub status: {ext.anime?.dubStatus ?? "Dub status TBA"}</span></div></section>
       <section className="detail-panel"><div><p className="eyebrow">Studio</p><h2>Animation studios</h2></div>{ext.anime?.studios?.length ? <div className="provider-row">{ext.anime.studios.map((studio) => <span key={studio.name}>{studio.logoPath && <img src={studio.logoPath} alt="" />}{studio.name}</span>)}</div> : <p className="muted-copy">Studio logos will appear when anime metadata is available.</p>}</section>
+      <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Characters</p><h2>Anime characters</h2></div>{ext.anime?.characters?.length ? <CastRow people={ext.anime.characters} prefix="anime-character" fallbackRole="Character" /> : <p className="muted-copy">Character profiles will appear when anime metadata is available.</p>}</section>
       <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Voices</p><h2>Japanese cast</h2></div>{ext.anime?.japaneseCast?.length ? <CastRow people={ext.anime.japaneseCast} prefix="jp" /> : <p className="muted-copy">Original voice cast will appear when available.</p>}</section>
       <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Dub</p><h2>Dub cast</h2></div>{ext.anime?.dubCast?.length ? <CastRow people={ext.anime.dubCast} prefix="dub" /> : <p className="muted-copy">Dub cast can be shown here when provider metadata includes it.</p>}</section>
       <section className="detail-panel"><div><p className="eyebrow">Anime ratings</p><h2>External scores</h2></div><div className="provider-row"><span>MAL {ext.anime?.malRating ? `${ext.anime.malRating}/10` : "TBA"}</span><span>TMDB {ext.rating ? `${Number(ext.rating).toFixed(1)}/10` : "TBA"}</span></div></section>
@@ -3359,7 +3523,18 @@ type ExtendedData = {
     studios?: Array<{ name: string; logoPath?: string | null }>;
     japaneseCast?: ExtendedPerson[];
     dubCast?: ExtendedPerson[];
+    characters?: ExtendedPerson[];
+    englishTitle?: string;
+    japaneseTitle?: string;
+    dubStatus?: string;
     malRating?: number;
+  };
+  animeEpisode?: {
+    dubAvailable?: boolean;
+    dubAirDate?: string | null;
+    dubbingStudio?: string;
+    japaneseCast?: ExtendedPerson[];
+    dubCast?: ExtendedPerson[];
   };
   book?: {
     isbn10?: string;
@@ -3486,6 +3661,12 @@ function isAnimeMedia(media: MediaDetailData["media"]) {
   }).isAnime;
 }
 
+function animeFormatLabel(media: MediaDetailData["media"]) {
+  const ext = parseExtendedData(media.extendedDataJson) as ExtendedData & { animeFormat?: string };
+  if (ext.animeFormat === "movie" || media.type === "movie") return "Anime movie";
+  return "Anime series";
+}
+
 function EpisodeGuideProgress({ progress }: { progress: HydrationProgress }) {
   const isRefreshing = progress.status === "refreshing" || progress.activeJobs > 0;
   const label = progress.totalEpisodes > 0
@@ -3562,6 +3743,41 @@ function releaseStatus(airDate: string | null): { kind: "released" | "future" | 
   const days = Math.ceil(hours / 24);
   if (days < 60) return { kind: "future", label: `${days}d` };
   return { kind: "future", label: `${Math.ceil(days / 30)}mo` };
+}
+
+function isReleasedEpisode(episode: { airDate: string | null }) {
+  return releaseStatus(episode.airDate).kind === "released";
+}
+
+function releasableEpisodesForSeason(episodes: EpisodeWithActivity[]) {
+  return episodes.filter((episode) => !episode.isSpecial && isReleasedEpisode(episode));
+}
+
+function progressEligibleEpisodes(episodes: EpisodeWithActivity[]) {
+  const datedReleased = episodes.filter((episode) => !episode.isSpecial && isReleasedEpisode(episode));
+  if (datedReleased.length) return datedReleased;
+  const hasDatedEpisodes = episodes.some((episode) => !episode.isSpecial && Boolean(episode.airDate));
+  return hasDatedEpisodes ? datedReleased : episodes.filter((episode) => !episode.isSpecial);
+}
+
+function formatMediaDateRange(media: MediaDetailData["media"], episodes: EpisodeWithActivity[]) {
+  if (!media.releaseDate) return null;
+  const start = new Date(`${media.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" });
+  if (media.airStatus === "ended" || media.airStatus === "released") {
+    const endDate = latestEpisodeAirDate(episodes) ?? media.releaseDate;
+    const end = new Date(`${endDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "medium" });
+    return endDate === media.releaseDate ? start : `${start} - ${end}`;
+  }
+  if (media.airStatus === "continuing" || media.airStatus === "upcoming") return `${start} - Present`;
+  return start;
+}
+
+function latestEpisodeAirDate(episodes: EpisodeWithActivity[]) {
+  const dates = episodes
+    .filter((episode) => !episode.isSpecial && episode.airDate)
+    .map((episode) => episode.airDate!)
+    .sort();
+  return dates.length ? dates[dates.length - 1] : null;
 }
 
 function ProgressEditor({ mediaId, mediaType, userMedia, csrfToken, onSaved }: { mediaId: string; mediaType: "book" | "game"; userMedia: NonNullable<MediaDetailData["userMedia"]>; csrfToken: string; onSaved: (updated: NonNullable<MediaDetailData["userMedia"]>) => void }) {
@@ -3683,6 +3899,7 @@ function EpisodeDetailPage() {
   const [data, setData] = useState<EpisodeDetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [animeDateMode, setAnimeDateMode] = useState<"sub" | "dub">("sub");
   const autoHydrateEpisodeRef = useRef(false);
 
   const load = async () => {
@@ -3729,7 +3946,7 @@ function EpisodeDetailPage() {
       await apiJson(`/api/episodes/${episodeId}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify(changes) });
       await load();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Activity could not be saved.");
+      notify(friendlyErrorMessage(reason, "Activity could not be saved right now."), "info");
     }
   };
 
@@ -3748,6 +3965,9 @@ function EpisodeDetailPage() {
   const { episode, media, activity } = data;
   const watched = activity?.watched ?? false;
   const episodeExt = parseExtendedData(episode.extendedDataJson);
+  const animeEpisode = episodeExt.animeEpisode;
+  const animeEpisodeView = media ? isAnimeMedia(media) : false;
+  const effectiveAirDate = animeEpisodeView && animeDateMode === "dub" ? (animeEpisode?.dubAirDate ?? episode.airDate) : episode.airDate;
   const episodeDirectors = peopleByJob(episodeExt.crew, "Director");
   const episodeWriters = peopleByJob(episodeExt.crew, "Writer");
   return (
@@ -3755,16 +3975,19 @@ function EpisodeDetailPage() {
       <section className="episode-detail-hero">
         <div className="episode-still" style={episode.stillPath ? { backgroundImage: `url(${episode.stillPath})` } : undefined}><span>S{episode.seasonNumber} E{episode.episodeNumber}</span></div>
         <div className="episode-detail-copy">
-          <div className="metadata-row"><span><CalendarDays size={16} />{episode.airDate ? new Date(`${episode.airDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date TBA"}</span><span><Clock3 size={16} />{episode.runtimeMinutes ? `${episode.runtimeMinutes} min` : "Runtime TBA"}</span></div>
+          {animeEpisodeView && <div className="segmented-control compact-toggle" aria-label="Anime episode date mode"><button className={animeDateMode === "sub" ? "active" : ""} onClick={() => setAnimeDateMode("sub")}>Sub date</button><button className={animeDateMode === "dub" ? "active" : ""} onClick={() => setAnimeDateMode("dub")}>Dub date</button></div>}
+          <div className="metadata-row"><span><CalendarDays size={16} />{effectiveAirDate ? new Date(`${effectiveAirDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date TBA"}</span><span><Clock3 size={16} />{episode.runtimeMinutes ? `${episode.runtimeMinutes} min` : "Runtime TBA"}</span>{animeEpisodeView && (animeEpisode?.dubAvailable || animeEpisode?.dubAirDate) ? <span className="dub-tag">Dub available</span> : null}{animeEpisode?.dubbingStudio ? <span>{animeEpisode.dubbingStudio}</span> : null}</div>
           <div className="episode-detail-actions"><IconButton className={watched ? "watched-toggle active" : "watched-toggle"} label={watched ? "Mark not watched" : "Mark watched"} onClick={() => void updateActivity({ watched: !watched })}><WatchMark count={watched ? 1 + (activity?.rewatchCount ?? 0) : 1} /></IconButton><span>{watched ? "Watched" : "Not watched"}</span></div>
           <button className="secondary-button" onClick={() => void refreshEpisodeInfo()}>Refresh info</button>
           {activity?.watchedAt && <p className="muted-copy">Watched {new Date(activity.watchedAt).toLocaleString()}</p>}
-          <div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} aria-label={`Rate ${rating} out of 10`} key={rating} onClick={() => void updateActivity({ rating })}>{rating}</button>)}</div></div>
+          <EmojiRating value={activity?.rating ?? null} onChange={(rating) => updateActivity({ rating })} label="Your rating" />
           <label className="notes-field">Private episode notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void updateActivity({ notes: notes || null })} placeholder="What stood out?" /></label>
         </div>
       </section>
       <div className="rich-detail-grid">
         <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Cast</p><h2>Episode cast</h2></div>{episodeExt.cast?.length ? <div className="cast-scroll">{episodeExt.cast.map((person, index) => <NavLink className="cast-card" key={`${person.id ?? person.name}-${index}`} to={`/people/${person.id ?? `episode-${episode.id}-${index}`}`} state={{ person: { id: String(person.id ?? ""), name: person.name, profilePath: person.profilePath ?? null, knownForDepartment: "Acting" } }}><div className="cast-portrait" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div><strong>{person.name}</strong><span>{person.role || "Guest"}</span></NavLink>)}</div> : <p className="muted-copy">Episode cast will appear after provider hydration.</p>}</section>
+        {animeEpisodeView && <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Voices</p><h2>Japanese voices</h2></div>{animeEpisode?.japaneseCast?.length ? <CastRow people={animeEpisode.japaneseCast} prefix={`episode-jp-${episode.id}`} /> : <p className="muted-copy">Japanese voice cast TBA.</p>}</section>}
+        {animeEpisodeView && <section className="detail-panel detail-panel-wide"><div><p className="eyebrow">Dub</p><h2>English dub voices</h2></div>{animeEpisode?.dubCast?.length ? <CastRow people={animeEpisode.dubCast} prefix={`episode-dub-${episode.id}`} /> : <p className="muted-copy">Dub voice cast TBA.</p>}</section>}
         <section className="detail-panel"><div><p className="eyebrow">Episode info</p><h2>Credits</h2></div><div className="info-list"><span>Director: {episodeDirectors.join(", ") || "TBA"}</span><span>Writer: {episodeWriters.join(", ") || "TBA"}</span><span>TMDB rating: {episodeExt.rating ? `${Number(episodeExt.rating).toFixed(1)}/10` : "TBA"}</span></div></section>
         <section className="detail-panel"><div><p className="eyebrow">Community</p><h2>Comments</h2></div>{watched ? <p className="muted-copy">Episode comments arrive in Phase 8.</p> : <p className="spoiler-lock"><ShieldCheck size={18} />Mark this episode watched to reveal spoiler comments.</p>}</section>
       </div>
@@ -3787,7 +4010,7 @@ function UnitDetailPage() {
   const update = async (changes: Record<string, unknown>) => { if (!unitId) return; await apiJson(`/api/units/${unitId}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify(changes) }); await load(); };
   if (!data) return <AppPage eyebrow={type ?? "Progress"} title={error ? "Progress unavailable" : "Loading..."} description="Reading progress details...">{!error && <LoadingPanel title="Loading progress" message="Reading tracking details..." />}</AppPage>;
   const { unit, media, activity } = data;
-  return <AppPage eyebrow={media?.title ?? type ?? "Progress"} title={unit.title ?? `${unit.kind} ${unit.position}`} description={unit.overview ?? `Track this ${unit.kind} independently.`}><NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink><section className="episode-detail-hero"><div className="episode-still" style={unit.imagePath ? { backgroundImage: `url(${unit.imagePath})` } : undefined}><span>{unit.kind} {unit.position}</span></div><div className="episode-detail-copy"><div className="metadata-row"><span><CalendarDays size={16} />{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date unavailable"}</span></div><div className="watch-toggle" role="group" aria-label="Completion status"><button className={!activity?.completed ? "active" : ""} onClick={() => void update({ completed: false })}>Not complete</button><button className={activity?.completed ? "active" : ""} onClick={() => void update({ completed: true })}><Check size={16} />Complete</button></div>{activity?.completedAt && <p className="muted-copy">Completed {new Date(activity.completedAt).toLocaleString()}</p>}<div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} key={rating} onClick={() => void update({ rating })}>{rating}</button>)}</div></div><label className="notes-field">Private notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void update({ notes: notes || null })} placeholder={`Notes about this ${unit.kind}`} /></label></div></section></AppPage>;
+  return <AppPage eyebrow={media?.title ?? type ?? "Progress"} title={unit.title ?? `${unit.kind} ${unit.position}`} description={unit.overview ?? `Track this ${unit.kind} independently.`}><NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink><section className="episode-detail-hero"><div className="episode-still" style={unit.imagePath ? { backgroundImage: `url(${unit.imagePath})` } : undefined}><span>{unit.kind} {unit.position}</span></div><div className="episode-detail-copy"><div className="metadata-row"><span><CalendarDays size={16} />{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date unavailable"}</span></div><div className="watch-toggle" role="group" aria-label="Completion status"><button className={!activity?.completed ? "active" : ""} onClick={() => void update({ completed: false })}>Not complete</button><button className={activity?.completed ? "active" : ""} onClick={() => void update({ completed: true })}><Check size={16} />Complete</button></div>{activity?.completedAt && <p className="muted-copy">Completed {new Date(activity.completedAt).toLocaleString()}</p>}<EmojiRating value={activity?.rating ?? null} onChange={(rating) => update({ rating })} label="Your rating" /><label className="notes-field">Private notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void update({ notes: notes || null })} placeholder={`Notes about this ${unit.kind}`} /></label></div></section></AppPage>;
 }
 
 type PersonProfilePayload = {
@@ -4157,6 +4380,7 @@ const providerCredentialFields: Array<{ provider: ProviderKey; fields: Array<{ k
   { provider: "openlibrary", fields: [{ key: "OPEN_LIBRARY_CONTACT_EMAIL", label: "Contact email", placeholder: "you@example.com" }] },
   { provider: "jikan", fields: [{ key: "MAL_JIKAN_API_ENDPOINT", label: "Endpoint", placeholder: "https://api.jikan.moe/v4/" }] },
   { provider: "youtube", fields: [{ key: "YOUTUBE_API_KEY", label: "API key", placeholder: "Optional future key" }] },
+  { provider: "newsapi", fields: [{ key: "NEWSAPI_KEY", label: "API key", placeholder: "NewsAPI key" }] },
 ];
 
 function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
@@ -5355,9 +5579,6 @@ async function apiJson<T = unknown>(
     });
   } catch (error) {
     const message = "We could not reach the app server. Check your connection and try again.";
-    if (!options.suppressNotification) {
-      notify(message, "error");
-    }
     const friendly = new Error(message) as Error & { cause?: unknown };
     friendly.cause = error;
     throw friendly;
@@ -5367,19 +5588,15 @@ async function apiJson<T = unknown>(
   try {
     payload = text ? JSON.parse(text) as { data?: T; error?: { message: string } } : {};
   } catch {
-    const message = "The app server sent an unexpected response. Please refresh and try again.";
-    if (!options.suppressNotification) {
-      notify(message, "error");
-    }
+    const message = response.status >= 500
+      ? "The app server hit an error. Please try again."
+      : "The app server returned invalid data. Please refresh.";
     throw new Error(message);
   }
 
   if (!response.ok || !payload.data) {
     const errorDetails = payload.error as any;
     const message = apiNoticeMessage(response.status, errorDetails?.message);
-    if (!options.suppressNotification) {
-      notify(message, response.status >= 500 || response.status === 0 ? "error" : "info");
-    }
     const error = new Error(message) as any;
     error.code = errorDetails?.code;
     error.details = errorDetails?.details;

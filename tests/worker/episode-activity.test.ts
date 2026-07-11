@@ -225,8 +225,27 @@ describe("episode activity API integration", () => {
     await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "DELETE", headers }, testEnv());
 
     const r = await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "POST", body: "{}", headers }, testEnv());
-    const b = await r.json() as { data: { activity: { watched: boolean } } };
+    const b = await r.json() as { data: { activity: { watched: boolean; rewatchCount: number } } };
     expect(b.data.activity.watched).toBe(true);
+    expect(b.data.activity.rewatchCount).toBe(0);
+  });
+
+  it("resets rewatch count when an episode is marked not watched", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const { episodeIds } = await seedShow(mediaRepo);
+
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    const unwatched = await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "DELETE", headers }, testEnv());
+    const unwatchedBody = await unwatched.json() as { data: { activity: { watched: boolean; rewatchCount: number } } };
+    expect(unwatchedBody.data.activity).toMatchObject({ watched: false, rewatchCount: 0 });
+
+    const watchedAgain = await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    const watchedAgainBody = await watchedAgain.json() as { data: { activity: { watched: boolean; rewatchCount: number } } };
+    expect(watchedAgainBody.data.activity).toMatchObject({ watched: true, rewatchCount: 0 });
   });
 
   it("progress decreases when episode is unwatched", async () => {
@@ -245,6 +264,31 @@ describe("episode activity API integration", () => {
     expect(body.data.progress.percent).toBe(33);
   });
 
+  it("updates show tracking status from episode progress", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const { mediaId, episodeIds } = await seedShow(mediaRepo);
+
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${mediaId}`, { method: "POST", body: "{}", headers }, testEnv());
+    await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    let detail = await app.request(`/api/media/${mediaId}`, { headers: { cookie } }, testEnv());
+    let detailBody = await detail.json() as { data: { userMedia: { status: string } } };
+    expect(detailBody.data.userMedia.status).toBe("watching");
+
+    await app.request(`/api/episodes/${episodeIds.e2}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    await app.request(`/api/episodes/${episodeIds.e3}/watched`, { method: "POST", body: "{}", headers }, testEnv());
+    detail = await app.request(`/api/media/${mediaId}`, { headers: { cookie } }, testEnv());
+    detailBody = await detail.json() as { data: { userMedia: { status: string } } };
+    expect(detailBody.data.userMedia.status).toBe("up_to_date");
+
+    await app.request(`/api/episodes/${episodeIds.e1}/watched`, { method: "DELETE", headers }, testEnv());
+    detail = await app.request(`/api/media/${mediaId}`, { headers: { cookie } }, testEnv());
+    detailBody = await detail.json() as { data: { userMedia: { status: string } } };
+    expect(detailBody.data.userMedia.status).toBe("watching");
+  });
+
   it("bulk-updates one season without assuming equal season sizes", async () => {
     const authRepo = new MemoryAuthRepository();
     const mediaRepo = new MemoryMediaRepository();
@@ -260,5 +304,47 @@ describe("episode activity API integration", () => {
     const body = await response.json() as { data: { progress: { watched: number; total: number } } };
     expect(response.status).toBe(200);
     expect(body.data.progress).toMatchObject({ watched: 3, total: 5 });
+  });
+
+  it("bulk season watched skips future and TBA episodes", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const { mediaId } = await seedShow(mediaRepo);
+    const now = new Date().toISOString();
+    await mediaRepo.createSeason({ id: "sea_s3", mediaId, seasonNumber: 3, name: "Season 3", overview: null, posterPath: null, episodeCount: 3, airDate: null, isSpecial: false, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s3e1", mediaId, seasonId: "sea_s3", seasonNumber: 3, episodeNumber: 1, name: "Released", overview: null, stillPath: null, airDate: "2024-01-01", runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s3e2", mediaId, seasonId: "sea_s3", seasonNumber: 3, episodeNumber: 2, name: "Future", overview: null, stillPath: null, airDate: "2099-01-01", runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s3e3", mediaId, seasonId: "sea_s3", seasonNumber: 3, episodeNumber: 3, name: "TBA", overview: null, stillPath: null, airDate: null, runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${mediaId}`, { method: "POST", body: "{}", headers }, testEnv());
+    const response = await app.request(`/api/episodes/media/${mediaId}/seasons/3`, { method: "PATCH", body: JSON.stringify({ watched: true }), headers }, testEnv());
+    const episodes = await app.request(`/api/media/${mediaId}/episodes?season=3`, { headers: { cookie } }, testEnv());
+    const body = await episodes.json() as { data: { episodes: Array<{ id: string; activity: { watched: boolean } | null }> } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.episodes.find((episode) => episode.id === "epi_s3e1")?.activity?.watched).toBe(true);
+    expect(body.data.episodes.find((episode) => episode.id === "epi_s3e2")?.activity?.watched).not.toBe(true);
+    expect(body.data.episodes.find((episode) => episode.id === "epi_s3e3")?.activity?.watched).not.toBe(true);
+  });
+
+  it("rejects bulk season watched when no released episodes are available", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
+    const { mediaId } = await seedShow(mediaRepo);
+    const now = new Date().toISOString();
+    await mediaRepo.createSeason({ id: "sea_s4", mediaId, seasonNumber: 4, name: "Season 4", overview: null, posterPath: null, episodeCount: 2, airDate: null, isSpecial: false, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s4e1", mediaId, seasonId: "sea_s4", seasonNumber: 4, episodeNumber: 1, name: "Future", overview: null, stillPath: null, airDate: "2099-01-01", runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+    await mediaRepo.createEpisode({ id: "epi_s4e2", mediaId, seasonId: "sea_s4", seasonNumber: 4, episodeNumber: 2, name: "TBA", overview: null, stillPath: null, airDate: null, runtimeMinutes: null, isSpecial: false, externalId: null, createdAt: now, updatedAt: now });
+
+    const headers = { cookie, "content-type": "application/json", "x-csrf-token": csrfToken };
+    await app.request(`/api/library/${mediaId}`, { method: "POST", body: "{}", headers }, testEnv());
+    const response = await app.request(`/api/episodes/media/${mediaId}/seasons/4`, { method: "PATCH", body: JSON.stringify({ watched: true }), headers }, testEnv());
+    const body = await response.json() as { error: { message: string } };
+
+    expect(response.status).toBe(409);
+    expect(body.error.message).toContain("No released episodes");
   });
 });

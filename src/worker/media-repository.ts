@@ -170,6 +170,7 @@ export type MediaRepository = {
 
   // Media cover/poster updates
   updateMediaPoster(mediaId: string, posterPath: string, now: string): Promise<void>;
+  updateMediaExtendedData(mediaId: string, extendedDataJson: string | null, now: string): Promise<void>;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -325,6 +326,13 @@ export class D1MediaRepository implements MediaRepository {
     await this.db
       .prepare("UPDATE media_items SET poster_path = ?, updated_at = ? WHERE id = ?")
       .bind(posterPath, now, mediaId)
+      .run();
+  }
+
+  async updateMediaExtendedData(mediaId: string, extendedDataJson: string | null, now: string) {
+    await this.db
+      .prepare("UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?")
+      .bind(extendedDataJson, now, mediaId)
       .run();
   }
 
@@ -548,6 +556,12 @@ export class D1MediaRepository implements MediaRepository {
   async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
     const types = mediaTypesForDashboardKind(kind);
     const typePlaceholders = types.map(() => "?").join(", ");
+    const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+    const typeClause = kind === "anime"
+      ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
+      : kind === "shows"
+        ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
+        : `mi.type IN (${typePlaceholders})`;
     const trimmedQuery = query?.trim();
     const searchClause = trimmedQuery ? "AND mi.title LIKE ?" : "";
     const searchBinds = trimmedQuery ? [`%${trimmedQuery}%`] : [];
@@ -597,7 +611,7 @@ export class D1MediaRepository implements MediaRepository {
              ORDER BY next_ep.season_number, next_ep.episode_number LIMIT 1) AS next_episode_air_date
          FROM user_media um
          JOIN media_items mi ON mi.id = um.media_id
-         WHERE um.user_id = ? AND mi.type IN (${typePlaceholders}) ${searchClause}
+         WHERE um.user_id = ? AND ${typeClause} ${searchClause}
          ORDER BY um.updated_at DESC, mi.title COLLATE NOCASE
          LIMIT ? OFFSET ?`,
       )
@@ -674,12 +688,16 @@ export class D1MediaRepository implements MediaRepository {
   }
 
   async createActivityEvent(event: ActivityEventRecord) {
-    await this.db
-      .prepare(
-        "INSERT INTO activity_events (id, user_id, type, media_id, episode_id, data_json, created_at) VALUES (?,?,?,?,?,?,?)",
-      )
-      .bind(event.id, event.userId, event.type, event.mediaId, event.episodeId, event.dataJson, event.createdAt)
-      .run();
+    try {
+      await this.db
+        .prepare(
+          "INSERT INTO activity_events (id, user_id, type, media_id, episode_id, data_json, created_at) VALUES (?,?,?,?,?,?,?)",
+        )
+        .bind(event.id, event.userId, event.type, event.mediaId, event.episodeId, event.dataJson, event.createdAt)
+        .run();
+    } catch (error) {
+      console.warn("Activity event write failed:", error);
+    }
   }
 }
 

@@ -29,13 +29,16 @@ export function createEpisodeRoutes() {
     const episode = await mediaRepo.findEpisodeById(c.req.param("episodeId"));
     if (!episode) return apiError(c, 404, "not_found", "Episode not found.");
     const existing = await mediaRepo.findEpisodeActivity(auth.user.id, episode.id);
+    if (body.data.watched === true && existing?.watched !== true && !isEpisodeReleasedOrLegacy(episode, [episode])) {
+      return apiError(c, 409, "conflict", "This episode is not available to mark watched yet.");
+    }
     const now = new Date().toISOString();
     const watched = body.data.watched ?? existing?.watched ?? false;
     const watchedAt = body.data.watchedAt !== undefined ? body.data.watchedAt : existing?.watchedAt;
     const activity = await mediaRepo.upsertEpisodeActivity({
       id: existing?.id ?? randomId("epa"), userId: auth.user.id, episodeId: episode.id, mediaId: episode.mediaId,
       watched, watchedAt: watched ? (watchedAt ?? now) : null,
-      rewatchCount: body.data.rewatchCount !== undefined ? body.data.rewatchCount : existing?.rewatchCount ?? 0,
+      rewatchCount: watched ? (body.data.rewatchCount !== undefined ? body.data.rewatchCount : existing?.rewatchCount ?? 0) : 0,
       rating: body.data.rating !== undefined ? body.data.rating : existing?.rating ?? null,
       notes: body.data.notes !== undefined ? body.data.notes : existing?.notes ?? null,
       createdAt: existing?.createdAt ?? now, updatedAt: now,
@@ -47,10 +50,11 @@ export function createEpisodeRoutes() {
         mediaRepo.findEpisodeActivitiesForMedia(auth.user.id, episode.mediaId),
       ]);
       progress = calculateProgress(
-        episodes.map((item) => ({ id: item.id, isSpecial: item.isSpecial })),
+        progressEpisodeSummaries(episodes),
         activities.map((item) => ({ episodeId: item.episodeId, watched: item.watched })),
       );
       await mediaRepo.updateUserMediaProgress(auth.user.id, episode.mediaId, progress.watched, now);
+      await updateSeriesTrackingStatus(mediaRepo, auth.user.id, episode.mediaId, progress, now);
     }
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ activity, progress, libraryVersion }));
@@ -72,14 +76,20 @@ export function createEpisodeRoutes() {
     const now = new Date().toISOString();
     const watchedAt = body.data.watchedAt ?? now;
     const mode = body.data.mode ?? (body.data.watched ? "watched_once" : "not_watched");
-    await mediaRepo.upsertEpisodeActivities(episodes.map((episode) => {
+    const targetEpisodes = mode === "not_watched"
+      ? episodes.filter((episode) => !episode.isSpecial)
+      : episodes.filter((episode) => isEpisodeReleasedOrLegacy(episode, episodes));
+    if (targetEpisodes.length === 0) {
+      return apiError(c, 409, "conflict", "No released episodes are available to mark watched yet.");
+    }
+    await mediaRepo.upsertEpisodeActivities(targetEpisodes.map((episode) => {
       const previous = existingMap.get(episode.id);
       const wasWatched = previous?.watched === true;
       const rewatchCount = mode === "rewatched"
         ? (wasWatched ? previous?.rewatchCount ?? 0 : 0) + 1
         : mode === "watched_once"
           ? 0
-          : previous?.rewatchCount ?? 0;
+          : 0;
       return {
         id: previous?.id ?? randomId("epa"), userId: auth.user.id, episodeId: episode.id, mediaId,
         watched: body.data.watched, watchedAt: body.data.watched ? watchedAt : null,
@@ -90,10 +100,11 @@ export function createEpisodeRoutes() {
     const allEpisodes = await mediaRepo.findEpisodesByMediaId(mediaId);
     const refreshed = await mediaRepo.findEpisodeActivitiesForMedia(auth.user.id, mediaId);
     const progress = calculateProgress(
-      allEpisodes.map((episode) => ({ id: episode.id, isSpecial: episode.isSpecial })),
+      progressEpisodeSummaries(allEpisodes),
       refreshed.map((activity) => ({ episodeId: activity.episodeId, watched: activity.watched })),
     );
     await mediaRepo.updateUserMediaProgress(auth.user.id, mediaId, progress.watched, now);
+    await updateSeriesTrackingStatus(mediaRepo, auth.user.id, mediaId, progress, now);
     await mediaRepo.createActivityEvent({ id: randomId("act"), userId: auth.user.id, type: body.data.watched ? "season_watched" : "season_unwatched", mediaId, episodeId: null, dataJson: JSON.stringify({ seasonNumber }), createdAt: now });
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ progress, seasonNumber, watched: body.data.watched, libraryVersion }));
@@ -121,6 +132,9 @@ export function createEpisodeRoutes() {
     // Get or build existing activity record
     const existing = await mediaRepo.findEpisodeActivity(auth.user.id, episodeId);
     const wasAlreadyWatched = existing?.watched === true;
+    if (!wasAlreadyWatched && !isEpisodeReleasedOrLegacy(episode, [episode])) {
+      return apiError(c, 409, "conflict", "This episode is not available to mark watched yet.");
+    }
 
     const activity = await mediaRepo.upsertEpisodeActivity({
       id: existing?.id ?? randomId("epa"),
@@ -129,7 +143,7 @@ export function createEpisodeRoutes() {
       mediaId: episode.mediaId,
       watched: true,
       watchedAt,
-      rewatchCount: wasAlreadyWatched ? (existing?.rewatchCount ?? 0) + 1 : (existing?.rewatchCount ?? 0),
+      rewatchCount: wasAlreadyWatched ? (existing?.rewatchCount ?? 0) + 1 : 0,
       rating: existing?.rating ?? null,
       notes: existing?.notes ?? null,
       createdAt: existing?.createdAt ?? now,
@@ -143,7 +157,7 @@ export function createEpisodeRoutes() {
     ]);
 
     const progress = calculateProgress(
-      allEpisodes.map((e) => ({ id: e.id, isSpecial: e.isSpecial })),
+      progressEpisodeSummaries(allEpisodes),
       allActivities.map((a) => ({ episodeId: a.episodeId, watched: a.watched })),
     );
 
@@ -151,6 +165,7 @@ export function createEpisodeRoutes() {
     const userMedia = await mediaRepo.findUserMedia(auth.user.id, episode.mediaId);
     if (userMedia) {
       await mediaRepo.updateUserMediaProgress(auth.user.id, episode.mediaId, progress.watched, now);
+      await updateSeriesTrackingStatus(mediaRepo, auth.user.id, episode.mediaId, progress, now);
     }
 
     await mediaRepo.createActivityEvent({
@@ -188,7 +203,7 @@ export function createEpisodeRoutes() {
       mediaId: episode.mediaId,
       watched: false,
       watchedAt: null,
-      rewatchCount: existing?.rewatchCount ?? 0,
+      rewatchCount: 0,
       rating: existing?.rating ?? null,
       notes: existing?.notes ?? null,
       createdAt: existing?.createdAt ?? now,
@@ -202,13 +217,14 @@ export function createEpisodeRoutes() {
     ]);
 
     const progress = calculateProgress(
-      allEpisodes.map((e) => ({ id: e.id, isSpecial: e.isSpecial })),
+      progressEpisodeSummaries(allEpisodes),
       allActivities.map((a) => ({ episodeId: a.episodeId, watched: a.watched })),
     );
 
     const userMedia = await mediaRepo.findUserMedia(auth.user.id, episode.mediaId);
     if (userMedia) {
       await mediaRepo.updateUserMediaProgress(auth.user.id, episode.mediaId, progress.watched, now);
+      await updateSeriesTrackingStatus(mediaRepo, auth.user.id, episode.mediaId, progress, now);
     }
 
     await mediaRepo.createActivityEvent({
@@ -226,4 +242,42 @@ export function createEpisodeRoutes() {
   });
 
   return router;
+}
+
+type EpisodeReleaseSummary = { id: string; isSpecial: boolean; airDate: string | null };
+
+function progressEpisodeSummaries(episodes: EpisodeReleaseSummary[]) {
+  const regular = episodes.filter((episode) => !episode.isSpecial);
+  const hasDatedRegularEpisodes = regular.some((episode) => Boolean(episode.airDate));
+  const today = new Date().toISOString().slice(0, 10);
+  const eligible = hasDatedRegularEpisodes
+    ? regular.filter((episode) => Boolean(episode.airDate) && episode.airDate! <= today)
+    : regular;
+  return [
+    ...eligible.map((episode) => ({ id: episode.id, isSpecial: false })),
+    ...episodes.filter((episode) => episode.isSpecial).map((episode) => ({ id: episode.id, isSpecial: true })),
+  ];
+}
+
+function isEpisodeReleasedOrLegacy(episode: EpisodeReleaseSummary, seasonEpisodes: EpisodeReleaseSummary[]) {
+  if (episode.isSpecial) return true;
+  const hasAnyDatedEpisode = seasonEpisodes.some((item) => !item.isSpecial && Boolean(item.airDate));
+  if (!hasAnyDatedEpisode) return true;
+  if (!episode.airDate) return false;
+  return episode.airDate <= new Date().toISOString().slice(0, 10);
+}
+
+async function updateSeriesTrackingStatus(mediaRepo: MediaRepository, userId: string, mediaId: string, progress: { watched: number; total: number }, now: string) {
+  const [media, userMedia] = await Promise.all([
+    mediaRepo.findMediaById(mediaId),
+    mediaRepo.findUserMedia(userId, mediaId),
+  ]);
+  if (!media || !userMedia || (media.type !== "show" && media.type !== "anime")) return;
+  const nextStatus = progress.watched <= 0
+    ? "not_started"
+    : progress.total > 0 && progress.watched >= progress.total
+      ? (media.airStatus === "ended" || media.airStatus === "released" ? "completed" : "up_to_date")
+      : "watching";
+  if (nextStatus === userMedia.status) return;
+  await mediaRepo.upsertUserMedia({ ...userMedia, status: nextStatus, progressEpisodes: progress.watched, updatedAt: now });
 }

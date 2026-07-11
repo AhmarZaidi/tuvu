@@ -11,8 +11,8 @@ export type MediaType = z.infer<typeof mediaTypeSchema>;
 // ─────────────────────────────────────────────────────────────
 export const showStatusSchema = z.enum(["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"]);
 export const movieStatusSchema = z.enum(["watch_later", "watched"]);
-export const gameStatusSchema = z.enum(["planned", "playing", "completed", "paused", "dropped"]);
-export const bookStatusSchema = z.enum(["want_to_read", "reading", "finished", "paused", "dropped"]);
+export const gameStatusSchema = z.enum(["planned", "playing", "completed", "dropped"]);
+export const bookStatusSchema = z.enum(["want_to_read", "reading", "finished", "dropped"]);
 
 export type ShowStatus = z.infer<typeof showStatusSchema>;
 export type MovieStatus = z.infer<typeof movieStatusSchema>;
@@ -73,7 +73,7 @@ export const updateStatusSchema = z.object({
 });
 
 export const updateRatingSchema = z.object({
-  rating: z.number().int().min(1).max(10).nullable(),
+  rating: z.number().int().min(1).max(5).nullable(),
 });
 
 export const updateNotesSchema = z.object({
@@ -95,7 +95,7 @@ export const createMediaUnitSchema = z.object({
 export const updateUnitActivitySchema = z.object({
   completed: z.boolean().optional(),
   completedAt: z.string().datetime().nullable().optional(),
-  rating: z.number().int().min(1).max(10).nullable().optional(),
+  rating: z.number().int().min(1).max(5).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
 });
 
@@ -114,6 +114,7 @@ export const updateFavoriteSchema = z.object({
 
 export const markMovieWatchedSchema = z.object({
   watchedAt: z.string().datetime({ message: "watchedAt must be an ISO date-time string." }).optional(),
+  mode: z.enum(["not_watched", "watched_once", "rewatched"]).optional(),
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -133,7 +134,7 @@ export const updateEpisodeActivitySchema = z.object({
   watched: z.boolean().optional(),
   watchedAt: z.string().datetime().nullable().optional(),
   rewatchCount: z.number().int().nonnegative().optional(),
-  rating: z.number().int().min(1).max(10).nullable().optional(),
+  rating: z.number().int().min(1).max(5).nullable().optional(),
   notes: z.string().max(5000).nullable().optional(),
 });
 

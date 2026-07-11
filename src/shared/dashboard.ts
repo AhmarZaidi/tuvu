@@ -81,7 +81,7 @@ export function buildDashboardSections(kind: DashboardKind, entries: DashboardEn
       { id: "finished", label: "Finished", entries: all.filter((entry) => entry.status === "finished") },
       { id: "upcoming", label: "Upcoming", entries: all.filter((entry) => future(entry.releaseDate, now)) },
       { id: "favorites", label: "Favorites", entries: all.filter((entry) => entry.isFavorite) },
-      { id: "paused", label: "Paused & Dropped", entries: all.filter((entry) => ["paused", "dropped"].includes(entry.status)) },
+      { id: "dropped", label: "Dropped", entries: all.filter((entry) => entry.status === "dropped") },
       { id: "all", label: "All Books", entries: all },
     ];
   }
@@ -92,7 +92,7 @@ export function buildDashboardSections(kind: DashboardKind, entries: DashboardEn
     { id: "completed", label: "Completed", entries: all.filter((entry) => entry.status === "completed") },
     { id: "upcoming", label: "Upcoming", entries: all.filter((entry) => future(entry.releaseDate, now)) },
     { id: "favorites", label: "Favorites", entries: all.filter((entry) => entry.isFavorite) },
-    { id: "paused", label: "Paused & Dropped", entries: all.filter((entry) => ["paused", "dropped"].includes(entry.status)) },
+    { id: "dropped", label: "Dropped", entries: all.filter((entry) => entry.status === "dropped") },
     { id: "all", label: "All Games", entries: all },
   ];
 }

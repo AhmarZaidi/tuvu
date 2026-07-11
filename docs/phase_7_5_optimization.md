@@ -973,21 +973,34 @@ Follow-up UI consolidation notes:
 
 ### 7.5.8 Media Detail Templates
 
-- [ ] Create shared detail layout primitives.
-- [ ] Implement type templates:
+- [x] Create shared detail layout primitives.
+- [x] Implement type templates:
   - shows
   - anime 
   - movie
   - book
   - game
-  - YouTube/video
+  - YouTube/video placeholder
 - [ ] Move type-specific sections out of the main page.
 - [ ] Make manual edit/customization sheet config-driven.
-- [ ] Ensure missing metadata shows stable placeholders and refresh state without layout jumps.
+- [x] Ensure missing metadata shows stable placeholders and refresh state without layout jumps.
 
-Note: We need separate templates for shows & anime because anime will have some sections that shows don't have and vide versa.
+Implementation notes:
 
-Remove unrelated/unused sections from templates
+- `MediaTemplateSections` now renders type-specific sections for series, anime, books, games, and movies using the shared detail panel styles.
+- Anime detail pages include title/language/audio, studio, character, Japanese voice, dub voice, dub status, and MAL/TMDB score slots when metadata exists.
+- Anime episode rows and episode pages support sub/dub date mode, a dub tag, dubbing studio, and separate Japanese/dub voice rows when episode metadata exists.
+- Books expose edition details, authors, characters, reviews, and book rating slots.
+- Games expose platforms, development, requirements, characters/voices, game ratings, and trailer slots.
+- Media pages include a NewsAPI-powered news rail through `/api/media/:id/news`; empty results omit the section. Results are cached through `provider_cache` with the `newsapi` provider key.
+- Episode tracking now resets `rewatchCount` when marked not watched. Rewatching after reset starts from a single watched tick again.
+- Show/anime tracking status now follows episode progress where safe: `not_started`, `watching`, `up_to_date`, or `completed`; manually stopped items stay stopped.
+
+Follow-up:
+
+- Extract `MediaTemplateSections`, episode template helpers, and type-specific blocks out of `app.tsx` once the next design pass starts.
+- Convert media settings/customization sheet to a config-driven surface per media type.
+- Add a Fandom/MediaWiki character lookup service only after provider limits and source quality are validated; current character sections render stored/hydrated metadata without blocking the page.
 
 ### 7.5.9 Import/Export/Backup Foundations
 

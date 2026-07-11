@@ -1,6 +1,6 @@
 import type { MediaType } from "@shared/media";
 
-export type ProviderName = "tmdb" | "rawg" | "igdb" | "openlibrary" | "jikan" | "youtube" | "local";
+export type ProviderName = "tmdb" | "rawg" | "igdb" | "openlibrary" | "jikan" | "youtube" | "newsapi" | "local";
 
 export type ProviderAttribution = {
   provider: ProviderName;
@@ -41,6 +41,7 @@ export const providerAttributions = {
   jikan: { provider: "jikan", label: providerNames.jikan, url: `${externalApiEndpoints.myAnimeList}/` },
   rawg: { provider: "rawg", label: providerNames.rawg, url: `${externalApiEndpoints.rawgWeb}/` },
   youtube: { provider: "youtube", label: providerNames.youtube, url: `${externalApiEndpoints.youtubeWeb}/` },
+  newsapi: { provider: "newsapi", label: providerNames.newsapi, url: `${externalApiEndpoints.newsApi}/` },
   local: { provider: "local", label: appConstants.name, url: appConstants.localAttributionUrl },
 } as const satisfies Record<ProviderName, ProviderAttribution>;
 import { appConstants, externalApiEndpoints, providerNames } from "@shared/constants";

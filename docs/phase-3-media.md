@@ -39,14 +39,12 @@ Tracking status strings are strictly validated per media type:
   - `planned` (Backlog - default)
   - `playing` (Currently playing)
   - `completed` (Finished/Beat)
-  - `paused` (On hold)
-  - `dropped` (Dropped/Dropped)
+  - `dropped` (Dropped)
 - **Books**:
   - `want_to_read` (Plan to read - default)
   - `reading` (Currently reading)
   - `finished` (Finished reading)
-  - `paused` (On hold)
-  - `dropped` (Dropped/Dropped)
+  - `dropped` (Dropped)
 
 ---
 

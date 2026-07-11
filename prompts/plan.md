@@ -206,7 +206,7 @@ Movie tracking:
 
 Game tracking:
 
-- Statuses: planned, playing, completed, dropped, paused.
+- Statuses: planned, playing, completed, dropped.
 - Platform.
 - Progress notes.
 - Optional playtime hours.
@@ -215,7 +215,7 @@ Game tracking:
 
 Book tracking:
 
-- Statuses: want to read, reading, finished, paused, dropped.
+- Statuses: want to read, reading, finished, dropped.
 - Progress by page or percent.
 - Author, cover, publish year.
 - Rating/review.
@@ -455,8 +455,8 @@ Internal normalized statuses:
 
 - Shows/anime: `watch_later`, `not_started`, `watching`, `up_to_date`, `completed`, `stopped`.
 - Movies: `watch_later`, `watched`.
-- Games: `planned`, `playing`, `completed`, `paused`, `dropped`.
-- Books: `want_to_read`, `reading`, `finished`, `paused`, `dropped`.
+- Games: `planned`, `playing`, `completed`, `dropped`.
+- Books: `want_to_read`, `reading`, `finished`, `dropped`.
 
 The importer should preserve the raw TV Time status and also map it to the normalized status. If mapping is ambiguous, preserve raw status and show a review warning.
 
@@ -783,7 +783,7 @@ Implementation details:
   - Finished
   - Upcoming
   - Favorites
-  - Paused and Dropped
+  - Dropped
   - All Books
 - Game page sections:
   - Playing Now
@@ -791,7 +791,7 @@ Implementation details:
   - Completed
   - Upcoming
   - Favorites
-  - Paused and Dropped
+  - Dropped
   - All Games
 - Implement poster grid and list/compact view where useful.
 - Add progress bars to show cards.
@@ -1008,7 +1008,6 @@ Implementation details:
   - planned
   - playing
   - completed
-  - paused
   - dropped
   - platform
   - playtime/progress notes
@@ -1018,7 +1017,6 @@ Implementation details:
   - want to read
   - reading
   - finished
-  - paused
   - dropped
   - page/percent progress
   - author metadata

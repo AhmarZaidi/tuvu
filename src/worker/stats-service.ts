@@ -44,17 +44,23 @@ export async function recalculateDashboardStats(db: D1Database, userId: string, 
   const now = new Date().toISOString();
   const types = mediaTypesForDashboardKind(kind);
   const typePlaceholders = types.map(() => "?").join(", ");
+  const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+  const typeClause = kind === "anime"
+    ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
+    : kind === "shows"
+      ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
+      : `mi.type IN (${typePlaceholders})`;
   const totalTrackedRow = await db.prepare(`
     SELECT COUNT(*) as count
     FROM user_media um
     JOIN media_items mi ON mi.id = um.media_id
-    WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
+    WHERE um.user_id = ? AND ${typeClause}
   `).bind(userId, ...types).first<{ count: number }>();
   const statusCountsRows = await db.prepare(`
     SELECT um.status, COUNT(*) as count
     FROM user_media um
     JOIN media_items mi ON mi.id = um.media_id
-    WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
+    WHERE um.user_id = ? AND ${typeClause}
     GROUP BY um.status
   `).bind(userId, ...types).all<{ status: string; count: number }>();
   const statusCounts: Record<string, number> = {};
@@ -154,6 +160,10 @@ function parseProfileStats(value: string) {
 export async function dashboardSectionCounts(db: D1Database, userId: string, kind: DashboardKind): Promise<Record<string, number>> {
   if (kind === "shows" || kind === "anime") {
     const mediaType = mediaTypesForDashboardKind(kind)[0];
+    const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+    const typeClause = kind === "anime"
+      ? `(mi.type = ? OR ${animeClassificationClause})`
+      : `(mi.type = ? AND NOT ${animeClassificationClause})`;
     const row = await db.prepare(`
       WITH show_rows AS (
         SELECT
@@ -179,7 +189,7 @@ export async function dashboardSectionCounts(db: D1Database, userId: string, kin
           ) AS next_episode_id
         FROM user_media um
         JOIN media_items mi ON mi.id = um.media_id
-        WHERE um.user_id = ? AND mi.type = ?
+        WHERE um.user_id = ? AND ${typeClause}
       )
       SELECT
         COUNT(*) AS all_count,
@@ -228,12 +238,12 @@ export async function dashboardSectionCounts(db: D1Database, userId: string, kin
         SUM(CASE WHEN um.status = 'finished' THEN 1 ELSE 0 END) AS finished,
         SUM(CASE WHEN date(mi.release_date) > date('now') THEN 1 ELSE 0 END) AS upcoming,
         SUM(CASE WHEN um.is_favorite = 1 THEN 1 ELSE 0 END) AS favorites,
-        SUM(CASE WHEN um.status IN ('paused', 'dropped') THEN 1 ELSE 0 END) AS paused
+        SUM(CASE WHEN um.status = 'dropped' THEN 1 ELSE 0 END) AS dropped
       FROM user_media um
       JOIN media_items mi ON mi.id = um.media_id
       WHERE um.user_id = ? AND mi.type = 'book'
     `).bind(userId).first<Record<string, number | null>>();
-    return { reading: row?.reading ?? 0, "want-to-read": row?.want_to_read ?? 0, finished: row?.finished ?? 0, upcoming: row?.upcoming ?? 0, favorites: row?.favorites ?? 0, paused: row?.paused ?? 0, all: row?.all_count ?? 0 };
+    return { reading: row?.reading ?? 0, "want-to-read": row?.want_to_read ?? 0, finished: row?.finished ?? 0, upcoming: row?.upcoming ?? 0, favorites: row?.favorites ?? 0, dropped: row?.dropped ?? 0, all: row?.all_count ?? 0 };
   }
 
   const row = await db.prepare(`
@@ -244,10 +254,10 @@ export async function dashboardSectionCounts(db: D1Database, userId: string, kin
       SUM(CASE WHEN um.status = 'completed' THEN 1 ELSE 0 END) AS completed,
       SUM(CASE WHEN date(mi.release_date) > date('now') THEN 1 ELSE 0 END) AS upcoming,
       SUM(CASE WHEN um.is_favorite = 1 THEN 1 ELSE 0 END) AS favorites,
-      SUM(CASE WHEN um.status IN ('paused', 'dropped') THEN 1 ELSE 0 END) AS paused
+      SUM(CASE WHEN um.status = 'dropped' THEN 1 ELSE 0 END) AS dropped
     FROM user_media um
     JOIN media_items mi ON mi.id = um.media_id
     WHERE um.user_id = ? AND mi.type = 'game'
   `).bind(userId).first<Record<string, number | null>>();
-  return { playing: row?.playing ?? 0, planned: row?.planned ?? 0, completed: row?.completed ?? 0, upcoming: row?.upcoming ?? 0, favorites: row?.favorites ?? 0, paused: row?.paused ?? 0, all: row?.all_count ?? 0 };
+  return { playing: row?.playing ?? 0, planned: row?.planned ?? 0, completed: row?.completed ?? 0, upcoming: row?.upcoming ?? 0, favorites: row?.favorites ?? 0, dropped: row?.dropped ?? 0, all: row?.all_count ?? 0 };
 }

@@ -4,7 +4,7 @@ import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
-const providerSchema = z.enum(["tmdb", "igdb", "rawg", "openlibrary", "jikan", "youtube"]);
+const providerSchema = z.enum(["tmdb", "igdb", "rawg", "openlibrary", "jikan", "youtube", "newsapi"]);
 const providerCredentialSchema = z.object({
   label: z.string().trim().max(80).optional(),
   secrets: z.record(z.string().trim().min(1), z.string().trim().min(1)).refine((value) => Object.keys(value).length > 0, "At least one credential value is required."),

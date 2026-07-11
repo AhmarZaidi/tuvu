@@ -38,8 +38,8 @@ describe("dashboard section classification", () => {
   });
 
   it("provides complete books and games section sets", () => {
-    expect(buildDashboardSections("books", [], new Date()).map((section) => section.id)).toEqual(["reading", "want-to-read", "finished", "upcoming", "favorites", "paused", "all"]);
-    expect(buildDashboardSections("games", [], new Date()).map((section) => section.id)).toEqual(["playing", "planned", "completed", "upcoming", "favorites", "paused", "all"]);
+    expect(buildDashboardSections("books", [], new Date()).map((section) => section.id)).toEqual(["reading", "want-to-read", "finished", "upcoming", "favorites", "dropped", "all"]);
+    expect(buildDashboardSections("games", [], new Date()).map((section) => section.id)).toEqual(["playing", "planned", "completed", "upcoming", "favorites", "dropped", "all"]);
   });
 
   it("includes upcoming books by release date", () => {

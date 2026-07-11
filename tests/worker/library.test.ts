@@ -253,11 +253,11 @@ describe("library API integration", () => {
     const create = await app.request(`/api/media/${book.id}/units`, { method: "POST", body: JSON.stringify({ kind: "chapter", position: 1, title: "Opening" }), headers }, testEnv());
     const created = await create.json() as { data: { unit: { id: string } } };
     expect(create.status).toBe(201);
-    const update = await app.request(`/api/units/${created.data.unit.id}/activity`, { method: "PATCH", body: JSON.stringify({ completed: true, rating: 9 }), headers }, testEnv());
+    const update = await app.request(`/api/units/${created.data.unit.id}/activity`, { method: "PATCH", body: JSON.stringify({ completed: true, rating: 5 }), headers }, testEnv());
     expect(update.status).toBe(200);
     const detail = await app.request(`/api/units/${created.data.unit.id}`, { headers: { cookie } }, testEnv());
     const body = await detail.json() as { data: { activity: { completed: boolean; rating: number } } };
-    expect(body.data.activity).toMatchObject({ completed: true, rating: 9 });
+    expect(body.data.activity).toMatchObject({ completed: true, rating: 5 });
   });
 
   it("updates status within allowed values", async () => {
@@ -325,7 +325,7 @@ describe("library API integration", () => {
     expect(unfavBody.data.userMedia.isFavorite).toBe(false);
   });
 
-  it("sets rating between 1 and 10", async () => {
+  it("sets rating between 1 and 5", async () => {
     const authRepo = new MemoryAuthRepository();
     const mediaRepo = new MemoryMediaRepository();
     const { app, cookie, csrfToken } = await registerUser(authRepo, mediaRepo);
@@ -336,12 +336,12 @@ describe("library API integration", () => {
 
     const res = await app.request(
       `/api/library/${media.id}/rating`,
-      { method: "PATCH", body: JSON.stringify({ rating: 8 }), headers },
+      { method: "PATCH", body: JSON.stringify({ rating: 5 }), headers },
       testEnv(),
     );
     const body = await res.json() as { data: { userMedia: { rating: number } } };
     expect(res.status).toBe(200);
-    expect(body.data.userMedia.rating).toBe(8);
+    expect(body.data.userMedia.rating).toBe(5);
 
     const clear = await app.request(
       `/api/library/${media.id}/rating`,

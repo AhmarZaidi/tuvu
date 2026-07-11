@@ -16,4 +16,5 @@ export const providerTtls = {
   jikanCharacters: 30 * 24 * 60 * 60,
   jikanEpisodes: 7 * 24 * 60 * 60,
   youtubeSearch: 6 * 60 * 60,
+  newsSearch: 12 * 60 * 60,
 } as const;

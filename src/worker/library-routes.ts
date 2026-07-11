@@ -356,22 +356,30 @@ export function createLibraryRoutes() {
 
     const now = new Date().toISOString();
     const watchedAt = body.data.watchedAt ?? now;
-    const isRewatch = existing.status === "watched";
+    const mode = body.data.mode ?? (existing.status === "watched" ? "rewatched" : "watched_once");
+    const watched = mode !== "not_watched";
+    const rewatchCount = mode === "not_watched"
+      ? 0
+      : mode === "watched_once"
+        ? 0
+        : existing.status === "watched"
+          ? existing.rewatchCount + 1
+          : 0;
     const updated = await mediaRepo.upsertUserMedia({
       ...existing,
-      status: "watched",
-      watchedAt,
-      rewatchCount: isRewatch ? existing.rewatchCount + 1 : existing.rewatchCount,
+      status: watched ? "watched" : "watch_later",
+      watchedAt: watched ? watchedAt : null,
+      rewatchCount,
       updatedAt: now,
     });
 
     await mediaRepo.createActivityEvent({
       id: randomId("act"),
       userId: auth.user.id,
-      type: "movie_watched",
+      type: watched ? "movie_watched" : "movie_unwatched",
       mediaId,
       episodeId: null,
-      dataJson: JSON.stringify({ watchedAt, rewatch: isRewatch }),
+      dataJson: JSON.stringify({ watchedAt: watched ? watchedAt : null, mode }),
       createdAt: now,
     });
 

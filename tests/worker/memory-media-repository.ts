@@ -12,6 +12,7 @@ import type {
 } from "@worker/media-repository";
 import type { MediaType } from "@shared/media";
 import type { DashboardKind } from "@shared/dashboard";
+import { mediaTypesForDashboardKind } from "@shared/media-config";
 
 export class MemoryMediaRepository implements MediaRepository {
   private mediaItems = new Map<string, MediaItemRecord>();
@@ -125,7 +126,7 @@ export class MemoryMediaRepository implements MediaRepository {
 
   async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
     const normalizedQuery = query?.trim().toLowerCase();
-    const allowedTypes: MediaType[] = kind === "shows" ? ["show", "anime"] : [kind.slice(0, -1) as MediaType];
+    const allowedTypes: MediaType[] = mediaTypesForDashboardKind(kind);
     const rows = [...this.userMedia.values()]
       .filter((item) => item.userId === userId)
       .map((item) => ({ item, media: this.mediaItems.get(item.mediaId) }))

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import type { MediaType } from "@shared/media";
+import { mediaTypeSchema, type MediaType } from "@shared/media";
+import { searchableMediaTypes } from "@shared/media-config";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { defaultStatus } from "./media-logic";
@@ -8,14 +9,13 @@ import type { MediaItemRecord, MediaRepository } from "./media-repository";
 import { providerExplore, providerSearch, providerTypeExplore, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
-const mediaTypeSchema = z.enum(["show", "movie", "anime", "game", "book"]);
 const searchSchema = z.object({
   q: z.string().trim().min(2).max(120),
   types: z.string().optional(),
 });
 
 const addProviderSchema = z.object({
-  provider: z.enum(["tmdb", "igdb", "openlibrary", "rawg"]),
+  provider: z.enum(["tmdb", "igdb", "openlibrary", "rawg", "jikan"]),
   providerId: z.string().min(1).max(200),
   type: mediaTypeSchema,
   title: z.string().trim().min(1).max(500),
@@ -140,9 +140,9 @@ export function createExploreRoutes() {
 }
 
 function parseTypes(value?: string): MediaType[] {
-  if (!value) return ["show", "movie", "book", "game"];
+  if (!value) return [...searchableMediaTypes];
   const parsed = value.split(",").map((item) => item.trim()).filter((item): item is MediaType => mediaTypeSchema.safeParse(item).success);
-  return parsed.length ? parsed : ["show", "movie", "book", "game"];
+  return parsed.length ? parsed : [...searchableMediaTypes];
 }
 
 function localProviderResult(media: MediaItemRecord): ProviderResult {
@@ -218,7 +218,7 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     }
   }
 
-  for (const provider of ["tmdb", "igdb", "rawg", "openlibrary"] as const) {
+  for (const provider of ["tmdb", "igdb", "rawg", "openlibrary", "jikan"] as const) {
     const providerResults = results.filter((result) => result.provider === provider);
     const ids = [...new Set(providerResults.map((result) => result.providerId))];
     if (ids.length === 0) continue;

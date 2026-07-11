@@ -45,10 +45,12 @@ import { createPortal } from "react-dom";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type { DashboardEntry, DashboardKind, DashboardSection } from "@shared/dashboard";
+import type { MediaType } from "@shared/media";
+import { allMediaStatuses, dashboardKinds, formatStatusLabel, mediaConfigForType, navPageConfigs, searchableMediaTypes, statusOptionsForMediaType, trackableMediaTypes } from "@shared/media-config";
+import { classifyMedia } from "@shared/media-classification";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
 import { parseTvTimeFiles } from "./tv-time-parser";
 
-type MediaType = "show" | "movie" | "anime" | "game" | "book";
 type StatusTone = "watching" | "planned" | "complete" | "paused" | "stopped";
 
 type MediaCardItem = {
@@ -338,15 +340,21 @@ const mediaItems: MediaCardItem[] = [
   },
 ];
 
-const navItems = [
-  { to: "/shows", label: "Shows", icon: Tv },
-  { to: "/anime", label: "Anime", icon: Flame },
-  { to: "/movies", label: "Movies", icon: Film },
-  { to: "/explore", label: "Explore", icon: Compass },
-  { to: "/books", label: "Books", icon: BookOpen },
-  { to: "/youtube", label: "YouTube", icon: Youtube },
-  { to: "/games", label: "Games", icon: Gamepad2 },
-] as const;
+const mediaIconMap = {
+  tv: Tv,
+  flame: Flame,
+  film: Film,
+  compass: Compass,
+  book: BookOpen,
+  youtube: Youtube,
+  gamepad: Gamepad2,
+} satisfies Record<(typeof navPageConfigs)[number]["icon"], LucideIcon>;
+
+const navItems = navPageConfigs.map((item) => ({
+  to: item.route,
+  label: item.label,
+  icon: mediaIconMap[item.icon],
+}));
 
 const profileNav = [
   { to: "/library", label: "All library", icon: Library },
@@ -356,21 +364,17 @@ const profileNav = [
   { to: "/profile/import/tv-time", label: "Import", icon: Upload },
 ] as const;
 
-const exploreFilters: Array<{ label: string; icon: LucideIcon }> = [
-  { label: "Shows", icon: Tv },
-  { label: "Movies", icon: Film },
-  { label: "Anime", icon: Sparkles },
-  { label: "Games", icon: Gamepad2 },
-  { label: "Books", icon: BookOpen },
-];
+const exploreFilters = trackableMediaTypes.map((type) => {
+  const config = mediaConfigForType(type);
+  return { type, label: config.pluralLabel, icon: mediaIconMap[config.icon] };
+});
 
 const mergeTypeFilters: Array<{ value: "all" | MediaType; label: string; icon: LucideIcon }> = [
   { value: "all", label: "All", icon: Library },
-  { value: "show", label: "Shows", icon: Tv },
-  { value: "movie", label: "Movies", icon: Film },
-  { value: "book", label: "Books", icon: BookOpen },
-  { value: "game", label: "Games", icon: Gamepad2 },
-  { value: "anime", label: "Anime", icon: Sparkles },
+  ...trackableMediaTypes.map((type) => {
+    const config = mediaConfigForType(type);
+    return { value: type, label: config.pluralLabel, icon: mediaIconMap[config.icon] };
+  }),
 ];
 
 export function App() {
@@ -1201,15 +1205,7 @@ function ShowsPage() {
 }
 
 function AnimePage() {
-  return (
-    <AppPage eyebrow="Anime" title="Anime" description="Manage, track, and discover your anime collections." mobileHelp>
-      <EmptyState
-        icon={<Flame size={24} />}
-        title="Anime Tracker coming soon"
-        message="Anime tracking, Japanese/Dub cast views, and MAL ratings are coming in the next phase."
-      />
-    </AppPage>
-  );
+  return <DashboardPage kind="anime" mediaType="anime" title="Anime" description="Manage, track, and discover your anime collections." />;
 }
 
 function YouTubePage() {
@@ -1277,7 +1273,7 @@ function AllLibraryPage() {
     return items.filter((entry) => !normalized || entry.media.title.toLowerCase().includes(normalized));
   }, [items, query]);
 
-  const statusChoices = type === "all" ? allStatusChoices : statusOptionsForType(type);
+  const statusChoices = type === "all" ? allMediaStatuses : statusOptionsForMediaType(type);
 
   return (
     <AppPage eyebrow="Library" title="All Library" description="Filter everything you track across shows, movies, anime, books, and games." mobileHelp>
@@ -1285,7 +1281,7 @@ function AllLibraryPage() {
         <div className="dashboard-search"><Search size={16} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter library" aria-label="Filter all library" />{query && <IconButton className="search-clear" label="Clear filter" onClick={() => { setQuery(""); searchRef.current?.blur(); }}><X size={14} /></IconButton>}</div>
       </div>
       <div className="filter-row">
-        {(["all", "show", "movie", "anime", "book", "game"] as Array<"all" | MediaType>).map((option) => <button key={option} className={type === option ? "chip-button active" : "chip-button"} onClick={() => { setType(option); setStatus("all"); }}>{option === "all" ? "All" : option}</button>)}
+        {(["all", ...trackableMediaTypes] as Array<"all" | MediaType>).map((option) => <button key={option} className={type === option ? "chip-button active" : "chip-button"} onClick={() => { setType(option); setStatus("all"); }}>{option === "all" ? "All" : mediaConfigForType(option).label}</button>)}
       </div>
       <div className="filter-row">
         <button className={status === "all" ? "chip-button active" : "chip-button"} onClick={() => setStatus("all")}>All statuses</button>
@@ -1308,22 +1304,6 @@ function AllLibraryPage() {
       </section>
     </AppPage>
   );
-}
-
-const allStatusChoices = ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped", "watched", "planned", "playing", "paused", "dropped", "want_to_read", "reading", "finished"];
-
-function statusOptionsForType(type: MediaType) {
-  return {
-    show: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
-    anime: ["watch_later", "not_started", "watching", "up_to_date", "completed", "stopped"],
-    movie: ["watch_later", "watched"],
-    game: ["planned", "playing", "completed", "paused", "dropped"],
-    book: ["want_to_read", "reading", "finished", "paused", "dropped"],
-  }[type];
-}
-
-function formatStatusLabel(status: string) {
-  return status.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function displayMediaType(media: MediaDetailData["media"]) {
@@ -1384,7 +1364,7 @@ function writeDashboardCache(userId: string, kind: DashboardKind, entry: Dashboa
 }
 
 function clearDashboardCaches(userId: string) {
-  (["shows", "movies", "books", "games"] as DashboardKind[]).forEach((kind) => {
+  dashboardKinds.forEach((kind) => {
     const key = dashboardCacheKey(userId, kind);
     dashboardCache.delete(key);
     try {
@@ -1712,8 +1692,8 @@ function ExplorePage() {
   return (
     <AppPage eyebrow="Explore" title="Find something good" description="Search across shows, movies, books, and games, or browse cached discovery rows." mobileHelp>
       <div className="filter-row">
-        {exploreFilters.map(({ label, icon: Icon }) => (
-          <NavLink className="chip-button" key={label} to={`/explore/type/${label.toLowerCase() === "anime" ? "anime" : label.toLowerCase().slice(0, -1)}`}>
+        {exploreFilters.map(({ type, label, icon: Icon }) => (
+          <NavLink className="chip-button" key={type} to={`/explore/type/${type}`}>
             <Icon size={16} aria-hidden="true" />
             {label}
           </NavLink>
@@ -1749,7 +1729,7 @@ function ExploreSearchPage() {
   useEffect(() => {
     const next = new URLSearchParams();
     if (query.trim()) next.set("q", query.trim());
-    if (types.length !== 4) next.set("types", types.join(","));
+    if (types.length !== searchableMediaTypes.length) next.set("types", types.join(","));
     setSearchParams(next, { replace: true });
   }, [query, types, setSearchParams]);
 
@@ -1786,7 +1766,7 @@ function ExploreSearchPage() {
         <div className="dashboard-search"><Search size={16} /><input autoFocus aria-label="Search all media" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shows, movies, books, games" />{query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}</div>
       </div>
       <div className="filter-row">
-        {(["show", "movie", "book", "game"] as MediaType[]).map((type) => (
+        {searchableMediaTypes.map((type) => (
           <button className={types.includes(type) ? "chip-button active" : "chip-button"} key={type} onClick={() => setTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])}>{type}</button>
         ))}
       </div>
@@ -1890,7 +1870,7 @@ function ExploreResultCard({ result }: { result: ExploreResult }) {
 }
 
 function parseExploreTypes(value: string | null): MediaType[] {
-  const allowed: MediaType[] = ["show", "movie", "book", "game"];
+  const allowed: MediaType[] = [...searchableMediaTypes];
   if (!value) return allowed;
   const parsed = value.split(",").filter((item): item is MediaType => allowed.includes(item as MediaType));
   return parsed.length ? parsed : allowed;
@@ -3362,7 +3342,13 @@ function parseExtendedData(json: string | null): ExtendedData {
 function isAnimeMedia(media: MediaDetailData["media"]) {
   if (media.type === "anime") return true;
   const ext = parseExtendedData(media.extendedDataJson);
-  return ext.category === "anime" || Boolean(ext.anime);
+  return classifyMedia({
+    type: media.type,
+    language: media.language,
+    category: typeof ext.category === "string" ? ext.category : null,
+    anime: Boolean(ext.anime),
+    genres: Array.isArray(ext.genres) ? ext.genres : null,
+  }).isAnime;
 }
 
 function EpisodeGuideProgress({ progress, onRefresh }: { progress: HydrationProgress; onRefresh: () => void }) {

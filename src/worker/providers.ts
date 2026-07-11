@@ -1,4 +1,5 @@
 import type { MediaType } from "@shared/media";
+import { classifyMedia } from "@shared/media-classification";
 import { envString } from "./env";
 
 export type ProviderAttribution = {
@@ -53,6 +54,7 @@ export async function providerSearch(env: Env, query: string, types: MediaType[]
     if (types.includes("movie")) calls.push(tmdbSearch(env, "movie", trimmed, limit));
     if (types.some((type) => type === "show" || type === "anime")) calls.push(tmdbSearch(env, "tv", trimmed, limit));
   }
+  if (types.includes("anime")) calls.push(jikanSearchProvider(env, trimmed, Math.min(limit, 8)));
   if (types.includes("game")) calls.push(igdbSearch(env, trimmed, limit));
   if (types.includes("book")) calls.push(openLibrarySearch(env, trimmed, limit));
   const settled = await Promise.allSettled(calls);
@@ -173,8 +175,13 @@ function normalizeTmdb(item: unknown, mode: "movie" | "tv"): ProviderResult | nu
   if (!id || !title) return null;
   const releaseDate = stringValue(mode === "movie" ? record.release_date : record.first_air_date);
   
-  const isAnime = record.original_language === "ja" && Array.isArray(record.genre_ids) && record.genre_ids.includes(16);
-  const type: MediaType = isAnime ? "anime" : (mode === "movie" ? "movie" : "show");
+  const genreIds = Array.isArray(record.genre_ids) ? record.genre_ids.filter((id): id is number => typeof id === "number") : [];
+  const classification = classifyMedia({
+    type: mode === "movie" ? "movie" : "tv",
+    genreIds,
+    originalLanguage: stringValue(record.original_language),
+  });
+  const type: MediaType = classification.suggestedType ?? (mode === "movie" ? "movie" : "show");
   return {
     provider: "tmdb",
     providerId: id,
@@ -596,11 +603,59 @@ function nextYear() {
 // ============================================================================
 // Jikan (MyAnimeList) - For Hydration
 // ============================================================================
+async function jikanSearchProvider(env: Env, query: string, limit: number): Promise<ProviderResult[]> {
+  const results = await jikanSearchAnime(env, query, limit);
+  return results.map(normalizeJikanAnime).filter(isProviderResult);
+}
+
+function normalizeJikanAnime(item: unknown): ProviderResult | null {
+  const record = item as Record<string, any>;
+  const id = numberOrString(record.mal_id);
+  const title = stringValue(record.title_english) ?? stringValue(record.title) ?? stringValue(record.title_japanese);
+  if (!id || !title) return null;
+  const releaseDate = normalizeDate(stringValue(record.aired?.from));
+  const image = stringValue(record.images?.jpg?.large_image_url) ?? stringValue(record.images?.jpg?.image_url);
+  const genres = [...arrayNames(record.genres), ...arrayNames(record.themes), ...arrayNames(record.demographics)]
+    .map((name) => ({ name }));
+
+  return {
+    provider: "jikan",
+    providerId: id,
+    type: "anime",
+    title,
+    overview: stringValue(record.synopsis),
+    posterPath: image,
+    backdropPath: image,
+    releaseDate,
+    year: yearFromDate(releaseDate) ?? numberValue(record.year),
+    sourceUrl: stringValue(record.url),
+    rating: numberValue(record.score),
+    popularity: numberValue(record.popularity),
+    attribution: jikanAttribution,
+    extendedDataJson: JSON.stringify({
+      category: "anime",
+      anime: {
+        originalLanguage: "Japanese",
+        studios: arrayNames(record.studios).map((name) => ({ name })),
+        malRating: numberValue(record.score),
+        status: stringValue(record.status),
+      },
+      genres,
+    }),
+  };
+}
+
 export async function jikanSearchAnime(env: Env, query: string, limit: number = 5) {
   const endpoint = envString(env, "MAL_JIKAN_API_ENDPOINT") || "https://api.jikan.moe/v4/";
   // Jikan has strict rate limits, cache for a long time
   const data = await cachedJson<{ data?: any[] }>(env, "jikan", `search:${query.toLowerCase()}`, 7 * 24 * 60 * 60, () => fetch(`${endpoint}anime?q=${encodeURIComponent(query)}&limit=${limit}`));
   return data?.data ?? [];
+}
+
+function normalizeDate(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
 export async function jikanAnimeCharacters(env: Env, malId: number) {

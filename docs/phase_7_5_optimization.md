@@ -820,13 +820,20 @@ Merge accept:
 
 ### 7.5.1 Shared Media Type Registry
 
-- [ ] Create shared media type config.
-- [ ] Add `anime` dashboard kind.
-- [ ] Add `youtube` route/type placeholder without breaking existing media schema.
-- [ ] Replace hard-coded nav/filter/status arrays with config-driven values.
-- [ ] Split Anime dashboard from Shows dashboard at API and client level.
-- [ ] Add cartoon/anime classification utility and tests.
-- [ ] Keep backwards compatibility for imported shows that should later classify as anime.
+- [x] Create shared media type config.
+- [x] Add `anime` dashboard kind.
+- [x] Add `youtube` route/type placeholder without breaking existing media schema.
+- [x] Replace hard-coded nav/filter/status arrays with config-driven values.
+- [x] Split Anime dashboard from Shows dashboard at API and client level.
+- [x] Add cartoon/anime classification utility and tests.
+- [x] Keep backwards compatibility for imported shows that should later classify as anime.
+
+Implementation notes:
+
+- `src/shared/media-config.ts` is now the source of truth for persisted media types, dashboard kinds, status choices, default statuses, and primary nav page definitions.
+- `youtube` is intentionally represented as a nav/page placeholder only. It is not part of `MediaType` or the current `media_items.type` schema.
+- Shows and Anime now use separate dashboard kinds and API queries. Imported items that remain stored as `show` continue to work in Shows until merge/hydration/classification updates their canonical type or extended metadata marks them as anime.
+- `src/shared/media-classification.ts` centralizes anime/cartoon detection using animation genre signals plus original/primary language.
 
 ### 7.5.2 API And Repository Boundaries
 

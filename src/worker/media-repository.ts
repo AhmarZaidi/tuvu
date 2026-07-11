@@ -1,5 +1,6 @@
 import type { MediaType } from "@shared/media";
 import type { DashboardEntry, DashboardKind } from "@shared/dashboard";
+import { mediaTypesForDashboardKind } from "@shared/media-config";
 
 // ─────────────────────────────────────────────────────────────
 // Record Types
@@ -545,7 +546,7 @@ export class D1MediaRepository implements MediaRepository {
   }
 
   async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
-    const types = kind === "shows" ? ["show", "anime"] : [kind.slice(0, -1)];
+    const types = mediaTypesForDashboardKind(kind);
     const typePlaceholders = types.map(() => "?").join(", ");
     const trimmedQuery = query?.trim();
     const searchClause = trimmedQuery ? "AND mi.title LIKE ?" : "";

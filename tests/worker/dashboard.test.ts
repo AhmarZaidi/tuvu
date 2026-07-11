@@ -18,6 +18,12 @@ describe("dashboard section classification", () => {
     expect(sections.find((section) => section.id === "all")?.entries).toHaveLength(1);
   });
 
+  it("uses the series dashboard model for anime while labeling all anime separately", () => {
+    const sections = buildDashboardSections("anime", [{ ...base, mediaId: "anime_1", type: "anime" }], new Date("2026-07-10T00:00:00.000Z"));
+    expect(sections.map((section) => section.id)).toEqual(["watch-next", "continue-watching", "away", "watch-later", "upcoming", "up-to-date", "stopped", "all"]);
+    expect(sections.find((section) => section.id === "all")?.label).toBe("All Anime");
+  });
+
   it("separates movie watchlist, watched, favorites, and upcoming", () => {
     const movies: DashboardEntry[] = [
       { ...base, mediaId: "watch", type: "movie", status: "watch_later", progressEpisodes: 0, totalRegularEpisodes: 0, nextEpisode: null },

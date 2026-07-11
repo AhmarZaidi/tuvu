@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { dashboardKindSchema, buildDashboardSections } from "@shared/dashboard";
+import { mediaTypesForDashboardKind, type MediaDashboardKind } from "@shared/media-config";
 import {
   addToLibrarySchema,
   updateStatusSchema,
@@ -42,7 +43,7 @@ export function createLibraryRoutes() {
 
     if (c.env.DB) {
       // Fetch total tracked and status count breakdowns for correct stats in client pagination
-      const types = kind.data === "shows" ? ["show", "anime"] : [kind.data.slice(0, -1)];
+      const types = mediaTypesForDashboardKind(kind.data);
       const typePlaceholders = types.map(() => "?").join(", ");
       const totalTrackedRow = await c.env.DB.prepare(`
         SELECT COUNT(*) as count
@@ -391,8 +392,9 @@ export function createLibraryRoutes() {
   return router;
 }
 
-async function dashboardSectionCounts(db: D1Database, userId: string, kind: "shows" | "movies" | "books" | "games"): Promise<Record<string, number>> {
-  if (kind === "shows") {
+async function dashboardSectionCounts(db: D1Database, userId: string, kind: MediaDashboardKind): Promise<Record<string, number>> {
+  if (kind === "shows" || kind === "anime") {
+    const mediaType = mediaTypesForDashboardKind(kind)[0];
     const row = await db.prepare(`
       WITH show_rows AS (
         SELECT
@@ -418,7 +420,7 @@ async function dashboardSectionCounts(db: D1Database, userId: string, kind: "sho
           ) AS next_episode_id
         FROM user_media um
         JOIN media_items mi ON mi.id = um.media_id
-        WHERE um.user_id = ? AND mi.type IN ('show', 'anime')
+        WHERE um.user_id = ? AND mi.type = ?
       )
       SELECT
         COUNT(*) AS all_count,
@@ -430,7 +432,7 @@ async function dashboardSectionCounts(db: D1Database, userId: string, kind: "sho
         SUM(CASE WHEN status IN ('up_to_date', 'completed') THEN 1 ELSE 0 END) AS up_to_date,
         SUM(CASE WHEN status = 'stopped' THEN 1 ELSE 0 END) AS stopped
       FROM show_rows
-    `).bind(userId).first<Record<string, number | null>>();
+    `).bind(userId, mediaType).first<Record<string, number | null>>();
     return {
       "watch-next": row?.watch_next ?? 0,
       "continue-watching": row?.continue_watching ?? 0,

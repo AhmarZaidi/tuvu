@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { MediaType } from "@shared/media";
+import { searchableMediaTypes } from "@shared/media-config";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import type { MediaRepository } from "./media-repository";
@@ -105,7 +106,7 @@ export function createMergeRoutes() {
     const query = c.req.query("q")?.trim();
     if (!query || query.length < 2) return apiError(c, 400, "validation_failed", "Search query is required.");
     const type = parseType(c.req.query("type"));
-    const results = await providerSearch(c.env, query, type ? [type] : ["show", "movie", "book", "game"], 8);
+    const results = await providerSearch(c.env, query, type ? [type] : [...searchableMediaTypes], 8);
     return c.json(apiSuccess({ results }));
   });
 

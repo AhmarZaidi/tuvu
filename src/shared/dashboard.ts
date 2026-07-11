@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { MediaType } from "./media";
+import { dashboardKinds, dashboardConfigForKind } from "./media-config";
 
-export const dashboardKindSchema = z.enum(["shows", "movies", "books", "games"]);
+export const dashboardKindSchema = z.enum(dashboardKinds);
 export type DashboardKind = z.infer<typeof dashboardKindSchema>;
 
 export type DashboardEntry = {
@@ -45,7 +46,8 @@ const future = (date: string | null, now: Date) => Boolean(date && new Date(`${d
 
 export function buildDashboardSections(kind: DashboardKind, entries: DashboardEntry[], now = new Date()): DashboardSection[] {
   const all = [...entries];
-  if (kind === "shows") {
+  if (kind === "shows" || kind === "anime") {
+    const config = dashboardConfigForKind(kind);
     return [
       { id: "watch-next", label: "Watch Next", entries: all.filter((entry) => entry.nextEpisode && !future(entry.nextEpisode.airDate, now)) },
       { id: "continue-watching", label: "Continue Watching", entries: all.filter((entry) => entry.progressEpisodes > 0 && entry.nextEpisode) },
@@ -58,7 +60,7 @@ export function buildDashboardSections(kind: DashboardKind, entries: DashboardEn
       { id: "upcoming", label: "Upcoming", entries: all.filter((entry) => future(entry.nextEpisode?.airDate ?? entry.releaseDate, now)) },
       { id: "up-to-date", label: "Up To Date", entries: all.filter((entry) => ["up_to_date", "completed"].includes(entry.status)) },
       { id: "stopped", label: "Stopped", entries: all.filter((entry) => entry.status === "stopped") },
-      { id: "all", label: "All Shows", entries: all },
+      { id: "all", label: `All ${config.pluralLabel}`, entries: all },
     ];
   }
 

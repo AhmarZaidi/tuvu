@@ -1,4 +1,5 @@
 import type { MediaType } from "@shared/media";
+import { externalApiEndpoints } from "@shared/constants";
 import { classifyMedia } from "@shared/media-classification";
 import { providerCredential } from "./provider-credentials";
 import { cachedJson } from "./provider-cache-service";
@@ -40,7 +41,7 @@ export async function tmdbFetchMediaDetails(env: Env, path: string) {
 }
 
 export function tmdbUrl(path: string, key: string, params: Record<string, string> = {}) {
-  const url = new URL(`https://api.themoviedb.org/3/${path}`);
+  const url = new URL(`${externalApiEndpoints.tmdbApi}/${path}`);
   url.searchParams.set("api_key", key);
   for (const [param, value] of Object.entries(params)) url.searchParams.set(param, value);
   return url.toString();
@@ -65,7 +66,7 @@ function normalizeTmdb(item: unknown, mode: "movie" | "tv"): ProviderResult | nu
     backdropPath: tmdbImage(stringValue(record.backdrop_path), "w780"),
     releaseDate,
     year: yearFromDate(releaseDate),
-    sourceUrl: `https://www.themoviedb.org/${mode === "movie" ? "movie" : "tv"}/${id}`,
+    sourceUrl: `${externalApiEndpoints.tmdbWeb}/${mode === "movie" ? "movie" : "tv"}/${id}`,
     rating: numberValue(record.vote_average),
     popularity: numberValue(record.popularity),
     attribution: providerAttributions.tmdb,

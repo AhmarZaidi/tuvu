@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { externalApiEndpoints } from "@shared/constants";
 import { envString } from "./env";
 import { apiError, apiSuccess } from "./http";
 import { requireAuth, type AppVariables } from "./session";
@@ -38,7 +39,7 @@ export function createPeopleRoutes() {
         return c.json(apiSuccess(JSON.parse(cached.response_json) as PersonPayload));
       }
 
-      const url = new URL(`https://api.themoviedb.org/3/person/${encodeURIComponent(id)}`);
+      const url = new URL(`${externalApiEndpoints.tmdbApi}/person/${encodeURIComponent(id)}`);
       url.searchParams.set("api_key", key);
       url.searchParams.set("append_to_response", "combined_credits,external_ids");
       const response = await fetch(url.toString());
@@ -90,7 +91,7 @@ export function createPeopleRoutes() {
 
 function tmdbImage(path: string | null | undefined, size: string) {
   if (!path) return null;
-  return String(path).startsWith("http") ? String(path) : `https://image.tmdb.org/t/p/${size}${path}`;
+  return String(path).startsWith("http") ? String(path) : `${externalApiEndpoints.tmdbImage}/${size}${path}`;
 }
 
 function yearFromDate(value: string | null) {

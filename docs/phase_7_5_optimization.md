@@ -629,6 +629,14 @@ Rules:
 - Job banner is for long-running import/merge/hydration/backup/restore.
 - Error messages shown to users must be friendly; developer details stay in logs/details.
 
+### Constants And Copy Rules
+
+- Shared constants live in `src/shared/constants.ts`.
+- External API base URLs, provider display names, app identity, cache keys, local storage keys, and design token names should be added there before use.
+- Provider-specific paths and query parameters stay inside provider modules so API behavior remains easy to review.
+- User-facing page copy that repeats across features should move into a shared copy object before another page duplicates it.
+- Palette changes should start in `src/client/styles/tokens.css`; feature CSS should use token variables whenever practical.
+
 ## Settings Overhaul Plan
 
 Target settings sections:
@@ -894,13 +902,24 @@ Implementation notes:
 
 ### 7.5.5 Design System Extraction
 
-- [ ] Create design token CSS file.
-- [ ] Split CSS into token, shell, components, features.
-- [ ] Extract shared components from `app.tsx`.
-- [ ] Replace local `Toast` with global snackbar/job banner.
-- [ ] Normalize modal/bottom sheet behavior.
-- [ ] Normalize search input, filters, cards, rails, posters, and progress components.
-- [ ] Add visual smoke checks for mobile/desktop shell, sheets, media detail, settings.
+- [x] Create design token CSS file.
+- [x] Split CSS into token, shell, components, features.
+- [x] Extract shared components from `app.tsx`.
+- [x] Replace local `Toast` with global snackbar/job banner.
+- [x] Normalize modal/bottom sheet behavior.
+- [x] Normalize search input, filters, cards, rails, posters, and progress components.
+- [x] Add constants/copy/API endpoint consolidation to the design-system plan.
+- [x] Add visual smoke checks for mobile/desktop shell, sheets, media detail, settings.
+
+Implementation notes:
+
+- `src/client/styles.css` is now an import hub for `styles/tokens.css`, `styles/shell.css`, `styles/components.css`, and `styles/features.css`.
+- `styles/tokens.css` owns the first shared palette, radius, shell-size, and shadow tokens; shell rules now use the most common variables.
+- `src/client/components/ui.tsx` owns `IconButton`, `Modal`, `MediaCard`, `ResponsivePoster`, `ProgressBar`, `StatusChip`, `EmptyState`, `SkeletonGrid`, `Tabs`, and `SegmentedControl`. `src/client/app.tsx` re-exports these for compatibility with existing tests/imports.
+- Media detail success/error notices now use the global snackbar via `notify`; the old local `Toast` render path was removed.
+- `src/shared/constants.ts` centralizes app identity, external API base endpoints, provider names, UI storage/event keys, and design token names.
+- Provider modules now read base URLs/attribution labels from shared constants while keeping provider-specific paths near the provider logic.
+- Existing Playwright shell/navigation and CLS checks remain the visual smoke gate; component smoke coverage continues through Vitest.
 
 ### 7.5.6 Settings Overhaul
 

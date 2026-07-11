@@ -1,4 +1,5 @@
 import type { MediaType } from "@shared/media";
+import { externalApiEndpoints } from "@shared/constants";
 import { randomId } from "./crypto";
 import { jikanSearchAnime, jikanAnimeCharacters, jikanAnimeEpisodes, igdbFetchDetails, openLibraryFetchDetails, rawgFetchDetails } from "./providers";
 import { writeProviderCache } from "./providers/provider-cache-service";
@@ -309,7 +310,7 @@ export function friendlyHydrationError(error: unknown) {
 
 function tmdbImage(path: string | null | undefined, size: string) {
   if (!path) return null;
-  return String(path).startsWith("http") ? String(path) : `https://image.tmdb.org/t/p/${size}${path}`;
+  return String(path).startsWith("http") ? String(path) : `${externalApiEndpoints.tmdbImage}/${size}${path}`;
 }
 
 function inferTmdbStatus(status: string | null | undefined, type: MediaType) {

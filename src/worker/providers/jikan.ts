@@ -1,3 +1,4 @@
+import { externalApiEndpoints } from "@shared/constants";
 import { providerCredential } from "./provider-credentials";
 import { cachedJson } from "./provider-cache-service";
 import { providerTtls } from "./provider-ttls";
@@ -29,7 +30,7 @@ export async function jikanAnimeEpisodes(env: Env, malId: number) {
 
 async function jikanEndpoint(env: Env) {
   const configured = await providerCredential(env, { provider: "jikan", key: "MAL_JIKAN_API_ENDPOINT" });
-  return configured || "https://api.jikan.moe/v4/";
+  return configured || `${externalApiEndpoints.jikanApi}/`;
 }
 
 function normalizeJikanAnime(item: unknown): ProviderResult | null {

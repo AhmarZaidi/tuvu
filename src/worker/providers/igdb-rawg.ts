@@ -1,3 +1,4 @@
+import { externalApiEndpoints } from "@shared/constants";
 import { providerCredential } from "./provider-credentials";
 import { cachedJson, writeProviderCache } from "./provider-cache-service";
 import { providerTtls } from "./provider-ttls";
@@ -29,9 +30,9 @@ export async function igdbFetchDetails(env: Env, providerId: string) {
   const publishers = (game.involved_companies || []).filter((c: any) => c.publisher).map((c: any) => stringValue(c.company?.name)).filter(Boolean);
   const characters = (game.characters || []).map((c: any) => ({
     name: stringValue(c.name),
-    profilePath: c.mug_shot?.image_id ? `https://images.igdb.com/igdb/image/upload/t_thumb/${c.mug_shot.image_id}.jpg` : null,
+    profilePath: c.mug_shot?.image_id ? `${externalApiEndpoints.igdbImage}/t_thumb/${c.mug_shot.image_id}.jpg` : null,
   })).filter((c: any) => c.name).slice(0, 16);
-  const trailers = (game.videos || []).slice(0, 5).map((v: any) => ({ name: stringValue(v.name) || "Trailer", url: `https://www.youtube.com/watch?v=${v.video_id}` }));
+  const trailers = (game.videos || []).slice(0, 5).map((v: any) => ({ name: stringValue(v.name) || "Trailer", url: `${externalApiEndpoints.youtubeWeb}/watch?v=${v.video_id}` }));
   return { platforms, characters, trailers, developers, publishers };
 }
 
@@ -53,7 +54,7 @@ async function getIgdbToken(env: Env, forceRefresh = false): Promise<string | nu
     const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider = 'igdb' AND cache_key = 'oauth_token'").first<{ response_json: string; expires_at: string }>();
     if (cached && new Date(cached.expires_at).getTime() > Date.now()) return cached.response_json;
   }
-  const response = await fetch(`https://id.twitch.tv/oauth2/token?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`, { method: "POST" });
+  const response = await fetch(`${externalApiEndpoints.twitchOAuthToken}?client_id=${clientId}&client_secret=${clientSecret}&grant_type=client_credentials`, { method: "POST" });
   if (!response.ok) return null;
   const data = await response.json() as { access_token: string; expires_in: number };
   if (!data.access_token) return null;
@@ -66,7 +67,7 @@ async function igdbRequest<T>(env: Env, query: string, cacheKey: string): Promis
   if (!clientId) return null;
   let token = await getIgdbToken(env);
   if (!token) return null;
-  const makeReq = () => fetch("https://api.igdb.com/v4/games", { method: "POST", headers: { "Client-ID": clientId, "Authorization": `Bearer ${token}`, "Accept": "application/json" }, body: query });
+  const makeReq = () => fetch(externalApiEndpoints.igdbGames, { method: "POST", headers: { "Client-ID": clientId, "Authorization": `Bearer ${token}`, "Accept": "application/json" }, body: query });
   let data = await cachedJson<T>(env, "igdb", cacheKey, providerTtls.igdbSearch, makeReq);
   if (!data) {
     token = await getIgdbToken(env, true);
@@ -78,7 +79,7 @@ async function igdbRequest<T>(env: Env, query: string, cacheKey: string): Promis
 async function rawgRequest<T>(env: Env, endpoint: string, cacheKey: string, params: Record<string, string | number> = {}): Promise<T | null> {
   const key = await providerCredential(env, { provider: "rawg", key: "RAWG_API_KEY" });
   if (!key) return null;
-  const url = new URL(`https://api.rawg.io/api/${endpoint}`);
+  const url = new URL(`${externalApiEndpoints.rawgApi}/${endpoint}`);
   url.searchParams.set("key", key);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   return cachedJson<T>(env, "rawg", cacheKey, providerTtls.rawgSearch, () => fetch(url.toString()));
@@ -102,7 +103,7 @@ function normalizeIgdb(item: unknown): ProviderResult | null {
   const firstReleaseDate = numberValue(record.first_release_date);
   const releaseDate = firstReleaseDate ? new Date(firstReleaseDate * 1000).toISOString().slice(0, 10) : null;
   const cover = record.cover as { image_id?: string } | undefined;
-  const posterPath = cover?.image_id ? `https://images.igdb.com/igdb/image/upload/t_cover_big/${cover.image_id}.jpg` : null;
+  const posterPath = cover?.image_id ? `${externalApiEndpoints.igdbImage}/t_cover_big/${cover.image_id}.jpg` : null;
   const studios = Array.isArray(record.involved_companies) ? record.involved_companies.map((ic: any) => ic.company?.name).filter(Boolean) : [];
   return {
     provider: "igdb",
@@ -111,10 +112,10 @@ function normalizeIgdb(item: unknown): ProviderResult | null {
     title,
     overview: stringValue(record.summary),
     posterPath,
-    backdropPath: cover?.image_id ? `https://images.igdb.com/igdb/image/upload/t_screenshot_huge/${cover.image_id}.jpg` : null,
+    backdropPath: cover?.image_id ? `${externalApiEndpoints.igdbImage}/t_screenshot_huge/${cover.image_id}.jpg` : null,
     releaseDate,
     year: yearFromDate(releaseDate),
-    sourceUrl: `https://www.igdb.com/games/${stringValue(record.slug) ?? id}`,
+    sourceUrl: `${externalApiEndpoints.igdbWeb}/games/${stringValue(record.slug) ?? id}`,
     rating: numberValue(record.rating) ? numberValue(record.rating)! / 10 : null,
     popularity: numberValue(record.rating_count),
     attribution: providerAttributions.igdb,
@@ -127,5 +128,5 @@ function normalizeRawg(record: any): ProviderResult | null {
   const title = stringValue(record.name);
   if (!id || !title) return null;
   const releaseDate = stringValue(record.released);
-  return { provider: "rawg", providerId: id, type: "game", title, overview: null, posterPath: stringValue(record.background_image), backdropPath: null, releaseDate, year: yearFromDate(releaseDate), sourceUrl: `https://rawg.io/games/${record.slug || id}`, rating: numberValue(record.rating) ? record.rating * 20 : null, popularity: numberValue(record.added), attribution: providerAttributions.rawg };
+  return { provider: "rawg", providerId: id, type: "game", title, overview: null, posterPath: stringValue(record.background_image), backdropPath: null, releaseDate, year: yearFromDate(releaseDate), sourceUrl: `${externalApiEndpoints.rawgWeb}/games/${record.slug || id}`, rating: numberValue(record.rating) ? record.rating * 20 : null, popularity: numberValue(record.added), attribution: providerAttributions.rawg };
 }

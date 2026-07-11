@@ -16,6 +16,7 @@ import {
   passwordLoginSchema,
   passwordRegistrationSchema,
 } from "@shared/auth";
+import { externalApiEndpoints } from "@shared/constants";
 import { hashPassword, randomId, randomToken, verifyPassword } from "./crypto";
 import { envString } from "./env";
 import { apiError, apiSuccess } from "./http";
@@ -388,7 +389,7 @@ export function createAuthRoutes() {
     }
 
     const redirectUri = `${publicOrigin(c.req)}/api/auth/oauth/github/callback`;
-    const authorizationUrl = new URL("https://github.com/login/oauth/authorize");
+    const authorizationUrl = new URL(externalApiEndpoints.githubAuthorize);
     authorizationUrl.searchParams.set("client_id", clientId);
     authorizationUrl.searchParams.set("redirect_uri", redirectUri);
     authorizationUrl.searchParams.set("scope", "read:user user:email");
@@ -456,13 +457,13 @@ async function resolveGithubUser(env: Env, code: string): Promise<GithubUser> {
     throw new Error("GitHub OAuth is not configured.");
   }
 
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+  const tokenResponse = await fetch(externalApiEndpoints.githubToken, {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
     body: JSON.stringify({ client_id: clientId, client_secret: clientSecret, code }),
   });
   const tokenBody = z.object({ access_token: z.string() }).parse(await tokenResponse.json());
-  const userResponse = await fetch("https://api.github.com/user", {
+  const userResponse = await fetch(externalApiEndpoints.githubUser, {
     headers: { authorization: `Bearer ${tokenBody.access_token}`, "user-agent": "Tuvu" },
   });
   const userBody = z.object({ id: z.number(), login: z.string(), name: z.string().nullable(), email: z.string().nullable() }).parse(await userResponse.json());

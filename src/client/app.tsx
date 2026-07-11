@@ -39,7 +39,7 @@ import {
   Youtube,
   type LucideIcon,
 } from "lucide-react";
-import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -49,23 +49,26 @@ import type { MediaType } from "@shared/media";
 import { allMediaStatuses, dashboardKinds, formatStatusLabel, mediaConfigForType, navPageConfigs, searchableMediaTypes, statusOptionsForMediaType, trackableMediaTypes } from "@shared/media-config";
 import { classifyMedia } from "@shared/media-classification";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
+import { uiConstants } from "@shared/constants";
 import { queryCache, queryKeys } from "./api/query-cache";
+import {
+  EmptyState,
+  IconButton,
+  MediaCard,
+  Modal,
+  PosterGrid,
+  ProgressBar,
+  ResponsivePoster,
+  SegmentedControl,
+  SkeletonGrid,
+  StatusChip,
+  Tabs,
+  type MediaCardItem,
+  type StatusTone,
+} from "./components/ui";
 import { parseTvTimeFiles } from "./tv-time-parser";
 
-type StatusTone = "watching" | "planned" | "complete" | "paused" | "stopped";
-
-type MediaCardItem = {
-  id: string;
-  title: string;
-  meta: string;
-  type: MediaType;
-  progress: number;
-  status: string;
-  tone: StatusTone;
-  accent: string;
-  posterPath?: string | null;
-  nextEpisode?: DashboardEntry["nextEpisode"];
-};
+export { EmptyState, IconButton, MediaCard, Modal, PosterGrid, ProgressBar, ResponsivePoster, SegmentedControl, SkeletonGrid, StatusChip, Tabs } from "./components/ui";
 
 type MePayload = {
   user: {
@@ -97,7 +100,7 @@ const AuthContext = createContext<AuthState | null>(null);
 
 type NoticeTone = "info" | "success" | "error";
 type AppNotice = { id: string; tone: NoticeTone; message: string; dismissible?: boolean };
-const noticeEventName = "tuvu:notice";
+const noticeEventName = uiConstants.noticeEventName;
 
 function notify(message: string, tone: NoticeTone = "info", dismissible = true) {
   if (typeof window === "undefined") return;
@@ -381,7 +384,7 @@ const mergeTypeFilters: Array<{ value: "all" | MediaType; label: string; icon: L
 
 export function App() {
   useEffect(() => {
-    const stored = localStorage.getItem("tuvu-theme");
+    const stored = localStorage.getItem(uiConstants.themeStorageKey);
     document.documentElement.dataset.theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
   }, []);
 
@@ -2451,7 +2454,6 @@ function MediaDetailPage() {
   const [detail, setDetail] = useState<MediaDetailData | null>(() => initialCache?.detail ?? null);
   const [episodes, setEpisodes] = useState<EpisodeWithActivity[]>(() => initialCache?.episodes ?? []);
   const [units, setUnits] = useState<TrackableUnit[]>(() => initialCache?.units ?? []);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [notesText, setNotesText] = useState(initialCache?.notesText ?? "");
   const [savingNotes, setSavingNotes] = useState(false);
   const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(() => new Set(initialCache?.collapsedSeasons ?? []));
@@ -2460,12 +2462,7 @@ function MediaDetailPage() {
   const [hydrationProgress, setHydrationProgress] = useState<HydrationProgress | null>(null);
   const autoHydrateRef = useRef(new Set<string>());
 
-  const triggerToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage((current) => current === msg ? null : current);
-    }, 3000);
-  };
+  const triggerToast = (msg: string, tone: NoticeTone = "info") => notify(msg, tone);
 
   const loadData = async () => {
     try {
@@ -2558,7 +2555,7 @@ function MediaDetailPage() {
       setDetail({ ...detail, userMedia: result.userMedia });
       setNotesText(result.userMedia?.notes ?? "");
       clearDashboardCaches(me.user.id);
-      triggerToast("Added to library.");
+      triggerToast("Added to library.", "success");
       if (detail.media.type === "show" || detail.media.type === "anime") {
         const epData = await apiJson<{ episodes: EpisodeWithActivity[] }>(`/api/media/${id}/episodes`);
         setEpisodes(epData.episodes);
@@ -2580,7 +2577,7 @@ function MediaDetailPage() {
       setEpisodes(episodes.map(ep => ({ ...ep, activity: null })));
       clearDashboardCaches(me.user.id);
       clearMediaDetailCache(me.user.id, id);
-      triggerToast("Removed from library.");
+      triggerToast("Removed from library.", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to remove.");
     }
@@ -2613,7 +2610,7 @@ function MediaDetailPage() {
       });
       setDetail({ ...detail, userMedia: result.userMedia });
       clearDashboardCaches(me.user.id);
-      triggerToast(nextFavorite ? "Favorite added" : "Favorite removed");
+      triggerToast(nextFavorite ? "Favorite added" : "Favorite removed", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to favorite.");
     }
@@ -2645,7 +2642,7 @@ function MediaDetailPage() {
         body: JSON.stringify({ notes: notesText || null }),
       });
       setDetail({ ...detail, userMedia: result.userMedia });
-      triggerToast("Notes saved");
+      triggerToast("Notes saved", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to save notes.");
     } finally {
@@ -2662,7 +2659,7 @@ function MediaDetailPage() {
       });
       setDetail({ ...detail, userMedia: result.userMedia });
       clearDashboardCaches(me.user.id);
-      triggerToast("Watched movie!");
+      triggerToast("Watched movie!", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to watch.");
     }
@@ -2692,7 +2689,7 @@ function MediaDetailPage() {
       } else {
         await loadData();
       }
-      triggerToast(currentWatched ? "Episode unwatched" : "Episode watched");
+      triggerToast(currentWatched ? "Episode unwatched" : "Episode watched", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Failed to log episode.");
     }
@@ -2776,7 +2773,7 @@ function MediaDetailPage() {
         },
       });
       setMediaSettingsOpen(false);
-      triggerToast("Cover updated successfully!");
+      triggerToast("Cover updated successfully!", "success");
     } catch (err) {
       triggerToast(err instanceof Error ? err.message : "Upload failed.");
     }
@@ -3137,7 +3134,6 @@ function MediaDetailPage() {
         </div>}
       </Modal>
 
-      {toastMessage && <Toast message={toastMessage} />}
     </AppPage>
   );
 }
@@ -4535,142 +4531,16 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
   );
 }
 
-export function MediaCard({ item }: { item: MediaCardItem }) {
-  return (
-    <article className="media-card">
-      <NavLink to={`/media/${item.type}/${item.id}`} aria-label={`Open ${item.title}`}>
-        <ResponsivePoster accent={item.accent} title={item.title} posterPath={item.posterPath} />
-      </NavLink>
-      <div className="media-card-body">
-        <div>
-          <p>{item.meta}</p>
-        </div>
-        <StatusChip tone={item.tone}>{item.status}</StatusChip>
-      </div>
-      <ProgressBar value={item.progress} label={`${item.progress}% complete`} />
-    </article>
-  );
-}
-
-export function PosterGrid({ children }: { children: ReactNode }) {
-  return <section className="poster-grid">{children}</section>;
-}
-
-export function ResponsivePoster({ accent, title, posterPath, showTitle = true }: { accent: string; title: string; posterPath?: string | null; showTitle?: boolean }) {
-  if (posterPath) {
-    return (
-      <div className="poster">
-        <img src={posterPath} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "0.5rem" }} />
-      </div>
-    );
-  }
-  return (
-    <div className="poster" style={{ background: accent }}>
-      {showTitle && <span>{title}</span>}
-    </div>
-  );
-}
-
-export function ProgressBar({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="progress-wrap" aria-label={label}>
-      <div className="progress-bar" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-    </div>
-  );
-}
-
-export function StatusChip({ tone, children }: { tone: StatusTone; children: ReactNode }) {
-  return <span className={`status-chip ${tone}`}>{children}</span>;
-}
-
-export function EmptyState({
-  icon,
-  title,
-  message,
-  actionLabel,
-  to,
-  children,
-}: {
-  icon: ReactNode;
-  title: string;
-  message: string;
-  actionLabel?: string;
-  to?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <section className="empty-state">
-      <div className="empty-icon">{icon}</div>
-      <h2>{title}</h2>
-      <p>{message}</p>
-      {actionLabel && to ? <NavLink to={to}>{actionLabel}</NavLink> : null}
-      {children}
-    </section>
-  );
-}
-
-export function SkeletonGrid() {
-  return (
-    <section className="poster-grid" aria-label="Loading media">
-      {[1, 2, 3].map((item) => (
-        <div className="skeleton-card" key={item}>
-          <div className="skeleton poster-skeleton" />
-          <div className="skeleton line-skeleton" />
-          <div className="skeleton short-line-skeleton" />
-        </div>
-      ))}
-    </section>
-  );
-}
-
-export function Modal({ title, children, open = true, onClose }: { title: string; children: ReactNode; open?: boolean; onClose?: () => void }) {
-  useEffect(() => {
-    if (!open) return;
-    document.body.classList.add("modal-open");
-    return () => {
-      document.body.classList.remove("modal-open");
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return createPortal(
-    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose?.();
-    }}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-        <div className="modal-header">
-          <h2 id="modal-title">{title}</h2>
-          <IconButton label="Close modal" onClick={onClose}>
-            <X size={18} />
-          </IconButton>
-        </div>
-        {children}
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
-export function Toast({ message }: { message: string }) {
-  return (
-    <div className="toast" role="status">
-      <Check size={16} aria-hidden="true" />
-      {message}
-    </div>
-  );
-}
-
 type ThemePreference = "light" | "dark" | "system";
 
 function ThemeSetting() {
   const [theme, setTheme] = useState<ThemePreference>(() => {
-    const stored = localStorage.getItem("tuvu-theme");
+    const stored = localStorage.getItem(uiConstants.themeStorageKey);
     return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
   });
 
   useEffect(() => {
-    localStorage.setItem("tuvu-theme", theme);
+    localStorage.setItem(uiConstants.themeStorageKey, theme);
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
@@ -4689,38 +4559,6 @@ function ThemeSetting() {
         ))}
       </div>
     </article>
-  );
-}
-
-export function Tabs({ tabs }: { tabs: Array<{ id: string; label: string }> }) {
-  return (
-    <div className="tabs" role="tablist" aria-label="Dashboard sections">
-      {tabs.map((tab, index) => (
-        <button className={index === 0 ? "active" : ""} role="tab" aria-selected={index === 0} key={tab.id}>
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function SegmentedControl({ options }: { options: string[] }) {
-  return (
-    <div className="segmented-control" aria-label="View filter">
-      {options.map((option, index) => (
-        <button className={index === 0 ? "active" : ""} key={option}>
-          {option}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function IconButton({ label, children, className, ...props }: { label: string; children: ReactNode } & ComponentProps<"button">) {
-  return (
-    <button className={className ? `icon-button ${className}` : "icon-button"} aria-label={label} title={label} {...props}>
-      {children}
-    </button>
   );
 }
 

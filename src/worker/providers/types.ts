@@ -35,11 +35,12 @@ export type ExploreRow = {
 };
 
 export const providerAttributions = {
-  tmdb: { provider: "tmdb", label: "TMDB", url: "https://www.themoviedb.org/" },
-  igdb: { provider: "igdb", label: "IGDB", url: "https://www.igdb.com/" },
-  openlibrary: { provider: "openlibrary", label: "Open Library", url: "https://openlibrary.org/" },
-  jikan: { provider: "jikan", label: "MyAnimeList (Jikan)", url: "https://myanimelist.net/" },
-  rawg: { provider: "rawg", label: "RAWG", url: "https://rawg.io/" },
-  youtube: { provider: "youtube", label: "YouTube", url: "https://www.youtube.com/" },
-  local: { provider: "local", label: "Tuvu", url: "/" },
+  tmdb: { provider: "tmdb", label: providerNames.tmdb, url: `${externalApiEndpoints.tmdbWeb}/` },
+  igdb: { provider: "igdb", label: providerNames.igdb, url: `${externalApiEndpoints.igdbWeb}/` },
+  openlibrary: { provider: "openlibrary", label: providerNames.openlibrary, url: `${externalApiEndpoints.openLibrary}/` },
+  jikan: { provider: "jikan", label: providerNames.jikan, url: `${externalApiEndpoints.myAnimeList}/` },
+  rawg: { provider: "rawg", label: providerNames.rawg, url: `${externalApiEndpoints.rawgWeb}/` },
+  youtube: { provider: "youtube", label: providerNames.youtube, url: `${externalApiEndpoints.youtubeWeb}/` },
+  local: { provider: "local", label: appConstants.name, url: appConstants.localAttributionUrl },
 } as const satisfies Record<ProviderName, ProviderAttribution>;
+import { appConstants, externalApiEndpoints, providerNames } from "@shared/constants";

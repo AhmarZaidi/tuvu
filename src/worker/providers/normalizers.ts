@@ -1,8 +1,9 @@
+import { externalApiEndpoints } from "@shared/constants";
 import type { ProviderResult } from "./types";
 
 export function tmdbImage(path: string | null | undefined, size: string) {
   if (!path) return null;
-  return String(path).startsWith("http") ? String(path) : `https://image.tmdb.org/t/p/${size}${path}`;
+  return String(path).startsWith("http") ? String(path) : `${externalApiEndpoints.tmdbImage}/${size}${path}`;
 }
 
 export function isProviderResult(value: ProviderResult | null): value is ProviderResult {

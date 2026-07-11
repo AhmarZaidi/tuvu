@@ -13,7 +13,7 @@ type QueryCacheOptions = {
   persist?: boolean;
 };
 
-const storagePrefix = "tuvu-query:";
+const storagePrefix = uiConstants.cacheStoragePrefix;
 
 export const queryKeys = {
   dashboard: (userId: string, version: number, kind: string): QueryKeyParts => ["dashboard", userId, version, kind],
@@ -117,3 +117,4 @@ function removeStoredPrefix(prefix: string) {
     }
   } catch {}
 }
+import { uiConstants } from "@shared/constants";

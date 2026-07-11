@@ -22,6 +22,8 @@ export type DashboardEntry = {
   progressTotal: number | null;
   progressUnit: string | null;
   platform: string | null;
+  startedAt: string | null;
+  purchaseLibrary: string | null;
   updatedAt: string;
   totalRegularEpisodes: number;
   nextEpisode: {

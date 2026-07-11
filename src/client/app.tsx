@@ -35,6 +35,8 @@ import {
   Upload,
   User,
   X,
+  Flame,
+  Youtube,
   type LucideIcon,
 } from "lucide-react";
 import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
@@ -338,9 +340,11 @@ const mediaItems: MediaCardItem[] = [
 
 const navItems = [
   { to: "/shows", label: "Shows", icon: Tv },
+  { to: "/anime", label: "Anime", icon: Flame },
   { to: "/movies", label: "Movies", icon: Film },
   { to: "/explore", label: "Explore", icon: Compass },
   { to: "/books", label: "Books", icon: BookOpen },
+  { to: "/youtube", label: "YouTube", icon: Youtube },
   { to: "/games", label: "Games", icon: Gamepad2 },
 ] as const;
 
@@ -386,8 +390,11 @@ export function App() {
           <Route path="/books" element={<BooksPage />} />
           <Route path="/games" element={<GamesPage />} />
           <Route path="/shows" element={<ShowsPage />} />
+          <Route path="/anime" element={<AnimePage />} />
           <Route path="/movies" element={<MoviesPage />} />
+          <Route path="/youtube" element={<YouTubePage />} />
           <Route path="/explore" element={<ExplorePage />} />
+          <Route path="/explore/type/:type" element={<ExploreTypePage />} />
           <Route path="/explore/search" element={<ExploreSearchPage />} />
           <Route path="/profile/explore" element={<Navigate to="/explore" replace />} />
           <Route path="/profile/messages" element={<MessagesPage />} />
@@ -777,9 +784,9 @@ function ShellNavLink({
   } else if (to === "/movies") {
     active = currentPath === "/movies" || currentPath.startsWith("/media/movie/");
   } else if (to === "/shows") {
-    active = currentPath === "/shows" ||
-             currentPath.startsWith("/media/show/") ||
-             currentPath.startsWith("/media/anime/");
+    active = currentPath === "/shows" || currentPath.startsWith("/media/show/");
+  } else if (to === "/anime") {
+    active = currentPath === "/anime" || currentPath.startsWith("/media/anime/");
   } else if (to === "/explore") {
     active = currentPath.startsWith("/explore");
   } else {
@@ -1191,6 +1198,30 @@ function mergeMediaItems(staticItems: MediaCardItem[], library: LibraryEntry[]):
 
 function ShowsPage() {
   return <DashboardPage kind="shows" mediaType="show" title="Shows" description="Pick up the next episode, catch up, or reorganize what you want to watch." />;
+}
+
+function AnimePage() {
+  return (
+    <AppPage eyebrow="Anime" title="Anime" description="Manage, track, and discover your anime collections." mobileHelp>
+      <EmptyState
+        icon={<Flame size={24} />}
+        title="Anime Tracker coming soon"
+        message="Anime tracking, Japanese/Dub cast views, and MAL ratings are coming in the next phase."
+      />
+    </AppPage>
+  );
+}
+
+function YouTubePage() {
+  return (
+    <AppPage eyebrow="YouTube" title="YouTube" description="Track video series, channels, and content creators." mobileHelp>
+      <EmptyState
+        icon={<Youtube size={24} />}
+        title="YouTube Tracker coming soon"
+        message="YouTube channel subscriptions, series tracking, and creator updates are coming in the next phase."
+      />
+    </AppPage>
+  );
 }
 
 function MoviesPage() {
@@ -1682,7 +1713,7 @@ function ExplorePage() {
     <AppPage eyebrow="Explore" title="Find something good" description="Search across shows, movies, books, and games, or browse cached discovery rows." mobileHelp>
       <div className="filter-row">
         {exploreFilters.map(({ label, icon: Icon }) => (
-          <NavLink className="chip-button" key={label} to={`/explore/search?types=${label.toLowerCase() === "anime" ? "show" : label.toLowerCase().slice(0, -1)}`}>
+          <NavLink className="chip-button" key={label} to={`/explore/type/${label.toLowerCase() === "anime" ? "anime" : label.toLowerCase().slice(0, -1)}`}>
             <Icon size={16} aria-hidden="true" />
             {label}
           </NavLink>
@@ -1764,6 +1795,57 @@ function ExploreSearchPage() {
       {!loading && query.trim().length >= 2 && results.length === 0 && !error && <EmptyState icon={<Search size={24} />} title="No matches yet" message="Try a different title or enable more media types." />}
       <section className="search-results-list" aria-label="Search results">
         {results.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
+      </section>
+    </AppPage>
+  );
+}
+
+function ExploreTypePage() {
+  const { type } = useParams();
+  const { me } = useAuth();
+  const [results, setResults] = useState<ExploreResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiJson<{ results: ExploreResult[] }>(`/api/explore/type/${type}`)
+      .then((data) => {
+        if (cancelled) return;
+        setResults(data.results);
+        setError(null);
+      })
+      .catch((reason) => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : "Explore could not load.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [me.user.id, type]);
+
+  const filtered = query.trim().length > 0
+    ? results.filter((r) => r.title.toLowerCase().includes(query.toLowerCase()) || r.overview?.toLowerCase().includes(query.toLowerCase()))
+    : results;
+
+  const displayType = type === "anime" ? "anime" : type ? type.charAt(0).toUpperCase() + type.slice(1) + "s" : "Explore";
+
+  return (
+    <AppPage eyebrow="Explore" title={displayType} description={`Discover popular ${displayType.toLowerCase()}.`} mobileHelp>
+      <div className="dashboard-toolbar">
+        <div className="dashboard-search">
+          <Search size={16} />
+          <input autoFocus aria-label={`Search ${type}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search discovered ${displayType.toLowerCase()}...`} />
+          {query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}
+        </div>
+      </div>
+      {error && <EmptyState icon={<Search size={24} />} title="Explore is resting" message={error} />}
+      {loading && <SkeletonGrid />}
+      {!loading && filtered.length === 0 && !error && <EmptyState icon={<Compass size={24} />} title="No results" message="Try a different search." />}
+      <section className="search-results-list" aria-label="Explore results">
+        {filtered.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
       </section>
     </AppPage>
   );
@@ -2260,6 +2342,8 @@ type MediaDetailData = {
     progressTotal: number | null;
     progressUnit: string | null;
     platform: string | null;
+    startedAt: string | null;
+    purchaseLibrary: string | null;
     visibility: string;
   } | null;
 };
@@ -3380,62 +3464,103 @@ function ProgressEditor({ mediaId, mediaType, userMedia, csrfToken, onSaved }: {
   const [unit, setUnit] = useState(userMedia.progressUnit ?? (mediaType === "book" ? "page" : "hour"));
   const initialPrefs = parseUserPlatformPrefs(userMedia.platform);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(initialPrefs.platforms);
-  const [store, setStore] = useState(initialPrefs.store);
-  const [startedAt, setStartedAt] = useState(initialPrefs.startedAt);
+  
+  // Parse purchaseLibrary which is a JSON array string
+  const initialStores = (() => {
+    if (!userMedia.purchaseLibrary) return [];
+    try { return JSON.parse(userMedia.purchaseLibrary) as string[]; } catch { return []; }
+  })();
+  const [stores, setStores] = useState<string[]>(initialStores.length ? initialStores : (initialPrefs.store ? [initialPrefs.store] : []));
+  
+  // Format started_at for HTML date input (YYYY-MM-DD)
+  const initialStartedAt = userMedia.startedAt ? userMedia.startedAt.slice(0, 10) : (initialPrefs.startedAt || "");
+  const [startedAt, setStartedAt] = useState(initialStartedAt);
+  
   const [playtimeHours, setPlaytimeHours] = useState(initialPrefs.playtimeHours != null ? String(initialPrefs.playtimeHours) : "");
   const [plainPlatform, setPlainPlatform] = useState(initialPrefs.plain);
   const percent = userMedia.progressValue != null && userMedia.progressTotal ? Math.round((userMedia.progressValue / userMedia.progressTotal) * 100) : null;
-  const platformSummary = mediaType === "game" ? formatPlatformPrefs(parseUserPlatformPrefs(userMedia.platform)) : null;
+  const platformSummary = mediaType === "game" ? formatPlatformPrefs(parseUserPlatformPrefs(userMedia.platform), userMedia.purchaseLibrary, userMedia.startedAt) : null;
+  
   const save = async () => {
     const platform = mediaType === "game"
-      ? stringifyUserPlatformPrefs({ platforms: selectedPlatforms, store, startedAt, playtimeHours: playtimeHours ? Number(playtimeHours) : null, plain: plainPlatform })
+      ? stringifyUserPlatformPrefs({ platforms: selectedPlatforms, playtimeHours: playtimeHours ? Number(playtimeHours) : null, plain: plainPlatform })
       : null;
+      
+    // Create valid ISO string for startedAt if provided
+    let startedAtIso: string | null = null;
+    if (startedAt) {
+      try {
+        startedAtIso = new Date(`${startedAt}T12:00:00Z`).toISOString();
+      } catch { /* ignore */ }
+    }
+    
+    const purchaseLibrary = stores.length > 0 ? JSON.stringify(stores) : null;
+
     const result = await apiJson<{ userMedia: NonNullable<MediaDetailData["userMedia"]> }>(`/api/library/${mediaId}/progress`, {
       method: "PATCH", csrfToken,
-      body: JSON.stringify({ value: value ? Number(value) : null, total: total ? Number(total) : null, unit, platform }),
+      body: JSON.stringify({ 
+        value: value ? Number(value) : null, 
+        total: total ? Number(total) : null, 
+        unit, 
+        platform,
+        startedAt: startedAtIso,
+        purchaseLibrary
+      }),
     });
     onSaved(result.userMedia);
     setOpen(false);
   };
   return <>
     <section className="progress-editor-summary"><div><span className="eyebrow">My progress</span><strong>{userMedia.progressValue ?? 0}{userMedia.progressUnit ? ` ${userMedia.progressUnit}${userMedia.progressValue === 1 ? "" : "s"}` : ""}{userMedia.progressTotal ? ` / ${userMedia.progressTotal}` : ""}</strong>{platformSummary && <small>{platformSummary}</small>}</div>{percent != null && <ProgressBar value={percent} label={`${percent}% complete`} />}<button className="secondary-button" onClick={() => setOpen(true)}>Update progress</button></section>
-    <Modal title={`Update ${mediaType} progress`} open={open} onClose={() => setOpen(false)}><div className="progress-form"><label>Progress<input type="number" min={0} value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Total (optional)<input type="number" min={1} value={total} onChange={(event) => setTotal(event.target.value)} /></label><label>Measure<select value={unit} onChange={(event) => setUnit(event.target.value)}>{mediaType === "book" ? <><option value="page">Pages</option><option value="percent">Percent</option><option value="chapter">Chapters</option></> : <><option value="hour">Hours played</option><option value="percent">Percent</option><option value="mission">Missions</option></>}</select></label>{mediaType === "game" && <><fieldset className="platform-picker"><legend>Playing on</legend>{gamePlatformOptions.map((option) => <label key={option}><input type="checkbox" checked={selectedPlatforms.includes(option)} onChange={(event) => setSelectedPlatforms((current) => event.target.checked ? [...current, option] : current.filter((item) => item !== option))} />{option}</label>)}</fieldset><label>Other platform<input value={plainPlatform} onChange={(event) => setPlainPlatform(event.target.value)} placeholder="Steam Deck, cloud, emulator..." /></label><label>Library / store<select value={store} onChange={(event) => setStore(event.target.value)}><option value="">Not set</option>{gameStoreOptions.map((option) => <option value={option} key={option}>{option}</option>)}</select></label><label>Started<input type="date" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} /></label><div className="action-row"><button className="secondary-button" type="button" onClick={() => setStartedAt(new Date().toISOString().slice(0, 10))}>Started now</button></div><label>Playtime hours<input type="number" min={0} step="0.1" value={playtimeHours} onChange={(event) => setPlaytimeHours(event.target.value)} placeholder="Optional" /></label></>}<button className="primary-button" onClick={() => void save()}>Save progress</button></div></Modal>
+    <Modal title={`Update ${mediaType} progress`} open={open} onClose={() => setOpen(false)}><div className="progress-form"><label>Progress<input type="number" min={0} value={value} onChange={(event) => setValue(event.target.value)} /></label><label>Total (optional)<input type="number" min={1} value={total} onChange={(event) => setTotal(event.target.value)} /></label><label>Measure<select value={unit} onChange={(event) => setUnit(event.target.value)}>{mediaType === "book" ? <><option value="page">Pages</option><option value="percent">Percent</option><option value="chapter">Chapters</option></> : <><option value="hour">Hours played</option><option value="percent">Percent</option><option value="mission">Missions</option></>}</select></label>{mediaType === "game" && <><fieldset className="platform-picker"><legend>Playing on</legend>{gamePlatformOptions.map((option) => <label key={option}><input type="checkbox" checked={selectedPlatforms.includes(option)} onChange={(event) => setSelectedPlatforms((current) => event.target.checked ? [...current, option] : current.filter((item) => item !== option))} />{option}</label>)}</fieldset><label>Other platform<input value={plainPlatform} onChange={(event) => setPlainPlatform(event.target.value)} placeholder="Steam Deck, cloud, emulator..." /></label><fieldset className="platform-picker"><legend>Library / store</legend>{gameStoreOptions.map((option) => <label key={option}><input type="checkbox" checked={stores.includes(option)} onChange={(event) => setStores((current) => event.target.checked ? [...current, option] : current.filter((item) => item !== option))} />{option}</label>)}</fieldset><label>Started<input type="date" value={startedAt} onChange={(event) => setStartedAt(event.target.value)} /></label><div className="action-row"><button className="secondary-button" type="button" onClick={() => setStartedAt(new Date().toISOString().slice(0, 10))}>Started now</button></div><label>Playtime hours<input type="number" min={0} step="0.1" value={playtimeHours} onChange={(event) => setPlaytimeHours(event.target.value)} placeholder="Optional" /></label></>}<button className="primary-button" onClick={() => void save()}>Save progress</button></div></Modal>
   </>;
 }
 
 const gamePlatformOptions = ["PC", "PlayStation", "Xbox", "Switch", "Mobile"];
 const gameStoreOptions = ["Steam", "GOG", "Epic", "PlayStation Store", "Xbox Store", "Nintendo eShop", "Game Pass", "Physical", "Other"];
-type UserPlatformPrefs = { platforms: string[]; store: string; startedAt: string; playtimeHours: number | null; plain: string };
+type UserPlatformPrefs = { platforms: string[]; store?: string; startedAt?: string; playtimeHours: number | null; plain: string };
 
 function parseUserPlatformPrefs(value: string | null): UserPlatformPrefs {
-  if (!value) return { platforms: [], store: "", startedAt: "", playtimeHours: null, plain: "" };
+  if (!value) return { platforms: [], playtimeHours: null, plain: "" };
   try {
     const parsed = JSON.parse(value) as Partial<UserPlatformPrefs>;
     return {
       platforms: Array.isArray(parsed.platforms) ? parsed.platforms.filter((item): item is string => typeof item === "string") : [],
-      store: typeof parsed.store === "string" ? parsed.store : "",
-      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : "",
+      store: typeof parsed.store === "string" ? parsed.store : undefined,
+      startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : undefined,
       playtimeHours: typeof parsed.playtimeHours === "number" ? parsed.playtimeHours : null,
       plain: typeof parsed.plain === "string" ? parsed.plain : "",
     };
   } catch {
-    return { platforms: value ? [value] : [], store: "", startedAt: "", playtimeHours: null, plain: "" };
+    return { platforms: value ? [value] : [], playtimeHours: null, plain: "" };
   }
 }
 
 function stringifyUserPlatformPrefs(prefs: UserPlatformPrefs) {
   const normalized = {
     platforms: [...new Set([...prefs.platforms, ...(prefs.plain.trim() ? [prefs.plain.trim()] : [])])],
-    store: prefs.store || "",
-    startedAt: prefs.startedAt || "",
     playtimeHours: prefs.playtimeHours,
   };
-  if (!normalized.platforms.length && !normalized.store && !normalized.startedAt && normalized.playtimeHours == null) return null;
+  if (!normalized.platforms.length && normalized.playtimeHours == null) return null;
   return JSON.stringify(normalized);
 }
 
-function formatPlatformPrefs(prefs: UserPlatformPrefs) {
-  const parts = [prefs.platforms.join(", "), prefs.store, prefs.startedAt ? `Started ${new Date(`${prefs.startedAt}T00:00:00`).toLocaleDateString()}` : "", prefs.playtimeHours != null ? `${prefs.playtimeHours}h played` : ""].filter(Boolean);
+function formatPlatformPrefs(prefs: UserPlatformPrefs, purchaseLibrary?: string | null, startedAt?: string | null) {
+  let stores = [];
+  if (purchaseLibrary) {
+    try { stores = JSON.parse(purchaseLibrary); } catch { /* ignore */ }
+  } else if (prefs.store) {
+    stores = [prefs.store];
+  }
+  
+  const started = startedAt || prefs.startedAt;
+  
+  const parts = [
+    prefs.platforms.join(", "), 
+    stores.join(", "), 
+    started ? `Started ${new Date(started).toLocaleDateString()}` : "", 
+    prefs.playtimeHours != null ? `${prefs.playtimeHours}h played` : ""
+  ].filter(Boolean);
   return parts.join(" - ");
 }
 
@@ -4169,7 +4294,7 @@ function AppPage({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time", "/profile/merge"]);
+  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time", "/profile/merge", "/anime", "/youtube"]);
   const isSubPage = !topLevelPaths.has(location.pathname) && location.pathname !== "/";
   const goBack = () => {
     document.documentElement.dataset.navDirection = "back";

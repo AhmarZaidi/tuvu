@@ -5,7 +5,7 @@ import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { defaultStatus } from "./media-logic";
 import type { MediaItemRecord, MediaRepository } from "./media-repository";
-import { providerExplore, providerSearch, type ProviderResult } from "./providers";
+import { providerExplore, providerSearch, providerTypeExplore, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
 const mediaTypeSchema = z.enum(["show", "movie", "anime", "game", "book"]);
@@ -15,7 +15,7 @@ const searchSchema = z.object({
 });
 
 const addProviderSchema = z.object({
-  provider: z.enum(["tmdb", "rawg", "openlibrary"]),
+  provider: z.enum(["tmdb", "igdb", "openlibrary", "rawg"]),
   providerId: z.string().min(1).max(200),
   type: mediaTypeSchema,
   title: z.string().trim().min(1).max(500),
@@ -36,6 +36,17 @@ export function createExploreRoutes() {
     const rows = await providerExplore(c.env);
     const filteredRows = c.env.DB ? await markAndFilterTracked(c.env.DB, auth.user.id, rows) : rows;
     return c.json(apiSuccess({ rows: filteredRows }));
+  });
+
+  router.get("/type/:type", requireAuth(), async (c) => {
+    const typeParam = c.req.param("type");
+    const parsedType = mediaTypeSchema.safeParse(typeParam);
+    if (!parsedType.success) return apiError(c, 400, "validation_failed", "Invalid media type.", parsedType.error.flatten());
+
+    const auth = c.get("auth");
+    const results = await providerTypeExplore(c.env, parsedType.data);
+    const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, results)) : results;
+    return c.json(apiSuccess({ results: marked }));
   });
 
   router.get("/search", requireAuth(), async (c) => {
@@ -88,6 +99,10 @@ export function createExploreRoutes() {
         await c.env.DB.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
           .bind(randomId("exi"), media.id, body.data.provider, body.data.providerId, now)
           .run();
+          
+        await c.env.DB.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
+          .bind(randomId("mrj"), media.id, body.data.provider, now, now)
+          .run();
       }
     }
 
@@ -109,6 +124,8 @@ export function createExploreRoutes() {
       progressTotal: null,
       progressUnit: null,
       platform: null,
+      startedAt: null,
+      purchaseLibrary: null,
       visibility: "private",
       createdAt: now,
       updatedAt: now,
@@ -199,7 +216,7 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     }
   }
 
-  for (const provider of ["tmdb", "rawg", "openlibrary"] as const) {
+  for (const provider of ["tmdb", "igdb", "rawg", "openlibrary"] as const) {
     const providerResults = results.filter((result) => result.provider === provider);
     const ids = [...new Set(providerResults.map((result) => result.providerId))];
     if (ids.length === 0) continue;
@@ -288,15 +305,6 @@ async function findMediaByExternalId(db: D1Database, provider: string, providerI
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } : null;
-}
-
-async function findMediaIdByExternalId(db: D1Database, provider: string, providerId: string) {
-  if (provider === "local") return providerId;
-  const row = await db.prepare(`SELECT mi.id FROM media_items mi
-    LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
-    WHERE (mi.source = ? AND mi.source_id = ?) OR (ex.source = ? AND ex.external_id = ?)
-    LIMIT 1`).bind(provider, providerId, provider, providerId).first<{ id: string }>();
-  return row?.id ?? null;
 }
 
 function inferAirStatus(type: MediaType, releaseDate: string | null) {

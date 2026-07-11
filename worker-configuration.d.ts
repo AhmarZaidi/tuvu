@@ -10,6 +10,10 @@ interface __BaseEnv_Env {
 	TMDB_API_KEY: string;
 	RAWG_API_KEY: string;
 	OPEN_LIBRARY_CONTACT_EMAIL: string;
+	TWITCH_IGDB_CLIENT_ID: string;
+	TWITCH_IGDB_CLIENT_SECRET: string;
+	GOOGLE_BOOKS_API_KEY: string;
+	MAL_JIKAN_API_ENDPOINT: string;
 	SUPABASE_URL: string;
 	SUPABASE_ANON_KEY: string;
 	SUPABASE_SERVICE_ROLE_KEY: string;

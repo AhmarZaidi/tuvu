@@ -141,6 +141,8 @@ export function createLibraryRoutes() {
       progressTotal: null,
       progressUnit: null,
       platform: null,
+      startedAt: null,
+      purchaseLibrary: null,
       visibility: "private",
       createdAt: now,
       updatedAt: now,
@@ -334,7 +336,7 @@ export function createLibraryRoutes() {
     const auth = c.get("auth");
     const mediaId = c.req.param("mediaId");
     if (!(await repo.findUserMedia(auth.user.id, mediaId))) return apiError(c, 404, "not_found", "This item is not in your library.");
-    const updated = await repo.updateUserMediaDetailProgress(auth.user.id, mediaId, body.data.value, body.data.total ?? null, body.data.unit ?? null, body.data.platform ?? null, new Date().toISOString());
+    const updated = await repo.updateUserMediaDetailProgress(auth.user.id, mediaId, body.data.value, body.data.total ?? null, body.data.unit ?? null, body.data.platform ?? null, body.data.startedAt ?? null, body.data.purchaseLibrary ?? null, new Date().toISOString());
     return c.json(apiSuccess({ userMedia: updated }));
   });
 

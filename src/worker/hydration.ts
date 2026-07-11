@@ -1,6 +1,7 @@
 import type { MediaType } from "@shared/media";
 import { randomId } from "./crypto";
 import { envString } from "./env";
+import { jikanSearchAnime, jikanAnimeCharacters, jikanAnimeEpisodes, igdbFetchDetails, openLibraryFetchDetails, rawgFetchDetails } from "./providers";
 
 let hydrationInFlight: Promise<void> | null = null;
 
@@ -60,6 +61,14 @@ async function claimAndRunJob(env: Env, job: any) {
   try {
     if (job.provider === "tmdb") {
       await hydrateTmdb(env, job);
+    } else if (job.provider === "igdb") {
+      await hydrateIgdb(env, job);
+    } else if (job.provider === "openlibrary") {
+      await hydrateOpenLibrary(env, job);
+    } else if (job.provider === "jikan") {
+      await hydrateJikan(env, job);
+    } else if (job.provider === "rawg") {
+      await hydrateRawg(env, job);
     }
     await runD1("delete completed/stale hydration jobs", db.prepare(`DELETE FROM metadata_refresh_jobs
       WHERE id = ? OR (media_id = ? AND provider = ? AND scope = ? AND status = 'failed')`)
@@ -119,10 +128,10 @@ async function hydrateTmdb(env: Env, job: any) {
       voteCount: data.vote_count ?? null,
       hydratedAt: now.toISOString(),
     };
-    await runD1("cache TMDB media detail", db.prepare(`INSERT INTO provider_cache (id, provider, cache_key, response_json, status, fetched_at, expires_at, attribution_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    await runD1("cache TMDB media detail", db.prepare(`INSERT INTO provider_cache (id, provider, cache_key, response_json, status, fetched_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(provider, cache_key) DO UPDATE SET response_json=excluded.response_json, status=excluded.status, fetched_at=excluded.fetched_at, expires_at=excluded.expires_at`)
-      .bind(randomId("pc"), "tmdb", `detail:${media.id}`, JSON.stringify(compactCache), res.status, now.toISOString(), expires.toISOString(), null)
+      .bind(randomId("pc"), "tmdb", `detail:${media.id}`, JSON.stringify(compactCache), res.status, now.toISOString(), expires.toISOString())
       .run());
 
     await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
@@ -152,6 +161,11 @@ async function hydrateTmdb(env: Env, job: any) {
     if (media.type === "show" || media.type === "anime") {
       const seasons = data.seasons || [];
       await enqueueSeasonHydrationJobs(db, media.id, "tmdb", now.toISOString(), seasons.map((season: any) => season.season_number));
+    }
+    
+    // If Anime, queue Jikan hydration to augment details
+    if (media.type === "anime") {
+      await runD1("queue jikan hydration", enqueueHydrationJob(db, media.id, "jikan", "media", now.toISOString(), null));
     }
   } else if (job.scope === "season") {
     const context = JSON.parse(job.context_json || "{}");
@@ -263,4 +277,188 @@ function inferTmdbStatus(status: string | null | undefined, type: MediaType) {
   if (status === "Returning Series" || status === "In Production") return "continuing";
   if (status === "Planned" || status === "Post Production") return "upcoming";
   return null;
+}
+
+// ============================================================================
+// IGDB (Games)
+// ============================================================================
+async function hydrateIgdb(env: Env, job: any) {
+  const db = env.DB;
+  const media = await runD1("load media for igdb hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
+  if (!media || media.source !== "igdb") throw new Error("Media not found or not IGDB");
+  
+  const details = await igdbFetchDetails(env, media.source_id);
+  
+  if (details) {
+    const existingExtended = JSON.parse(media.extended_data_json || "{}");
+    if (!existingExtended.game) existingExtended.game = {};
+    
+    if (details.platforms.length > 0) existingExtended.game.platforms = details.platforms;
+    if (details.developers.length > 0) existingExtended.game.developers = details.developers;
+    if (details.publishers.length > 0) existingExtended.game.publishers = details.publishers;
+    if (details.trailers && details.trailers.length > 0) existingExtended.game.trailers = details.trailers;
+    if (details.characters.length > 0) existingExtended.game.characters = details.characters;
+
+    await runD1("save igdb extended details", db.prepare("UPDATE media_items SET extended_data_json = ? WHERE id = ?")
+      .bind(JSON.stringify(existingExtended), media.id).run());
+  }
+
+  const now = new Date().toISOString();
+  await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(media_id) DO UPDATE SET
+        details_hydrated_at=excluded.details_hydrated_at,
+        updated_at=excluded.updated_at`)
+      .bind(media.id, now, now).run());
+}
+
+// ============================================================================
+// RAWG (Games)
+// ============================================================================
+async function hydrateRawg(env: Env, job: any) {
+  const db = env.DB;
+  const media = await runD1("load media for rawg hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
+  if (!media || media.source !== "rawg") throw new Error("Media not found or not RAWG");
+  
+  const details = await rawgFetchDetails(env, media.source_id);
+  
+  if (details) {
+    const existingExtended = JSON.parse(media.extended_data_json || "{}");
+    if (!existingExtended.game) existingExtended.game = {};
+    
+    if (details.platforms.length > 0) existingExtended.game.platforms = details.platforms;
+    if (details.developers.length > 0) existingExtended.game.developers = details.developers;
+    if (details.publishers.length > 0) existingExtended.game.publishers = details.publishers;
+    if (details.trailers && details.trailers.length > 0) existingExtended.game.trailers = details.trailers;
+
+    await runD1("save rawg extended details", db.prepare("UPDATE media_items SET extended_data_json = ? WHERE id = ?")
+      .bind(JSON.stringify(existingExtended), media.id).run());
+  }
+
+  const now = new Date().toISOString();
+  await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(media_id) DO UPDATE SET
+        details_hydrated_at=excluded.details_hydrated_at,
+        updated_at=excluded.updated_at`)
+      .bind(media.id, now, now).run());
+}
+
+// ============================================================================
+// OpenLibrary (Books)
+// ============================================================================
+async function hydrateOpenLibrary(env: Env, job: any) {
+  const db = env.DB;
+  const media = await runD1("load media for book hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
+  if (!media || media.source !== "openlibrary") throw new Error("Media not found or not OpenLibrary");
+  
+  const details = await openLibraryFetchDetails(env, media.source_id);
+  
+  if (details) {
+    const existingExtended = JSON.parse(media.extended_data_json || "{}");
+    if (!existingExtended.book) existingExtended.book = {};
+    
+    if (details.description) existingExtended.book.description = details.description;
+    if (details.subjects.length > 0) existingExtended.book.subjects = details.subjects;
+    if (details.pageCount) existingExtended.book.pageCount = details.pageCount;
+    if (details.isbn10) existingExtended.book.isbn10 = details.isbn10;
+    if (details.isbn13) existingExtended.book.isbn13 = details.isbn13;
+
+    await runD1("save book extended details", db.prepare("UPDATE media_items SET extended_data_json = ? WHERE id = ?")
+      .bind(JSON.stringify(existingExtended), media.id).run());
+  }
+
+  const now = new Date().toISOString();
+  await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(media_id) DO UPDATE SET
+        details_hydrated_at=excluded.details_hydrated_at,
+        updated_at=excluded.updated_at`)
+      .bind(media.id, now, now).run());
+}
+
+// ============================================================================
+// Jikan (Anime Details)
+// ============================================================================
+async function hydrateJikan(env: Env, job: any) {
+  const db = env.DB;
+  const media = await runD1("load media for jikan hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
+  if (!media) throw new Error("Media not found");
+
+  const results = await jikanSearchAnime(env, media.title, 1);
+  if (!results || results.length === 0) return;
+  const anime = results[0];
+  const malId = anime.mal_id;
+
+  const characters = await jikanAnimeCharacters(env, malId);
+  const episodes = await jikanAnimeEpisodes(env, malId);
+
+  // Extract details
+  const studios = (anime.studios || []).map((s: any) => ({ name: s.name, url: s.url }));
+  const jikanRating = anime.score;
+  const broadcast = anime.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
+  const status = anime.status;
+  const languages = ["Japanese"]; // Jikan primarily indexes Japanese original, we infer English from dub cast
+  
+  // Extract cast
+  const jikanCast = characters.map((c: any) => {
+     // Find japanese and english voice actors
+     const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
+     const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
+     if (vaEn) languages.push("English"); // Infer dub availability
+     return {
+       character: { id: c.character?.mal_id, name: c.character?.name, image: c.character?.images?.jpg?.image_url },
+       japaneseCast: vaJp ? { id: vaJp.mal_id, name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
+       englishCast: vaEn ? { id: vaEn.mal_id, name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
+     };
+  }).slice(0, 16);
+
+  const uniqueLanguages = Array.from(new Set(languages));
+
+  const existingExtended = JSON.parse(media.extended_data_json || "{}");
+  
+  // Transform cast into ExtendedPerson array for Japanese and Dub
+  const japaneseCast = jikanCast.map(c => ({
+    id: c.japaneseCast?.id || c.character?.id,
+    name: c.japaneseCast?.name || "Unknown VA",
+    role: c.character?.name,
+    profilePath: c.japaneseCast?.image || c.character?.image
+  })).filter(c => c.id);
+
+  const dubCast = jikanCast.filter(c => c.englishCast).map(c => ({
+    id: c.englishCast?.id,
+    name: c.englishCast?.name || "Unknown VA",
+    role: c.character?.name,
+    profilePath: c.englishCast?.image || c.character?.image
+  }));
+
+  existingExtended.anime = {
+    malId,
+    studios,
+    malRating: jikanRating,
+    broadcast,
+    status,
+    originalLanguage: "Japanese",
+    audioLanguages: uniqueLanguages,
+    japaneseCast,
+    dubCast,
+    episodes: episodes.slice(0, 24).map((e: any) => ({ 
+      title: e.title, 
+      titleJapanese: e.title_japanese, 
+      aired: e.aired,
+      filler: e.filler,
+      recap: e.recap
+    })),
+  };
+
+  const now = new Date().toISOString();
+  await runD1("update hydrated anime with jikan", db.prepare(`UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?`)
+    .bind(JSON.stringify(existingExtended), now, media.id).run());
+    
+  await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(media_id) DO UPDATE SET
+        details_hydrated_at=excluded.details_hydrated_at,
+        updated_at=excluded.updated_at`)
+      .bind(media.id, now, now).run());
 }

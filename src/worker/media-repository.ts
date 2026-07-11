@@ -73,6 +73,8 @@ export type UserMediaRecord = {
   progressTotal: number | null;
   progressUnit: string | null;
   platform: string | null;
+  startedAt: string | null;
+  purchaseLibrary: string | null;
   visibility: "public" | "connections" | "private";
   createdAt: string;
   updatedAt: string;
@@ -154,7 +156,7 @@ export type MediaRepository = {
   findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null): Promise<DashboardEntry[]>;
   removeUserMedia(userId: string, mediaId: string): Promise<void>;
   updateUserMediaProgress(userId: string, mediaId: string, progressEpisodes: number, now: string): Promise<void>;
-  updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, now: string): Promise<UserMediaRecord | null>;
+  updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, startedAt: string | null, purchaseLibrary: string | null, now: string): Promise<UserMediaRecord | null>;
 
   // Episode activity
   upsertEpisodeActivity(record: EpisodeActivityRecord): Promise<EpisodeActivityRecord>;
@@ -241,6 +243,8 @@ type UserMediaRow = {
   progress_total: number | null;
   progress_unit: string | null;
   platform: string | null;
+  started_at: string | null;
+  purchase_library: string | null;
   visibility: "public" | "connections" | "private";
   created_at: string;
   updated_at: string;
@@ -278,6 +282,8 @@ type DashboardRow = {
   progress_total: number | null;
   progress_unit: string | null;
   platform: string | null;
+  started_at: string | null;
+  purchase_library: string | null;
   updated_at: string;
   total_regular_episodes: number;
   next_episode_id: string | null;
@@ -437,15 +443,15 @@ export class D1MediaRepository implements MediaRepository {
         `INSERT INTO user_media
            (id, user_id, media_id, status, is_favorite, rating, notes,
             watched_at, rewatch_count, progress_episodes, progress_value, progress_total,
-            progress_unit, platform, visibility, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            progress_unit, platform, started_at, purchase_library, visibility, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(user_id, media_id) DO UPDATE SET
            status=excluded.status, is_favorite=excluded.is_favorite,
            rating=excluded.rating, notes=excluded.notes,
            watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count,
            progress_episodes=excluded.progress_episodes, progress_value=excluded.progress_value,
            progress_total=excluded.progress_total, progress_unit=excluded.progress_unit,
-           platform=excluded.platform, visibility=excluded.visibility,
+           platform=excluded.platform, started_at=excluded.started_at, purchase_library=excluded.purchase_library, visibility=excluded.visibility,
            updated_at=excluded.updated_at`,
       )
       .bind(
@@ -453,6 +459,7 @@ export class D1MediaRepository implements MediaRepository {
         record.isFavorite ? 1 : 0, record.rating, record.notes,
         record.watchedAt, record.rewatchCount, record.progressEpisodes,
         record.progressValue, record.progressTotal, record.progressUnit, record.platform,
+        record.startedAt, record.purchaseLibrary,
         record.visibility, record.createdAt, record.updatedAt,
       )
       .run();
@@ -549,7 +556,7 @@ export class D1MediaRepository implements MediaRepository {
            mi.id AS media_id, mi.type, mi.title, mi.overview, mi.poster_path,
            mi.backdrop_path, mi.air_status, mi.release_date, mi.year,
            um.status, um.is_favorite, um.rating, um.progress_episodes, um.updated_at,
-           um.progress_value, um.progress_total, um.progress_unit, um.platform,
+           um.progress_value, um.progress_total, um.progress_unit, um.platform, um.started_at, um.purchase_library,
            (SELECT COUNT(*) FROM episodes total_ep
              WHERE total_ep.media_id = mi.id AND total_ep.is_special = 0) AS total_regular_episodes,
            (SELECT next_ep.id FROM episodes next_ep
@@ -630,9 +637,9 @@ export class D1MediaRepository implements MediaRepository {
     return (await this.findEpisodeActivity(record.userId, record.episodeId))!;
   }
 
-  async updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, now: string) {
-    await this.db.prepare("UPDATE user_media SET progress_value = ?, progress_total = ?, progress_unit = ?, platform = ?, updated_at = ? WHERE user_id = ? AND media_id = ?")
-      .bind(value, total, unit, platform, now, userId, mediaId).run();
+  async updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, startedAt: string | null, purchaseLibrary: string | null, now: string) {
+    await this.db.prepare("UPDATE user_media SET progress_value = ?, progress_total = ?, progress_unit = ?, platform = ?, started_at = ?, purchase_library = ?, updated_at = ? WHERE user_id = ? AND media_id = ?")
+      .bind(value, total, unit, platform, startedAt, purchaseLibrary, now, userId, mediaId).run();
     return this.findUserMedia(userId, mediaId);
   }
 
@@ -754,6 +761,8 @@ function mapUserMedia(row: UserMediaRow): UserMediaRecord {
     progressTotal: row.progress_total,
     progressUnit: row.progress_unit,
     platform: row.platform,
+    startedAt: row.started_at ?? null,
+    purchaseLibrary: row.purchase_library ?? null,
     visibility: row.visibility,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -795,6 +804,8 @@ function mapDashboardRow(row: DashboardRow): DashboardEntry {
     progressTotal: row.progress_total,
     progressUnit: row.progress_unit,
     platform: row.platform,
+    startedAt: row.started_at ?? null,
+    purchaseLibrary: row.purchase_library ?? null,
     updatedAt: row.updated_at,
     totalRegularEpisodes: row.total_regular_episodes,
     nextEpisode: row.next_episode_id && row.next_season_number !== null && row.next_episode_number !== null

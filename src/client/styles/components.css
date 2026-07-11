@@ -472,6 +472,12 @@
   padding: 0.75rem;
 }
 
+@media (min-width: 640px) {
+  .auth-panel {
+    width: 75%;
+  }
+}
+
 .platform-picker legend {
   padding: 0 0.35rem;
   color: #ffcf5c;

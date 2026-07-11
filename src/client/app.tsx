@@ -947,11 +947,9 @@ function AuthPage() {
         window.location.assign("/profile");
       }
     } catch (error: any) {
+      setMessage("Create an account or log in from any device.");
       if (error.code === "validation_failed" && error.details?.fieldErrors) {
         setErrors(error.details.fieldErrors);
-        setMessage("Please fix the validation errors below.");
-      } else {
-        setMessage(error instanceof Error ? error.message : "Auth failed.");
       }
     } finally {
       setBusy(false);
@@ -1021,7 +1019,7 @@ function AuthPage() {
       setMessage("Logged in successfully! Opening your profile...");
       window.location.assign("/profile");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Passkey login failed.");
+      setMessage("Create an account or log in from any device.");
     } finally {
       setBusy(false);
     }
@@ -1033,7 +1031,7 @@ function AuthPage() {
       const result = await apiJson<{ authorizationUrl: string }>("/api/auth/oauth/github/start");
       window.location.assign(result.authorizationUrl);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "OAuth start failed.");
+      setMessage("Create an account or log in from any device.");
       setBusy(false);
     }
   }
@@ -1047,32 +1045,33 @@ function AuthPage() {
         <p className="auth-copy">
           Keep shows, movies, anime, games, and books in one quiet place.
         </p>
+
         <form className="auth-form" onSubmit={handlePasswordAuth}>
-          <label>
-            Email
-            <input value={email} type="email" placeholder="you@example.com" autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
-            {errors.email && <span className="input-error">{errors.email[0]}</span>}
-          </label>
-          {mode === "register" ? (
-            <>
-              <label>
-                Username
-                <input value={username} placeholder="your_username" autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
-                {errors.username && <span className="input-error">{errors.username[0]}</span>}
-              </label>
-              <label>
-                Display name
-                <input value={displayName} placeholder="Your display name" autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} />
-                {errors.displayName && <span className="input-error">{errors.displayName[0]}</span>}
-              </label>
-            </>
-          ) : null}
-          <label>
-            Password
-            <input value={password} placeholder="At least 8 characters" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} onChange={(event) => setPassword(event.target.value)} />
-            {errors.password && <span className="input-error">{errors.password[0]}</span>}
-          </label>
-          <div className="segmented-control" aria-label="Auth mode">
+            <label className="full-width">
+              Email
+              <input value={email} type="email" placeholder="you@example.com" autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
+              {errors.email && <span className="input-error">{errors.email[0]}</span>}
+            </label>
+            {mode === "register" ? (
+              <>
+                <label className="half-width">
+                  Username
+                  <input value={username} placeholder="your_username" autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
+                  {errors.username && <span className="input-error">{errors.username[0]}</span>}
+                </label>
+                <label className="half-width">
+                  Display name
+                  <input value={displayName} placeholder="Your display name" autoComplete="name" onChange={(event) => setDisplayName(event.target.value)} />
+                  {errors.displayName && <span className="input-error">{errors.displayName[0]}</span>}
+                </label>
+              </>
+            ) : null}
+            <label className="full-width">
+              Password
+              <input value={password} placeholder="At least 8 characters" type="password" autoComplete={mode === "register" ? "new-password" : "current-password"} onChange={(event) => setPassword(event.target.value)} />
+              {errors.password && <span className="input-error">{errors.password[0]}</span>}
+            </label>
+            <div className="segmented-control" aria-label="Auth mode">
             <button type="button" className={mode === "register" ? "active" : ""} onClick={() => setMode("register")}>
               Register
             </button>
@@ -1080,24 +1079,27 @@ function AuthPage() {
               Login
             </button>
           </div>
-          <div className="auth-actions">
-            <button className="primary-button" disabled={busy}>
-              <ShieldCheck size={18} aria-hidden="true" />
-              {mode === "register" ? "Create account" : "Log in"}
-            </button>
-            {mode === "login" && (
-              <button className="secondary-button" type="button" onClick={handlePasskeyLogin} disabled={busy}>
+
+          <div style={{ display: "grid", gap: "0.8rem", marginTop: "1rem" }}>
+            <div className="auth-actions">
+              <button className="primary-button" disabled={busy}>
                 <ShieldCheck size={18} aria-hidden="true" />
-                Log in with Passkey
+                {mode === "register" ? "Create account" : "Log in"}
               </button>
-            )}
-            <button className="secondary-button" type="button" onClick={handleOAuth} disabled={busy}>
-              <Sparkles size={18} aria-hidden="true" />
-              Continue with OAuth
-            </button>
+              {mode === "login" && (
+                <button className="secondary-button" type="button" onClick={handlePasskeyLogin} disabled={busy}>
+                  <ShieldCheck size={18} aria-hidden="true" />
+                  Log in with Passkey
+                </button>
+              )}
+              <button className="secondary-button" type="button" onClick={handleOAuth} disabled={busy}>
+                <Sparkles size={18} aria-hidden="true" />
+                Continue with OAuth
+              </button>
+            </div>
+            <p className="form-message" role="status" style={{ textAlign: "center", margin: 0 }}>{message}</p>
           </div>
         </form>
-        <p className="form-message" role="status">{message}</p>
       </section>
 
       <Modal title="Enable Passkey?" open={showPasskeyPrompt} onClose={handleSkipPasskey}>
@@ -5263,7 +5265,7 @@ function useMe() {
 
   const refresh = useCallback(async () => {
     try {
-      setMe(await apiJson<MePayload>("/api/me"));
+      setMe(await apiJson<MePayload>("/api/me", { suppressNotification: true }));
     } catch {
       setMe(null);
     } finally {
@@ -5293,6 +5295,7 @@ async function apiJson<T = unknown>(
     body?: BodyInit;
     csrfToken?: string;
     contentType?: string | null;
+    suppressNotification?: boolean;
   } = {},
 ): Promise<T> {
   const headers = new Headers();
@@ -5312,7 +5315,9 @@ async function apiJson<T = unknown>(
     });
   } catch (error) {
     const message = "We could not reach the app server. Check your connection and try again.";
-    notify(message, "error");
+    if (!options.suppressNotification) {
+      notify(message, "error");
+    }
     const friendly = new Error(message) as Error & { cause?: unknown };
     friendly.cause = error;
     throw friendly;
@@ -5323,14 +5328,18 @@ async function apiJson<T = unknown>(
     payload = text ? JSON.parse(text) as { data?: T; error?: { message: string } } : {};
   } catch {
     const message = "The app server sent an unexpected response. Please refresh and try again.";
-    notify(message, "error");
+    if (!options.suppressNotification) {
+      notify(message, "error");
+    }
     throw new Error(message);
   }
 
   if (!response.ok || !payload.data) {
     const errorDetails = payload.error as any;
     const message = apiNoticeMessage(response.status, errorDetails?.message);
-    notify(message, response.status >= 500 || response.status === 0 ? "error" : "info");
+    if (!options.suppressNotification) {
+      notify(message, response.status >= 500 || response.status === 0 ? "error" : "info");
+    }
     const error = new Error(message) as any;
     error.code = errorDetails?.code;
     error.details = errorDetails?.details;
@@ -5343,8 +5352,8 @@ async function apiJson<T = unknown>(
 function apiNoticeMessage(status: number, message?: string) {
   if (status === 503) return "This service is temporarily unavailable. Please try again in a moment.";
   if (status >= 500) return "Something went wrong while loading this. Please try again in a moment.";
-  if (status === 401) return "Your session expired. Please log in again.";
-  if (status === 403) return "This action is not allowed right now. Please refresh and try again.";
+  if (status === 401) return message && !looksTechnical(message) ? message : "Your session expired. Please log in again.";
+  if (status === 403) return message && !looksTechnical(message) ? message : "This action is not allowed right now. Please refresh and try again.";
   if (status === 404) return message && !looksTechnical(message) ? message : "The requested item was not found.";
   if (status === 409) return message ?? "This change conflicts with existing data.";
   if (status === 429) return "Too many requests. Please wait a moment and try again.";

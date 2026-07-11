@@ -19,6 +19,7 @@
   --shell-topbar-height: 4.25rem;
   --shell-bottom-nav-height: 4.6rem;
   --shadow-panel: 0 24px 80px rgba(0, 0, 0, 0.5);
+  --opacity-bg-poster: 0.2;
   color-scheme: dark;
   color: var(--color-text);
   background: var(--color-bg);
@@ -43,6 +44,7 @@
   --color-text-muted: #4a4337;
   --color-text-subtle: #6f6658;
   --shadow-panel: 0 18px 55px rgba(69, 54, 28, 0.14);
+  --opacity-bg-poster: 0.65;
   color-scheme: light;
   color: var(--color-text);
   background: var(--color-bg);
@@ -156,4 +158,3 @@ a {
   min-height: 100dvh;
   overflow-x: hidden;
 }
-

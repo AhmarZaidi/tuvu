@@ -36,10 +36,26 @@ export async function publicProfileWithUploads(repository: AuthRepository, profi
   return publicProfile(profile, { avatar, banner });
 }
 
-export async function authPayload(repository: AuthRepository, auth: AuthContext) {
+export async function authPayload(repository: AuthRepository, auth: AuthContext, db?: any) {
+  let theme = "system";
+  if (db) {
+    try {
+      const row = (await db
+        .prepare("SELECT value_json FROM user_settings WHERE user_id = ? AND key = ?")
+        .bind(auth.user.id, "appearance")
+        .first()) as { value_json: string } | null;
+      if (row?.value_json) {
+        const parsed = JSON.parse(row.value_json);
+        if (parsed && typeof parsed.theme === "string") {
+          theme = parsed.theme;
+        }
+      }
+    } catch {}
+  }
   return {
     user: publicUser(auth.user),
     profile: await publicProfileWithUploads(repository, auth.profile),
+    appearance: { theme },
     csrfToken: auth.session.csrfToken,
     sessionExpiresAt: auth.session.expiresAt,
   };

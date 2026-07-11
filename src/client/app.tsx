@@ -93,6 +93,9 @@ type MePayload = {
     avatarUrl: string | null;
     bannerUrl: string | null;
   };
+  appearance: {
+    theme: "light" | "dark" | "system";
+  };
   csrfToken: string;
   libraryVersion?: number;
 };
@@ -4844,14 +4847,16 @@ function AppPage({
         <div>
           <p className="eyebrow">{eyebrow}</p>
           <h1 tabIndex={mobileHelp ? 0 : undefined} data-help={mobileHelp ? description : undefined} title={mobileHelp ? description : undefined}>{title}</h1>
-          <p className="heading-description">
-            {displayDescription}
-            {isLongDescription && (
-              <button type="button" className="read-more-btn" onClick={() => setExpanded(!expanded)}>
-                {expanded ? "Collapse" : "Read more"}
-              </button>
-            )}
-          </p>
+          {isSubPage && (
+            <p className="heading-description">
+              {displayDescription}
+              {isLongDescription && (
+                <button type="button" className="read-more-btn" onClick={() => setExpanded(!expanded)}>
+                  {expanded ? "Collapse" : "Read more"}
+                </button>
+              )}
+            </p>
+          )}
         </div>
         {action}
       </section>
@@ -4937,8 +4942,8 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
       <article className="media-card compact-card">
         <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
           <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.4rem" }}>
-            {/* Background poster with 0.2 opacity */}
-            <div style={{ opacity: 0.2, width: "100%", height: "100%" }}>
+            {/* Background poster with opacity */}
+            <div style={{ opacity: "var(--opacity-bg-poster)", width: "100%", height: "100%" }}>
               <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
             </div>
 
@@ -4950,7 +4955,7 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
 
           <div className="media-card-body">
             <div>
-              <h2 style={{ fontSize: "0.95rem", fontWeight: 750, color: "#f8f7f2", margin: 0, textAlign: "left" }}>{entry.title}</h2>
+              <h2 style={{ fontSize: "0.95rem", fontWeight: 750, margin: 0, textAlign: "left" }}>{entry.title}</h2>
               <p style={{ margin: "0.15rem 0 0.35rem", fontSize: "0.82rem", color: "#aeb1ac", textAlign: "left" }}>
                 {nextLabel ?? (entry.year ? String(entry.year) : "")}
               </p>
@@ -4974,8 +4979,8 @@ function DashboardMediaCard({ entry, compact, onMarkNext }: { entry: DashboardEn
     <article className="media-card">
       <NavLink className="media-card-link" to={`/media/${entry.type}/${entry.mediaId}`} aria-label={`Open ${entry.title}`}>
         <div className="poster-container" style={{ position: "relative", width: "100%", aspectRatio: "2 / 3", overflow: "hidden", borderRadius: "0.5rem" }}>
-          {/* Background poster with 0.2 opacity */}
-          <div style={{ opacity: 0.2, width: "100%", height: "100%" }}>
+          {/* Background poster with opacity */}
+          <div style={{ opacity: "var(--opacity-bg-poster)", width: "100%", height: "100%" }}>
             <ResponsivePoster accent="linear-gradient(145deg, #30343b, #111318)" title={entry.title} posterPath={entry.posterPath} showTitle={false} />
           </div>
 
@@ -5029,12 +5034,39 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
 }
 
 function ThemeSetting() {
+  const auth = useAuth();
+  const me = auth?.me;
+  const refresh = auth?.refresh;
+
   const [theme, setTheme] = useState<ThemePreference>(() => {
     return normalizeThemePreference(localStorage.getItem(uiConstants.themeStorageKey));
   });
 
   useEffect(() => {
-    localStorage.setItem(uiConstants.themeStorageKey, theme);
+    if (me?.appearance?.theme) {
+      setTheme(me.appearance.theme);
+    }
+  }, [me?.appearance?.theme]);
+
+  const changeTheme = async (newTheme: ThemePreference) => {
+    setTheme(newTheme);
+    localStorage.setItem(uiConstants.themeStorageKey, newTheme);
+    applyThemePreference(newTheme);
+    if (me) {
+      try {
+        await apiJson("/api/settings/appearance", {
+          method: "PUT",
+          csrfToken: me.csrfToken,
+          body: JSON.stringify({ theme: newTheme }),
+        });
+        if (refresh) {
+          await refresh();
+        }
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
     applyThemePreference(theme);
     if (theme !== "system") return;
     if (typeof window.matchMedia !== "function") return;
@@ -5053,7 +5085,7 @@ function ThemeSetting() {
       </div>
       <div className="theme-options" role="group" aria-label="Theme">
         {(["light", "dark", "system"] as ThemePreference[]).map((option) => (
-          <button className={theme === option ? "active" : ""} key={option} onClick={() => setTheme(option)}>
+          <button className={theme === option ? "active" : ""} key={option} onClick={() => void changeTheme(option)}>
             {option}
           </button>
         ))}
@@ -5276,6 +5308,14 @@ function useMe() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (me?.appearance?.theme) {
+      const dbTheme = me.appearance.theme;
+      localStorage.setItem(uiConstants.themeStorageKey, dbTheme);
+      applyThemePreference(dbTheme);
+    }
+  }, [me]);
 
   return { me, refresh, loading };
 }

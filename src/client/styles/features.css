@@ -1767,32 +1767,75 @@
 }
 
 :root[data-theme="light"] .status-chip.watching {
-  background: rgba(255, 175, 50, 0.16);
-  color: #8c5e00;
+  background: #ffaf32cf;
+  color: #000000c7;
 }
 
 :root[data-theme="light"] .status-chip.planned {
-  background: rgba(82, 168, 160, 0.16);
-  color: #1a6d63;
+  background: #52a8a0a8;
+  color: #000000c7;
 }
 
 :root[data-theme="light"] .status-chip.complete {
-  background: rgba(72, 168, 80, 0.16);
-  color: #1b6321;
+  background: #48a850a8;
+  color: #000000c7;
 }
 
 :root[data-theme="light"] .status-chip.paused {
   background: rgba(124, 97, 255, 0.17);
-  color: #4b2bff;
+  color: #000000c7;
 }
 
 :root[data-theme="light"] .status-chip.stopped {
-  background: rgba(255, 83, 83, 0.16);
-  color: #b31919;
+  background: ff53538a;
+  color: #000000c7;
 }
 
 :root[data-theme="light"] .nav-link {
   color: #383938;
+}
+
+:root[data-theme="light"] .nav-link.active {
+  background: #ffcf5ca3
+}
+
+:root[data-theme="light"] .stat-card strong {
+  color: #ffbf00;
+}
+
+:root[data-theme="light"] .icon-button {
+  color: #000000;
+  background: #15171814;
+}
+
+:root[data-theme="light"] .view-toggle [aria-pressed="true"] {
+  background: #ffcf5c;
+  color: #1d1505;
+}
+
+:root[data-theme="light"] .settings-form label {
+  color: #484848;
+}
+
+:root[data-theme="light"] #modal-title {
+  color: #292929;
+}
+
+:root[data-theme="light"] .quick-watch, .load-more, .text-button {
+  background: #101112c9;
+  color: #ffcf5c;
+}
+
+:root[data-theme="light"] .compact-card {
+  border-bottom: 1px solid rgb(0 0 0 / 20%);
+}
+
+:root[data-theme="light"] .sort-menu-panel button {
+  color: #6e6e6e;
+}
+
+:root[data-theme="light"] .sort-menu-panel button.active {
+  color: #ffb400;
 }
 
 @keyframes spin {

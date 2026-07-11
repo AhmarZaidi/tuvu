@@ -14,6 +14,10 @@ const navigationSchema = z.object({
   showLabelsMobile: z.boolean().optional(),
 });
 
+const appearanceSchema = z.object({
+  theme: z.enum(["light", "dark", "system"]),
+});
+
 type ProviderCredentialRow = {
   id: string;
   provider: string;
@@ -90,6 +94,19 @@ export function createSettingsRoutes() {
     if (!body.success) return apiError(c, 400, "validation_failed", "Choose between 2 and 6 navigation items.", body.error.flatten());
     await writeUserSetting(c.env.DB, c.get("auth").user.id, "navigation", body.data);
     return c.json(apiSuccess({ navigation: body.data }));
+  });
+
+  router.get("/appearance", requireAuth(), async (c) => {
+    const stored = await readUserSetting(c.env.DB, c.get("auth").user.id, "appearance");
+    const appearance = stored ? { theme: "system", ...stored } : { theme: "system" };
+    return c.json(apiSuccess({ appearance }));
+  });
+
+  router.put("/appearance", requireAuth(), requireCsrf(), async (c) => {
+    const body = appearanceSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return apiError(c, 400, "validation_failed", "Appearance preference is invalid.", body.error.flatten());
+    await writeUserSetting(c.env.DB, c.get("auth").user.id, "appearance", body.data);
+    return c.json(apiSuccess({ appearance: body.data }));
   });
 
   router.get("/storage", requireAuth(), async (c) => {

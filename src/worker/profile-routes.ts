@@ -9,6 +9,7 @@ import { requireAuth, requireCsrf, type AppVariables } from "./session";
 import { profileStatsSnapshot } from "./stats-service";
 import { uploadProfileImageToSupabase, type UploadedObject, type UploadObjectInput } from "./supabase-storage";
 
+
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const maxBytesByKind = {
   avatar: 2 * 1024 * 1024,
@@ -25,10 +26,23 @@ export function createProfileRoutes(dependencies: ProfileRouteDependencies = {})
   routes.get("/me", requireAuth(), async (c) => {
     const auth = c.get("auth");
     const repository = c.get("repository");
+    let theme = "system";
+    if (c.env.DB) {
+      try {
+        const row = await c.env.DB.prepare("SELECT value_json FROM user_settings WHERE user_id = ? AND key = ?").bind(auth.user.id, "appearance").first<{ value_json: string }>();
+        if (row?.value_json) {
+          const parsed = JSON.parse(row.value_json);
+          if (parsed && typeof parsed.theme === "string") {
+            theme = parsed.theme;
+          }
+        }
+      } catch {}
+    }
     return c.json(
       apiSuccess({
         user: publicUser(auth.user),
         profile: await publicProfileWithUploads(repository, auth.profile),
+        appearance: { theme },
         csrfToken: auth.session.csrfToken,
         libraryVersion: await getUserLibraryVersion(c.env.DB, auth.user.id),
       }),

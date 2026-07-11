@@ -78,7 +78,7 @@ export function createAuthRoutes() {
     const { token, session } = await createSession(repository, user.id, c.req.header("user-agent") ?? null, new Date(createdAt));
     setSessionCookie(c, token);
 
-    return c.json(apiSuccess(await authPayload(repository, { session, user, profile })));
+    return c.json(apiSuccess(await authPayload(repository, { session, user, profile }, c.env.DB)));
   });
 
   auth.post("/password/login", async (c) => {
@@ -106,7 +106,7 @@ export function createAuthRoutes() {
     const { token, session } = await createSession(repository, user.id, c.req.header("user-agent") ?? null);
     setSessionCookie(c, token);
 
-    return c.json(apiSuccess(await authPayload(repository, { session, user, profile })));
+    return c.json(apiSuccess(await authPayload(repository, { session, user, profile }, c.env.DB)));
   });
 
   auth.post("/passkey/register/options", async (c) => {
@@ -262,7 +262,7 @@ export function createAuthRoutes() {
     if (!auth) {
       const { token, session } = await createSession(repository, userRecord.id, c.req.header("user-agent") ?? null, now);
       setSessionCookie(c, token);
-      return c.json(apiSuccess(await authPayload(repository, { session, user: userRecord, profile: profileRecord })));
+      return c.json(apiSuccess(await authPayload(repository, { session, user: userRecord, profile: profileRecord }, c.env.DB)));
     }
 
     return c.json(apiSuccess({ ok: true }));
@@ -364,7 +364,7 @@ export function createAuthRoutes() {
     const { token, session } = await createSession(repository, user.id, c.req.header("user-agent") ?? null, now);
     setSessionCookie(c, token);
 
-    return c.json(apiSuccess(await authPayload(repository, { session, user, profile })));
+    return c.json(apiSuccess(await authPayload(repository, { session, user, profile }, c.env.DB)));
   });
 
   auth.get("/oauth/github/start", async (c) => {
@@ -419,7 +419,7 @@ export function createAuthRoutes() {
     const { token, session } = await createSession(repository, result.user.id, c.req.header("user-agent") ?? null, now);
     setSessionCookie(c, token);
 
-    return c.json(apiSuccess(await authPayload(repository, { session, user: result.user, profile: result.profile })));
+    return c.json(apiSuccess(await authPayload(repository, { session, user: result.user, profile: result.profile }, c.env.DB)));
   });
 
   auth.post("/logout", requireAuth(), requireCsrf(), async (c) => {

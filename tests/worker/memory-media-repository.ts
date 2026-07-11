@@ -162,6 +162,8 @@ export class MemoryMediaRepository implements MediaRepository {
         progressTotal: item.progressTotal,
         progressUnit: item.progressUnit,
         platform: item.platform,
+        startedAt: item.startedAt,
+        purchaseLibrary: item.purchaseLibrary,
         updatedAt: item.updatedAt,
         totalRegularEpisodes: episodes.length,
         nextEpisode: next
@@ -193,11 +195,11 @@ export class MemoryMediaRepository implements MediaRepository {
     return record;
   }
 
-  async updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, now: string) {
+  async updateUserMediaDetailProgress(userId: string, mediaId: string, value: number | null, total: number | null, unit: string | null, platform: string | null, startedAt: string | null, purchaseLibrary: string | null, now: string) {
     const key = this.userMediaKey(userId, mediaId);
     const existing = this.userMedia.get(key);
     if (!existing) return null;
-    const updated = { ...existing, progressValue: value, progressTotal: total, progressUnit: unit, platform, updatedAt: now };
+    const updated = { ...existing, progressValue: value, progressTotal: total, progressUnit: unit, platform, startedAt, purchaseLibrary, updatedAt: now };
     this.userMedia.set(key, updated);
     return updated;
   }

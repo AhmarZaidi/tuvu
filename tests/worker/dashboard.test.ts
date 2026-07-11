@@ -5,7 +5,7 @@ const base: DashboardEntry = {
   mediaId: "med_1", type: "show", title: "Example", overview: null, posterPath: null, backdropPath: null,
   airStatus: "continuing", releaseDate: "2020-01-01", year: 2020, status: "watching", isFavorite: false,
   rating: null, progressEpisodes: 2, updatedAt: "2025-01-01T00:00:00.000Z", totalRegularEpisodes: 10,
-  progressValue: null, progressTotal: null, progressUnit: null, platform: null,
+  progressValue: null, progressTotal: null, progressUnit: null, platform: null, startedAt: null, purchaseLibrary: null,
   nextEpisode: { id: "epi_3", name: "Third", seasonNumber: 1, episodeNumber: 3, airDate: "2025-01-01" },
 };
 

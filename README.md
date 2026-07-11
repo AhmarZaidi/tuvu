@@ -91,3 +91,13 @@ For database reset and storage cleanup instructions, see [docs/phase-3-media.md]
 - [ADR 0004: TMDB, RAWG, and Open Library Providers](docs/adr/0004-metadata-providers.md)
 - [ADR 0005: Passkeys plus OAuth Authentication](docs/adr/0005-passkeys-oauth-auth.md)
 
+## Architecture Map
+
+Before starting Phase 8 work, read
+[docs/phase_7_5_optimization.md](docs/phase_7_5_optimization.md). It maps the
+current schema, API/data flows, caching, import/merge, hydration, UI shell,
+settings direction, and the 7.5.x refactor guardrails. Future code should keep
+canonical media global, user tracking user-scoped, provider metadata cached, and
+media-type behavior driven by shared configuration instead of page-level
+switches.
+

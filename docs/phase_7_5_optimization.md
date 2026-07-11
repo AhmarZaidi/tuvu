@@ -743,8 +743,8 @@ Backup:
 ### 7.5.0 Audit And Guardrails
 
 - [x] Create this optimization plan.
-- [ ] Add a short architecture pointer in `README.md`.
-- [ ] Add tests proving current key flows before refactors:
+- [x] Add a short architecture pointer in `README.md`.
+- [x] Add tests proving current key flows before refactors:
   - auth/session
   - dashboard counts
   - search add
@@ -752,7 +752,71 @@ Backup:
   - merge accept
   - media detail cache/fallback
   - episode/unit tracking
-- [ ] Freeze expected acceptance flows in docs so refactors can be checked.
+- [x] Freeze expected acceptance flows in docs so refactors can be checked.
+
+## Phase 7.5.0 Acceptance Flow Freeze
+
+These flows are the behavioral contract for the 7.5 refactors. A later 7.5.x change can alter implementation details, but it should not remove or weaken these outcomes.
+
+### Automated Guardrail Coverage
+
+- Auth/session:
+  - registering with password returns a session cookie and CSRF token.
+  - `/api/me` succeeds with that session and fails without one.
+  - logout clears the session.
+- Dashboard counts and sections:
+  - dashboard endpoints return status counts, section counts when D1 is available, and stable section IDs.
+  - counts must not be derived only from the current visible/paginated card list.
+- Search add:
+  - local catalog results appear in `/api/explore/search`.
+  - adding a provider result creates one global media row plus one user library row.
+  - adding the same result again reports `alreadyTracked`.
+- Media detail fallback:
+  - `/api/media/:id` returns saved media and user tracking even when provider hydration is missing or stale.
+  - `/api/media/:id/episodes` and `/api/media/:id/units` return saved activity states without requiring provider data.
+- Episode/unit tracking:
+  - episode watch/unwatch/rewatch updates activity and cached progress.
+  - season bulk watch respects actual episode counts rather than assuming equal season sizes.
+  - book/game units can be completed, rated, and fetched through their detail route.
+- Import commit/rollback and merge accept:
+  - automated parser and route-adjacent tests exist today, while D1 commit/rollback/merge acceptance remains a manual guardrail until 7.5.2 gives these flows repository/service boundaries.
+
+### D1 Manual Guardrails Until 7.5.2
+
+The current Vitest harness uses in-memory repositories and does not yet provide a D1-compatible SQL runner. Import and merge routes still perform direct D1 SQL, so these flows must be checked manually until 7.5.2 moves import/merge into service/repository boundaries.
+
+TV Time import commit/rollback:
+
+1. Start the Worker with `npm run dev:worker`.
+2. Log in.
+3. Open `/profile/import/tv-time`.
+4. Upload the TV Time ZIP or individual export files.
+5. Run dry-run and confirm counts/warnings render.
+6. Commit the import and confirm progress reaches committed.
+7. Check Shows and Movies dashboards for imported items and watched counts.
+8. Roll back the import from Import History.
+9. Confirm only records owned by that import are removed and unrelated media/tracking remain.
+
+Merge accept:
+
+1. Open `/profile/merge`.
+2. Confirm unresolved, exact, and review counts render.
+3. Resolve candidates if needed.
+4. Accept one exact/provider match.
+5. Confirm source tracking remains visible on the canonical media page.
+6. Confirm duplicate local/provider search results collapse after merge.
+7. Confirm a metadata refresh job is queued but the media page still works if hydration fails.
+
+### UX Smoke Flow
+
+1. Log in on desktop and mobile/ngrok.
+2. Visit Shows, Anime, Movies, Explore, Books, YouTube, and Games.
+3. Use global search to add a media item.
+4. Mark an episode watched and rewatched.
+5. Update a book/game progress value.
+6. Upload or update a media cover.
+7. Open Settings and confirm theme/profile controls still work.
+8. Refresh the browser and confirm tracked data still displays.
 
 ### 7.5.1 Shared Media Type Registry
 

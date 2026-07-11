@@ -71,7 +71,9 @@ export function createExploreRoutes() {
     const auth = c.get("auth");
     const repo = c.get("mediaRepository");
     const now = new Date().toISOString();
-    let media: MediaItemRecord | null = c.env.DB ? await findMediaByExternalId(c.env.DB, body.data.provider, body.data.providerId) : null;
+    let media: MediaItemRecord | null = c.env.DB
+      ? await findMediaByExternalId(c.env.DB, body.data.provider, body.data.providerId)
+      : await findMediaByProviderResult(repo, body.data.provider, body.data.providerId, body.data.title, body.data.type);
     if (!media) {
       media = {
         id: randomId("med"),
@@ -305,6 +307,11 @@ async function findMediaByExternalId(db: D1Database, provider: string, providerI
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   } : null;
+}
+
+async function findMediaByProviderResult(repo: MediaRepository, provider: string, providerId: string, title: string, type: MediaType) {
+  const candidates = await repo.searchMedia(title, type, 10);
+  return candidates.find((candidate) => candidate.source === provider && candidate.sourceId === providerId) ?? null;
 }
 
 function inferAirStatus(type: MediaType, releaseDate: string | null) {

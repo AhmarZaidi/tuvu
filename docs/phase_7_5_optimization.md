@@ -923,14 +923,25 @@ Implementation notes:
 
 ### 7.5.6 Settings Overhaul
 
-- [ ] Build settings section shell.
-- [ ] Move profile settings into Account.
-- [ ] Add Appearance settings.
-- [ ] Add Navigation settings with min/max nav item constraints.
-- [ ] Add Provider credentials UI and API.
-- [ ] Add Import/Export entry points.
-- [ ] Add Backup/Restore job UI placeholders.
-- [ ] Add Storage usage placeholder with future endpoints.
+- [x] Build settings section shell.
+- [x] Move profile settings into Account.
+- [x] Add Appearance settings.
+- [x] Add Navigation settings with min/max nav item constraints.
+- [x] Add Provider credentials UI and API.
+- [x] Add Import/Export entry points.
+- [x] Add Backup/Restore job UI placeholders.
+- [x] Add Storage usage placeholder with future endpoints.
+
+Implementation notes:
+
+- `/profile/settings` now has section navigation for Account, Appearance, Navigation, Providers, Import / Export, Backup, and Storage.
+- Account owns profile preview, profile edits, avatar/banner uploads, visibility, and logout.
+- Appearance owns theme settings and leaves a density placeholder.
+- Navigation settings save 2 to 6 chosen media nav items through `/api/settings/navigation`; Explore remains conceptually always present. The current shell still uses the fixed nav until the customizable nav-shell phase applies saved preferences.
+- Provider credentials can be listed, saved, and disabled through `/api/settings/providers`. This uses the existing `user_provider_credentials` table shape so provider lookup can read user-scoped values before app-level fallback secrets.
+- Import / Export and Backup have visible entry points/placeholders without starting backup/export jobs yet.
+- Storage reads `/api/settings/storage` for user library count, upload count/bytes, and global media count; exact D1/Supabase size endpoints remain future work.
+- `0013_phase_7_5_settings.sql` adds `user_settings` for navigation and future settings JSON.
 
 ### 7.5.7 Stats, Counts, And Activity Snapshots
 

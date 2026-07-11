@@ -11,6 +11,7 @@ import { createExploreRoutes } from "./explore-routes";
 import { createMergeRoutes } from "./merge-routes";
 import { createPeopleRoutes } from "./people-routes";
 import { createProfileRoutes } from "./profile-routes";
+import { createSettingsRoutes } from "./settings-routes";
 import type { ProfileRouteDependencies } from "./profile-routes";
 import type { AuthRepository } from "./repository";
 import { D1AuthRepository } from "./repository";
@@ -73,6 +74,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/api/explore", createExploreRoutes());
   app.route("/api/merge", createMergeRoutes());
   app.route("/api/people", createPeopleRoutes());
+  app.route("/api/settings", createSettingsRoutes());
 
   app.onError((error, c) => {
     console.error(error);

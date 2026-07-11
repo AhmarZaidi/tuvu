@@ -225,6 +225,96 @@
   padding: 0.9rem;
 }
 
+.settings-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-section-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.settings-section-nav button,
+.settings-choice,
+.provider-list button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  padding: 0.72rem 0.8rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.settings-section-nav button.active,
+.settings-choice.active,
+.provider-list button.active {
+  border-color: rgba(255, 207, 92, 0.32);
+  background: rgba(255, 207, 92, 0.1);
+  color: var(--color-accent);
+}
+
+.settings-panel-stack,
+.settings-panel {
+  min-width: 0;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.settings-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.settings-choice {
+  min-height: 3.25rem;
+}
+
+.settings-choice.locked {
+  opacity: 0.78;
+  cursor: default;
+}
+
+.provider-settings-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.provider-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.provider-list button {
+  justify-content: space-between;
+}
+
+.provider-list small {
+  color: var(--color-text-subtle);
+  font-size: 0.75rem;
+}
+
+.provider-form h3 {
+  margin: 0;
+  color: var(--color-text-strong);
+}
+
+.settings-storage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -348,6 +438,26 @@
 
   .detail-layout {
     grid-template-columns: 18rem minmax(0, 1fr);
+  }
+
+  .settings-shell {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .settings-section-nav {
+    position: sticky;
+    top: 5.25rem;
+    grid-template-columns: 1fr;
+  }
+
+  .provider-settings-grid {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .settings-choice-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .media-visual-layer {

@@ -49,7 +49,7 @@ import type { MediaType } from "@shared/media";
 import { allMediaStatuses, dashboardKinds, formatStatusLabel, mediaConfigForType, navPageConfigs, searchableMediaTypes, statusOptionsForMediaType, trackableMediaTypes } from "@shared/media-config";
 import { classifyMedia } from "@shared/media-classification";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
-import { uiConstants } from "@shared/constants";
+import { providerNames, uiConstants } from "@shared/constants";
 import { queryCache, queryKeys } from "./api/query-cache";
 import {
   EmptyState,
@@ -3822,11 +3822,50 @@ function MessagesPage() {
   );
 }
 
+type SettingsSectionId = "account" | "appearance" | "navigation" | "providers" | "import-export" | "backup" | "storage";
+
+const settingsSections: Array<{ id: SettingsSectionId; label: string; icon: LucideIcon }> = [
+  { id: "account", label: "Account", icon: User },
+  { id: "appearance", label: "Appearance", icon: Moon },
+  { id: "navigation", label: "Navigation", icon: Compass },
+  { id: "providers", label: "Providers", icon: ShieldCheck },
+  { id: "import-export", label: "Import / Export", icon: Upload },
+  { id: "backup", label: "Backup", icon: RefreshCw },
+  { id: "storage", label: "Storage", icon: BarChart3 },
+];
+
 function SettingsPage() {
   const { me, refresh } = useAuth();
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("account");
 
   return (
-    <AppPage eyebrow="Settings" title="Preferences" description="Profile, theme, privacy, region, and provider settings will live here." mobileHelp>
+    <AppPage eyebrow="Settings" title="Preferences" description="Account, appearance, navigation, providers, imports, backups, and storage live here." mobileHelp>
+      <div className="settings-shell">
+        <nav className="settings-section-nav" aria-label="Settings sections">
+          {settingsSections.map(({ id, label, icon: Icon }) => (
+            <button className={activeSection === id ? "active" : ""} key={id} onClick={() => setActiveSection(id)}>
+              <Icon size={17} aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-panel-stack">
+          {activeSection === "account" && <AccountSettingsPanel me={me} refresh={refresh} />}
+          {activeSection === "appearance" && <AppearanceSettingsPanel />}
+          {activeSection === "navigation" && <NavigationSettingsPanel csrfToken={me.csrfToken} />}
+          {activeSection === "providers" && <ProviderCredentialsPanel csrfToken={me.csrfToken} />}
+          {activeSection === "import-export" && <ImportExportSettingsPanel />}
+          {activeSection === "backup" && <BackupSettingsPanel />}
+          {activeSection === "storage" && <StorageSettingsPanel />}
+        </div>
+      </div>
+    </AppPage>
+  );
+}
+
+function AccountSettingsPanel({ me, refresh }: { me: MePayload; refresh: () => Promise<void> }) {
+  return (
+    <SettingsPanel title="Account" description="Profile identity, uploads, visibility, and session controls.">
       <section className="profile-hero settings-preview" aria-label="Current profile media">
         <div className="profile-banner" style={me.profile.bannerUrl ? { backgroundImage: `url(${me.profile.bannerUrl})` } : undefined} />
         <div className="profile-row">
@@ -3838,13 +3877,232 @@ function SettingsPage() {
         </div>
       </section>
       <ProfileSettingsForm me={me} onSaved={refresh} />
+    </SettingsPanel>
+  );
+}
+
+function AppearanceSettingsPanel() {
+  return (
+    <SettingsPanel title="Appearance" description="Theme and future density controls.">
       <section className="settings-list">
         <ThemeSetting />
-        <SettingRow icon={<User size={20} />} title="Profile visibility" value={me?.profile.visibility ?? "Private"} />
-        <SettingRow icon={<Library size={20} />} title="Library defaults" value="Personal" />
+        <SettingRow icon={<LayoutGrid size={20} />} title="Density" value="Comfortable" />
       </section>
-    </AppPage>
+    </SettingsPanel>
   );
+}
+
+const navigationChoices = navItems.filter((item) => item.label !== "Explore").map((item) => ({ id: item.to.slice(1) as "shows" | "anime" | "movies" | "books" | "youtube" | "games", label: item.label, icon: item.icon }));
+
+function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
+  const [items, setItems] = useState<string[]>(["shows", "anime", "movies", "books", "games"]);
+  const [message, setMessage] = useState("Choose 2 to 6 navigation items. Explore is always available.");
+
+  useEffect(() => {
+    let cancelled = false;
+    apiJson<{ navigation: { items: string[] } }>("/api/settings/navigation")
+      .then((data) => {
+        if (!cancelled) setItems(data.navigation.items);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const toggle = (id: string) => {
+    setItems((current) => {
+      if (current.includes(id)) {
+        if (current.length <= 2) {
+          setMessage("Keep at least 2 navigation items selected.");
+          return current;
+        }
+        return current.filter((item) => item !== id);
+      }
+      if (current.length >= 6) {
+        setMessage("Navigation can show up to 6 chosen items plus Explore.");
+        return current;
+      }
+      return [...current, id];
+    });
+  };
+
+  const save = async () => {
+    try {
+      await apiJson("/api/settings/navigation", { method: "PUT", csrfToken, body: JSON.stringify({ items }) });
+      notify("Navigation preference saved.", "success");
+      setMessage("Saved. Full nav reordering will apply when the customizable nav shell lands.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Navigation preference could not be saved.");
+    }
+  };
+
+  return (
+    <SettingsPanel title="Navigation" description="Choose what appears in your personal media nav.">
+      <div className="settings-choice-grid">
+        {navigationChoices.map(({ id, label, icon: Icon }) => (
+          <button className={items.includes(id) ? "settings-choice active" : "settings-choice"} key={id} onClick={() => toggle(id)} aria-pressed={items.includes(id)}>
+            <Icon size={18} aria-hidden="true" />
+            <span>{label}</span>
+          </button>
+        ))}
+        <article className="settings-choice locked">
+          <Compass size={18} aria-hidden="true" />
+          <span>Explore</span>
+        </article>
+      </div>
+      <div className="action-row">
+        <button className="primary-button" onClick={() => void save()}>Save navigation</button>
+      </div>
+      <p className="form-message" role="status">{message}</p>
+    </SettingsPanel>
+  );
+}
+
+type ProviderKey = keyof typeof providerNames;
+type ProviderCredentialStatus = { provider: string; label: string | null; status: string; configured: boolean; updatedAt: string };
+
+const providerCredentialFields: Array<{ provider: ProviderKey; fields: Array<{ key: string; label: string; placeholder: string }> }> = [
+  { provider: "tmdb", fields: [{ key: "TMDB_API_KEY", label: "API key", placeholder: "TMDB v3 API key" }] },
+  { provider: "rawg", fields: [{ key: "RAWG_API_KEY", label: "API key", placeholder: "RAWG API key" }] },
+  { provider: "igdb", fields: [{ key: "TWITCH_IGDB_CLIENT_ID", label: "Client ID", placeholder: "Twitch client ID" }, { key: "TWITCH_IGDB_CLIENT_SECRET", label: "Client secret", placeholder: "Twitch client secret" }] },
+  { provider: "openlibrary", fields: [{ key: "OPEN_LIBRARY_CONTACT_EMAIL", label: "Contact email", placeholder: "you@example.com" }] },
+  { provider: "jikan", fields: [{ key: "MAL_JIKAN_API_ENDPOINT", label: "Endpoint", placeholder: "https://api.jikan.moe/v4/" }] },
+  { provider: "youtube", fields: [{ key: "YOUTUBE_API_KEY", label: "API key", placeholder: "Optional future key" }] },
+];
+
+function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
+  const [statuses, setStatuses] = useState<ProviderCredentialStatus[]>([]);
+  const [activeProvider, setActiveProvider] = useState<ProviderKey>("tmdb");
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState("Provider credentials are user-scoped. App-level fallback keys still work.");
+
+  const load = useCallback(async () => {
+    const data = await apiJson<{ providers: ProviderCredentialStatus[] }>("/api/settings/providers");
+    setStatuses(data.providers);
+  }, []);
+
+  useEffect(() => {
+    void load().catch(() => {});
+  }, [load]);
+
+  const activeConfig = providerCredentialFields.find((item) => item.provider === activeProvider)!;
+  const statusFor = (provider: ProviderKey) => statuses.find((item) => item.provider === provider && item.status === "active");
+
+  const save = async () => {
+    const secrets = Object.fromEntries(activeConfig.fields.map((field) => [field.key, values[field.key]?.trim()]).filter(([, value]) => value));
+    try {
+      await apiJson(`/api/settings/providers/${activeProvider}`, { method: "PUT", csrfToken, body: JSON.stringify({ label: "Default", secrets }) });
+      setValues({});
+      await load();
+      notify(`${providerNames[activeProvider]} connected.`, "success");
+      setMessage(`${providerNames[activeProvider]} saved for this account.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Provider credentials could not be saved.");
+    }
+  };
+
+  const disable = async (provider: ProviderKey) => {
+    try {
+      await apiJson(`/api/settings/providers/${provider}`, { method: "DELETE", csrfToken });
+      await load();
+      notify(`${providerNames[provider]} disabled.`, "success");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Provider could not be disabled.");
+    }
+  };
+
+  return (
+    <SettingsPanel title="Providers" description="Connect personal provider credentials for search and hydration.">
+      <div className="provider-settings-grid">
+        <div className="provider-list" role="tablist" aria-label="Metadata providers">
+          {providerCredentialFields.map(({ provider }) => {
+            const connected = Boolean(statusFor(provider));
+            return (
+              <button className={activeProvider === provider ? "active" : ""} key={provider} onClick={() => setActiveProvider(provider)}>
+                <span>{providerNames[provider]}</span>
+                <small>{connected ? "Connected" : "Fallback / not set"}</small>
+              </button>
+            );
+          })}
+        </div>
+        <form className="settings-form provider-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
+          <h3>{providerNames[activeProvider]}</h3>
+          {activeConfig.fields.map((field) => (
+            <label key={field.key}>
+              {field.label}
+              <input value={values[field.key] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.placeholder} type={field.key.toLowerCase().includes("secret") || field.key.toLowerCase().includes("key") ? "password" : "text"} />
+            </label>
+          ))}
+          <div className="action-row">
+            <button className="primary-button">Save provider</button>
+            {statusFor(activeProvider) && <button className="secondary-button" type="button" onClick={() => void disable(activeProvider)}>Disable</button>}
+          </div>
+          <p className="form-message" role="status">{message}</p>
+        </form>
+      </div>
+    </SettingsPanel>
+  );
+}
+
+function ImportExportSettingsPanel() {
+  return (
+    <SettingsPanel title="Import / Export" description="Move data into and out of Tuvu.">
+      <section className="settings-list">
+        <NavLink className="setting-row" to="/profile/import/tv-time"><div className="setting-icon"><Upload size={20} /></div><div><h2>TV Time import</h2><p>Import ZIP or individual backup files.</p></div><ChevronRight size={18} /></NavLink>
+        <SettingRow icon={<Library size={20} />} title="Account export" value="ZIP export placeholder" />
+        <SettingRow icon={<RefreshCw size={20} />} title="Restore from export" value="Restore flow placeholder" />
+      </section>
+    </SettingsPanel>
+  );
+}
+
+function BackupSettingsPanel() {
+  return (
+    <SettingsPanel title="Backup" description="Backup jobs will package database rows and user media.">
+      <section className="settings-list">
+        <SettingRow icon={<Upload size={20} />} title="Create backup" value="Supabase backup placeholder" />
+        <SettingRow icon={<RefreshCw size={20} />} title="Restore backup" value="Restore safety checks pending" />
+        <SettingRow icon={<Library size={20} />} title="Backup history" value="No backups yet" />
+      </section>
+    </SettingsPanel>
+  );
+}
+
+function StorageSettingsPanel() {
+  const [storage, setStorage] = useState<{ libraryItems: number; userUploads: number; userUploadBytes: number; globalMediaItems: number; databaseBytes: number | null; supabaseBytes: number | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiJson<{ storage: NonNullable<typeof storage> }>("/api/settings/storage").then((data) => { if (!cancelled) setStorage(data.storage); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  return (
+    <SettingsPanel title="Storage" description="Current usage estimates and future backup sizing.">
+      <section className="settings-storage-grid">
+        <Stat icon={<Library size={20} />} label="Library" value={String(storage?.libraryItems ?? 0)} />
+        <Stat icon={<Upload size={20} />} label="Uploads" value={formatBytes(storage?.userUploadBytes ?? 0)} />
+        <Stat icon={<BarChart3 size={20} />} label="Global media" value={String(storage?.globalMediaItems ?? 0)} />
+      </section>
+      <section className="settings-list">
+        <SettingRow icon={<BarChart3 size={20} />} title="Database size" value={storage?.databaseBytes == null ? "Estimate endpoint pending" : formatBytes(storage.databaseBytes)} />
+        <SettingRow icon={<Upload size={20} />} title="Supabase media size" value={storage?.supabaseBytes == null ? "Estimate endpoint pending" : formatBytes(storage.supabaseBytes)} />
+      </section>
+    </SettingsPanel>
+  );
+}
+
+function SettingsPanel({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <section className="settings-panel">
+      <div className="section-heading"><div><p className="eyebrow">Settings</p><h2>{title}</h2><p>{description}</p></div></div>
+      {children}
+    </section>
+  );
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 }
 
 function ImportPage() {

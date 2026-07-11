@@ -196,7 +196,7 @@ export function createMergeRoutes() {
     const mediaId = c.req.param("mediaId");
     const progress = await hydrationProgress(c.env.DB, mediaId);
     const activeJob = await c.env.DB.prepare(`SELECT id, status, last_error, updated_at FROM metadata_refresh_jobs
-      WHERE media_id = ? AND status IN ('queued', 'running')
+      WHERE media_id = ? AND status IN ('queued', 'running', 'stale')
       ORDER BY updated_at DESC
       LIMIT 1`)
       .bind(mediaId)
@@ -347,7 +347,7 @@ async function mergeMedia(db: D1Database, userId: string, sourceMediaId: string,
 
 async function enqueueMediaRefreshJob(db: D1Database, mediaId: string, provider: string, now: string) {
   const existing = await db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = 'media' AND status IN ('queued', 'running')
+    WHERE media_id = ? AND provider = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
     .bind(mediaId, provider)
     .first<{ id: string }>();

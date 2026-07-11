@@ -1,7 +1,9 @@
 import type { MediaType } from "@shared/media";
 import { randomId } from "./crypto";
-import { envString } from "./env";
 import { jikanSearchAnime, jikanAnimeCharacters, jikanAnimeEpisodes, igdbFetchDetails, openLibraryFetchDetails, rawgFetchDetails } from "./providers";
+import { writeProviderCache } from "./providers/provider-cache-service";
+import { providerTtls } from "./providers/provider-ttls";
+import { tmdbFetchMediaDetails } from "./providers/tmdb";
 
 let hydrationInFlight: Promise<void> | null = null;
 
@@ -34,7 +36,7 @@ export async function processHydrationJobs(env: Env) {
   while (processed < maxJobsPerRun) {
     const jobs = await db.prepare(`
       SELECT * FROM metadata_refresh_jobs
-      WHERE status = 'queued' OR (status = 'running' AND updated_at < datetime('now', '-10 minutes'))
+      WHERE status IN ('queued', 'stale') OR (status = 'running' AND updated_at < datetime('now', '-10 minutes'))
       ORDER BY created_at ASC
       LIMIT 1
     `).all<any>();
@@ -54,7 +56,7 @@ async function claimAndRunJob(env: Env, job: any) {
   const db = env.DB;
   const claim = await runD1("claim hydration job", db.prepare(`UPDATE metadata_refresh_jobs
     SET status = 'running', updated_at = ?
-    WHERE id = ? AND (status = 'queued' OR (status = 'running' AND updated_at < datetime('now', '-10 minutes')))` )
+    WHERE id = ? AND (status IN ('queued', 'stale') OR (status = 'running' AND updated_at < datetime('now', '-10 minutes')))` )
     .bind(new Date().toISOString(), job.id)
     .run());
   if (!claim.meta?.changes) return false;
@@ -70,23 +72,21 @@ async function claimAndRunJob(env: Env, job: any) {
     } else if (job.provider === "rawg") {
       await hydrateRawg(env, job);
     }
-    await runD1("delete completed/stale hydration jobs", db.prepare(`DELETE FROM metadata_refresh_jobs
-      WHERE id = ? OR (media_id = ? AND provider = ? AND scope = ? AND status = 'failed')`)
-      .bind(job.id, job.media_id, job.provider, job.scope)
+    await runD1("mark hydration job complete", db.prepare(`UPDATE metadata_refresh_jobs
+      SET status = 'complete', last_error = NULL, updated_at = ?
+      WHERE id = ?`)
+      .bind(new Date().toISOString(), job.id)
       .run());
   } catch (err) {
-    console.error(`Hydration failed for job ${job.id} (${job.provider}:${job.scope}:${job.media_id}):`, err);
+    logHydrationFailure(job, err);
     await db.prepare("UPDATE metadata_refresh_jobs SET status = 'failed', attempts = attempts + 1, last_error = ?, updated_at = ? WHERE id = ?")
-      .bind(err instanceof Error ? err.message : String(err), new Date().toISOString(), job.id).run();
+      .bind(friendlyHydrationError(err), new Date().toISOString(), job.id).run();
   }
   return true;
 }
 
 async function hydrateTmdb(env: Env, job: any) {
   const db = env.DB;
-  const key = envString(env, "TMDB_API_KEY");
-  if (!key) throw new Error("TMDB_API_KEY missing");
-
   const media = await runD1("load media for hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
   if (!media) throw new Error("Media not found");
 
@@ -96,9 +96,7 @@ async function hydrateTmdb(env: Env, job: any) {
 
   if (job.scope === "media") {
     const typePath = media.type === "movie" ? "movie" : "tv";
-    const res = await fetch(`https://api.themoviedb.org/3/${typePath}/${tmdbId}?api_key=${key}&append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos`);
-    if (!res.ok) throw new Error(`TMDB error: ${res.statusText}`);
-    const data = await res.json() as any;
+    const data = await tmdbFetchMediaDetails(env, `${typePath}/${tmdbId}?append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos`);
 
     const now = new Date();
 
@@ -115,7 +113,6 @@ async function hydrateTmdb(env: Env, job: any) {
     
     const extendedData = { cast, crew, creators, watchProviders, related, videos, externalIds: data.external_ids, rating: data.vote_average, voteCount: data.vote_count, popularity: data.popularity, genres: data.genres || [], homepage: data.homepage || null };
 
-    const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const compactCache = {
       id: data.id,
       type: media.type,
@@ -128,11 +125,7 @@ async function hydrateTmdb(env: Env, job: any) {
       voteCount: data.vote_count ?? null,
       hydratedAt: now.toISOString(),
     };
-    await runD1("cache TMDB media detail", db.prepare(`INSERT INTO provider_cache (id, provider, cache_key, response_json, status, fetched_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(provider, cache_key) DO UPDATE SET response_json=excluded.response_json, status=excluded.status, fetched_at=excluded.fetched_at, expires_at=excluded.expires_at`)
-      .bind(randomId("pc"), "tmdb", `detail:${media.id}`, JSON.stringify(compactCache), res.status, now.toISOString(), expires.toISOString())
-      .run());
+    await runD1("cache TMDB media detail", writeProviderCache(db, "tmdb", `detail:${media.id}`, compactCache, 200, providerTtls.tmdbDetail));
 
     await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
       overview = COALESCE(?, overview),
@@ -174,9 +167,7 @@ async function hydrateTmdb(env: Env, job: any) {
     const episodeLimit = 20;
     if (seasonNum == null) throw new Error("Missing season number in context");
 
-    const res = await fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${key}&append_to_response=credits,videos`);
-    if (!res.ok) throw new Error(`TMDB error: ${res.statusText}`);
-    const data = await res.json() as any;
+    const data = await tmdbFetchMediaDetails(env, `tv/${tmdbId}/season/${seasonNum}?append_to_response=credits,videos`);
 
     const now = new Date().toISOString();
     
@@ -235,7 +226,7 @@ async function runD1<T>(label: string, operation: Promise<T>) {
 async function enqueueHydrationJob(db: D1Database, mediaId: string, provider: string, scope: string, now: string, contextJson: string | null = null) {
   const existing = await runD1("find existing hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
     WHERE media_id = ? AND provider = ? AND scope = ? AND COALESCE(context_json, '') = COALESCE(?, '')
-      AND status IN ('queued', 'running')
+      AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
     .bind(mediaId, provider, scope, contextJson)
     .first<{ id: string }>());
@@ -252,7 +243,7 @@ async function enqueueSeasonHydrationJobs(db: D1Database, mediaId: string, provi
   if (uniqueSeasonNumbers.length === 0) return;
 
   const existing = await runD1("load queued season hydration jobs", db.prepare(`SELECT context_json FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = 'season' AND status IN ('queued', 'running')`)
+    WHERE media_id = ? AND provider = ? AND scope = 'season' AND status IN ('queued', 'running', 'stale')`)
     .bind(mediaId, provider)
     .all<{ context_json: string | null }>());
   const existingKeys = new Set((existing.results || []).map((row) => row.context_json ?? ""));
@@ -264,6 +255,56 @@ async function enqueueSeasonHydrationJobs(db: D1Database, mediaId: string, provi
       .bind(randomId("mrj"), mediaId, provider, now, now, contextJson)
       .run());
   }
+}
+
+export async function maybeEnqueueStaleMediaRefresh(env: Env, media: { id: string; source: string; sourceId: string | null }) {
+  if (!env.DB) return null;
+  const db = env.DB;
+  const provider = await hydrationProviderForMedia(db, media);
+  if (!provider) return null;
+
+  const freshness = await runD1("load media freshness", db.prepare("SELECT details_hydrated_at FROM media_metadata_freshness WHERE media_id = ?").bind(media.id).first<{ details_hydrated_at: string | null }>());
+  if (freshness?.details_hydrated_at && Date.now() - new Date(freshness.details_hydrated_at).getTime() < 30 * 24 * 60 * 60 * 1000) {
+    return null;
+  }
+
+  const active = await runD1("load active hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
+    WHERE media_id = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
+    LIMIT 1`).bind(media.id).first<{ id: string }>());
+  if (active) return active.id;
+
+  const now = new Date().toISOString();
+  const id = randomId("mrj");
+  await runD1("insert stale hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)")
+    .bind(id, media.id, provider, now, now)
+    .run());
+  return id;
+}
+
+async function hydrationProviderForMedia(db: D1Database, media: { id: string; source: string; sourceId: string | null }) {
+  if (media.source === "tmdb" || media.source === "igdb" || media.source === "openlibrary" || media.source === "jikan" || media.source === "rawg") return media.source;
+  const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb' LIMIT 1").bind(media.id).first<{ external_id: string }>();
+  return tmdb ? "tmdb" : null;
+}
+
+function logHydrationFailure(job: any, error: unknown) {
+  console.error(JSON.stringify({
+    event: "hydration_failed",
+    jobId: job.id,
+    mediaId: job.media_id,
+    provider: job.provider,
+    scope: job.scope,
+    message: error instanceof Error ? error.message : String(error),
+  }));
+}
+
+export function friendlyHydrationError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/rate limited|busy|429|retry/i.test(message)) return "Provider is temporarily busy. Please try refreshing again later.";
+  if (/not connected|missing|api_key/i.test(message)) return "Provider connection is missing. Add or check provider credentials in settings.";
+  if (/No TMDB ID/i.test(message)) return "This item needs a provider match before details can be refreshed.";
+  if (/not found/i.test(message)) return "Provider details could not be found for this item.";
+  return "Details could not be refreshed right now. Please try again later.";
 }
 
 function tmdbImage(path: string | null | undefined, size: string) {

@@ -855,14 +855,24 @@ Implementation notes:
 
 ### 7.5.3 Provider And Hydration Reliability
 
-- [ ] Extract provider cache service.
-- [ ] Move TMDB, IGDB/RAWG, Open Library, Jikan, and YouTube provider code into separate files.
-- [ ] Define provider TTLs in one place.
-- [ ] Add user-provider credential lookup with app fallback.
-- [ ] Add hydration job states: queued, running, complete, failed, paused, stale.
-- [ ] Add stale-while-revalidate detail behavior.
-- [ ] Add detailed server logs but friendly frontend notices.
-- [ ] Add hydration tests with mocked provider responses, 429s, stale cache, and failed jobs.
+- [x] Extract provider cache service.
+- [x] Move TMDB, IGDB/RAWG, Open Library, Jikan, and YouTube provider code into separate files.
+- [x] Define provider TTLs in one place.
+- [x] Add user-provider credential lookup with app fallback.
+- [x] Add hydration job states: queued, running, complete, failed, paused, stale.
+- [x] Add stale-while-revalidate detail behavior.
+- [x] Add detailed server logs but friendly frontend notices.
+- [x] Add hydration tests with mocked provider responses, 429s, stale cache, and failed jobs.
+
+Implementation notes:
+
+- `src/worker/providers/provider-cache-service.ts` owns provider response caching, cache writes, and retry-aware 429 errors.
+- `src/worker/providers/provider-ttls.ts` centralizes provider TTL policy.
+- `src/worker/providers/provider-credentials.ts` checks future user-scoped provider credentials first and falls back to app-level environment secrets. Until Settings writes encrypted user credentials, missing credential tables are ignored safely.
+- Provider code is split into `tmdb.ts`, `igdb-rawg.ts`, `open-library.ts`, `jikan.ts`, and `youtube.ts`, with `src/worker/providers.ts` retained as a compatibility facade.
+- `0011_phase_7_5_hydration_reliability.sql` rebuilds `metadata_refresh_jobs` to allow `queued`, `running`, `complete`, `failed`, `paused`, and `stale`, and adds the user provider credential table shell.
+- Media detail now uses stale-while-revalidate: saved details return immediately while stale/missing metadata queues a background `stale` refresh job via `ctx.waitUntil`.
+- Hydration failures now log structured server context while persisting friendly user-facing failure messages in `metadata_refresh_jobs.last_error`.
 
 ### 7.5.4 Client Query Cache And Cross-Device Revalidation
 

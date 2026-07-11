@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createMediaSchema, createSeasonSchema, createEpisodeSchema, createMediaUnitSchema } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { maybeEnqueueStaleMediaRefresh } from "./hydration";
 import { resolveMergedMediaId } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
@@ -62,6 +63,9 @@ export function createMediaRoutes() {
     const userMedia = await mediaRepo.findUserMedia(auth.user.id, media.id);
     if (c.env.DB) {
       media.extendedDataJson = await enrichRelatedMedia(c.env.DB, auth.user.id, media.extendedDataJson);
+      c.executionCtx.waitUntil(maybeEnqueueStaleMediaRefresh(c.env, media).catch((error) => {
+        console.error(JSON.stringify({ event: "stale_refresh_enqueue_failed", mediaId: media.id, message: error instanceof Error ? error.message : String(error) }));
+      }));
     }
 
     return c.json(apiSuccess({ media, userMedia, canonicalMediaId: media.id, aliasFromMediaId: resolved.aliasFromMediaId }));

@@ -622,8 +622,7 @@ function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClo
           </div>
         )}
         {(type === "book" || type === "game") && <div className="form-grid"><label>Trackable unit<select value={unitKind} onChange={(event) => setUnitKind(event.target.value as typeof unitKind)}>{type === "book" ? <><option value="chapter">Chapter</option><option value="act">Part / act</option></> : <><option value="mission">Mission</option><option value="quest">Quest</option><option value="act">Act</option></>}</select></label><label>How many (optional)<input type="number" min={0} max={200} value={unitCount} onChange={(event) => setUnitCount(Math.max(0, Number(event.target.value)))} /></label></div>}
-        {error && <span className="input-error">{error}</span>}
-        <div className="action-row">
+        {error && <span className="input-error">{error}</span>}        <div className="action-row">
           <button className="primary-button" type="submit" disabled={busy}>
             {busy ? "Creating..." : "Create & Track"}
           </button>
@@ -659,6 +658,14 @@ function AppShell() {
     }
   }, [location.pathname]);
 
+  useEffect(() => {
+    const handleFocus = () => {
+      globalSearchInputRef.current?.focus();
+    };
+    window.addEventListener("tuvu:focus-search-input", handleFocus);
+    return () => window.removeEventListener("tuvu:focus-search-input", handleFocus);
+  }, []);
+
   useLibraryVersionRevalidator(me, refresh, location.pathname);
 
   return (
@@ -679,10 +686,16 @@ function AppShell() {
             <form className="search-box" role="search" onSubmit={(event) => {
               event.preventDefault();
               const query = globalSearch.trim();
-              if (query.length >= 2) navigate(`/explore/search?q=${encodeURIComponent(query)}`);
+              if (query.length >= 2) {
+                // Blur before navigating so the mobile keyboard dismisses before
+                // the route change triggers a re-render and shows the results.
+                globalSearchInputRef.current?.blur();
+                (document.activeElement as HTMLElement | null)?.blur();
+                navigate(`/explore/search?q=${encodeURIComponent(query)}`);
+              }
             }}>
               <Search size={18} aria-hidden="true" />
-              <input ref={globalSearchInputRef} aria-label="Search media" placeholder="Search any media" value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} />
+              <input ref={globalSearchInputRef} aria-label="Search media" placeholder="Search any media" enterKeyHint="search" value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} />
               {globalSearch && <IconButton type="button" className="search-clear" label="Clear search" onClick={() => { setGlobalSearch(""); globalSearchInputRef.current?.blur(); }}><X size={14} /></IconButton>}
             </form>
             <ProfileTopButton me={me} hasNotification={false} />
@@ -801,8 +814,15 @@ function ShellNavLink({
     active = currentPath === to;
   }
 
+  const handleClick = (event: React.MouseEvent) => {
+    if (to === "/explore" && currentPath === "/explore") {
+      event.preventDefault();
+      window.dispatchEvent(new CustomEvent("tuvu:focus-search-input"));
+    }
+  };
+
   return (
-    <NavLink to={to} className={active ? "nav-link active" : "nav-link"}>
+    <NavLink to={to} className={active ? "nav-link active" : "nav-link"} onClick={handleClick}>
       <Icon size={compact ? 21 : 19} aria-hidden="true" />
       <span>{label}</span>
     </NavLink>
@@ -1787,7 +1807,7 @@ function ExploreSearchPage() {
   return (
     <AppPage eyebrow="Explore" title="Search" description="Results update live and use local cache before provider APIs." mobileHelp>
       <div className="dashboard-toolbar">
-        <div className="dashboard-search"><Search size={16} /><input autoFocus aria-label="Search all media" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search shows, movies, books, games" />{query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}</div>
+        <div className="dashboard-search"><Search size={16} /><input aria-label="Search all media" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} placeholder="Search shows, movies, books, games" />{query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}</div>
       </div>
       <div className="filter-row">
         {searchableMediaTypes.map((type) => (
@@ -1841,7 +1861,7 @@ function ExploreTypePage() {
       <div className="dashboard-toolbar">
         <div className="dashboard-search">
           <Search size={16} />
-          <input autoFocus aria-label={`Search ${type}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search discovered ${displayType.toLowerCase()}...`} />
+          <input autoFocus aria-label={`Search ${type}`} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} placeholder={`Search discovered ${displayType.toLowerCase()}...`} />
           {query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}
         </div>
       </div>

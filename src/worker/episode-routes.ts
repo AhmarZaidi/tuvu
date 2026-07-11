@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { bulkSeasonWatchedSchema, markEpisodeWatchedSchema, updateEpisodeActivitySchema } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { bumpUserLibraryVersion } from "./library-version-service";
 import { calculateProgress } from "./media-logic";
 import type { MediaRepository } from "./media-repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
@@ -51,7 +52,8 @@ export function createEpisodeRoutes() {
       );
       await mediaRepo.updateUserMediaProgress(auth.user.id, episode.mediaId, progress.watched, now);
     }
-    return c.json(apiSuccess({ activity, progress }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ activity, progress, libraryVersion }));
   });
 
   router.patch("/media/:mediaId/seasons/:seasonNumber", requireAuth(), requireCsrf(), async (c) => {
@@ -93,7 +95,8 @@ export function createEpisodeRoutes() {
     );
     await mediaRepo.updateUserMediaProgress(auth.user.id, mediaId, progress.watched, now);
     await mediaRepo.createActivityEvent({ id: randomId("act"), userId: auth.user.id, type: body.data.watched ? "season_watched" : "season_unwatched", mediaId, episodeId: null, dataJson: JSON.stringify({ seasonNumber }), createdAt: now });
-    return c.json(apiSuccess({ progress, seasonNumber, watched: body.data.watched }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ progress, seasonNumber, watched: body.data.watched, libraryVersion }));
   });
 
   // POST /api/episodes/:episodeId/watched — mark episode watched
@@ -160,7 +163,8 @@ export function createEpisodeRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ activity, progress }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ activity, progress, libraryVersion }));
   });
 
   // DELETE /api/episodes/:episodeId/watched — mark episode unwatched
@@ -217,7 +221,8 @@ export function createEpisodeRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ activity, progress }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ activity, progress, libraryVersion }));
   });
 
   return router;

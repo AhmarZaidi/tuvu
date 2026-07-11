@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { profileUpdateSchema } from "@shared/auth";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { getUserLibraryVersion } from "./library-version-service";
 import { publicProfileWithUploads, publicUser } from "./responses";
 import type { UploadRecord } from "./repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
@@ -28,6 +29,7 @@ export function createProfileRoutes(dependencies: ProfileRouteDependencies = {})
         user: publicUser(auth.user),
         profile: await publicProfileWithUploads(repository, auth.profile),
         csrfToken: auth.session.csrfToken,
+        libraryVersion: await getUserLibraryVersion(c.env.DB, auth.user.id),
       }),
     );
   });

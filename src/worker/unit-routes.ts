@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { updateUnitActivitySchema } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { bumpUserLibraryVersion } from "./library-version-service";
 import type { MediaRepository } from "./media-repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
@@ -26,7 +27,8 @@ export function createUnitRoutes() {
     const completed = body.data.completed ?? existing?.completed ?? false;
     const completedAtInput = body.data.completedAt !== undefined ? body.data.completedAt : existing?.completedAt;
     const activity = await repo.upsertUnitActivity({ id: existing?.id ?? randomId("una"), userId: auth.user.id, unitId: unit.id, mediaId: unit.mediaId, completed, completedAt: completed ? completedAtInput ?? now : null, rating: body.data.rating !== undefined ? body.data.rating : existing?.rating ?? null, notes: body.data.notes !== undefined ? body.data.notes : existing?.notes ?? null, createdAt: existing?.createdAt ?? now, updatedAt: now });
-    return c.json(apiSuccess({ activity }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ activity, libraryVersion }));
   });
   return router;
 }

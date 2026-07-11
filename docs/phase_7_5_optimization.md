@@ -876,13 +876,21 @@ Implementation notes:
 
 ### 7.5.4 Client Query Cache And Cross-Device Revalidation
 
-- [ ] Create `api/query-cache.ts`.
-- [ ] Define query keys for dashboards, media detail, explore rows, search, profile, settings.
-- [ ] Add `user_library_versions`.
-- [ ] Increment version on add/remove/status/progress/episode/unit/import/merge.
-- [ ] Revalidate on app focus, route changes, and mutation responses.
-- [ ] Remove scattered cache maps after migration.
-- [ ] Add tests for cache invalidation and stale refresh behavior.
+- [x] Create `api/query-cache.ts`.
+- [x] Define query keys for dashboards, media detail, explore rows, search, profile, settings.
+- [x] Add `user_library_versions`.
+- [x] Increment version on add/remove/status/progress/episode/unit/import/merge.
+- [x] Revalidate on app focus, route changes, and mutation responses.
+- [x] Remove scattered cache maps after migration.
+- [x] Add tests for cache invalidation and stale refresh behavior.
+
+Implementation notes:
+
+- `src/client/api/query-cache.ts` is the browser cache owner. Cache keys include user id and `libraryVersion` for dashboards, media detail, Explore rows/search, profile, and settings.
+- `0012_phase_7_5_client_cache_versions.sql` adds `user_library_versions`; `/api/me` returns the current version.
+- Library-affecting mutations bump the user version after successful add/remove/status/favorite/rating/notes/progress/movie watched, episode and season activity, unit activity, Explore add, import commit/rollback completion, and merge accept/accept-exact.
+- The app shell checks `/api/me` on focus and route changes. If the version changed, it invalidates user-scoped dashboard, detail, Explore, profile, and settings caches.
+- Import commit/rollback bumps only at final completion so large migrations do not invalidate or recalculate on every imported row.
 
 ### 7.5.5 Design System Extraction
 

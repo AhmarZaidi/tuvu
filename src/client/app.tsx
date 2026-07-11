@@ -40,7 +40,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ComponentProps, CSSProperties, FormEvent, ReactNode } from "react";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, Navigate, Outlet, Route, Routes, useParams, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
@@ -49,6 +49,7 @@ import type { MediaType } from "@shared/media";
 import { allMediaStatuses, dashboardKinds, formatStatusLabel, mediaConfigForType, navPageConfigs, searchableMediaTypes, statusOptionsForMediaType, trackableMediaTypes } from "@shared/media-config";
 import { classifyMedia } from "@shared/media-classification";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
+import { queryCache, queryKeys } from "./api/query-cache";
 import { parseTvTimeFiles } from "./tv-time-parser";
 
 type StatusTone = "watching" | "planned" | "complete" | "paused" | "stopped";
@@ -84,6 +85,7 @@ type MePayload = {
     bannerUrl: string | null;
   };
   csrfToken: string;
+  libraryVersion?: number;
 };
 
 type AuthState = {
@@ -637,7 +639,7 @@ function CreateMediaModal({ open, onClose, defaultType }: { open: boolean; onClo
 function AppShell() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [defaultType, setDefaultType] = useState<MediaType>("show");
-  const { me } = useAuth();
+  const { me, refresh } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
@@ -656,6 +658,8 @@ function AppShell() {
       globalSearchInputRef.current?.blur();
     }
   }, [location.pathname]);
+
+  useLibraryVersionRevalidator(me, refresh, location.pathname);
 
   return (
     <MediaCreationContext.Provider value={contextValue}>
@@ -1208,6 +1212,46 @@ function AnimePage() {
   return <DashboardPage kind="anime" mediaType="anime" title="Anime" description="Manage, track, and discover your anime collections." />;
 }
 
+function useLibraryVersionRevalidator(me: MePayload, refresh: () => Promise<void>, pathname: string) {
+  const lastVersionRef = useRef(libraryVersion(me));
+  const checkingRef = useRef(false);
+
+  useEffect(() => {
+    const current = libraryVersion(me);
+    if (current !== lastVersionRef.current) {
+      queryCache.invalidatePrefix(["dashboard", me.user.id]);
+      queryCache.invalidatePrefix(["media-detail", me.user.id]);
+      queryCache.invalidatePrefix(["explore-rows", me.user.id]);
+      queryCache.invalidatePrefix(["explore-search", me.user.id]);
+      queryCache.invalidatePrefix(["profile", me.user.id]);
+      queryCache.invalidatePrefix(["settings", me.user.id]);
+      lastVersionRef.current = current;
+    }
+  }, [me.user.id, me.libraryVersion]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      if (checkingRef.current) return;
+      checkingRef.current = true;
+      try {
+        await refresh();
+      } finally {
+        if (!cancelled) checkingRef.current = false;
+      }
+    };
+
+    const onFocus = () => { void check(); };
+    window.addEventListener("focus", onFocus);
+    const timer = window.setTimeout(() => { void check(); }, 100);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [pathname, refresh]);
+}
+
 function YouTubePage() {
   return (
     <AppPage eyebrow="YouTube" title="YouTube" description="Track video series, channels, and content creators." mobileHelp>
@@ -1329,56 +1373,34 @@ type DashboardCacheEntry = {
   savedAt: number;
 };
 
-const dashboardCache = new Map<string, DashboardCacheEntry>();
 const dashboardCacheTtlMs = 10 * 60_000;
 
-function dashboardCacheKey(userId: string, kind: DashboardKind) {
-  return `${userId}:${kind}`;
+function libraryVersion(me: MePayload) {
+  return me.libraryVersion ?? 1;
 }
 
-function readDashboardCache(userId: string, kind: DashboardKind) {
-  const key = dashboardCacheKey(userId, kind);
-  const memory = dashboardCache.get(key);
-  if (memory && Date.now() - memory.savedAt < dashboardCacheTtlMs) return memory;
-  try {
-    const raw = sessionStorage.getItem(`tuvu-dashboard:${key}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DashboardCacheEntry;
-    if (Date.now() - parsed.savedAt > dashboardCacheTtlMs) return null;
-    dashboardCache.set(key, parsed);
-    return parsed;
-  } catch {
-    return null;
-  }
+function readDashboardCache(userId: string, version: number, kind: DashboardKind) {
+  return queryCache.get<DashboardCacheEntry>(queryKeys.dashboard(userId, version, kind));
 }
 
-function writeDashboardCache(userId: string, kind: DashboardKind, entry: DashboardCacheEntry, persist = true) {
-  const key = dashboardCacheKey(userId, kind);
-  dashboardCache.set(key, entry);
-  if (!persist) return;
-  try {
-    sessionStorage.setItem(`tuvu-dashboard:${key}`, JSON.stringify(entry));
-  } catch {
-    // Memory cache still preserves smooth in-session navigation if storage quota is full.
-  }
+function writeDashboardCache(userId: string, version: number, kind: DashboardKind, entry: DashboardCacheEntry, persist = true) {
+  queryCache.set(queryKeys.dashboard(userId, version, kind), entry, { ttlMs: dashboardCacheTtlMs, persist });
 }
 
 function clearDashboardCaches(userId: string) {
-  dashboardKinds.forEach((kind) => {
-    const key = dashboardCacheKey(userId, kind);
-    dashboardCache.delete(key);
-    try {
-      sessionStorage.removeItem(`tuvu-dashboard:${key}`);
-    } catch {
-      // Ignore storage failures; memory cache is already cleared.
-    }
-  });
+  queryCache.invalidatePrefix(["dashboard", userId]);
+  queryCache.invalidatePrefix(["media-detail", userId]);
+  queryCache.invalidatePrefix(["explore-rows", userId]);
+  queryCache.invalidatePrefix(["explore-search", userId]);
+  queryCache.invalidatePrefix(["profile", userId]);
+  queryCache.invalidatePrefix(["settings", userId]);
 }
 
 function DashboardPage({ kind, mediaType, title, description }: { kind: DashboardKind; mediaType: MediaType; title: string; description: string }) {
   const { me } = useAuth();
   const { openCreateModal } = useMediaCreation();
-  const initialCache = useMemo(() => readDashboardCache(me.user.id, kind), [me.user.id, kind]);
+  const version = libraryVersion(me);
+  const initialCache = useMemo(() => readDashboardCache(me.user.id, version, kind), [me.user.id, version, kind]);
   const [payload, setPayload] = useState<DashboardPayload | null>(() => initialCache?.payload ?? null);
   const [searchPayload, setSearchPayload] = useState<DashboardPayload | null>(null);
   const [searching, setSearching] = useState(false);
@@ -1458,7 +1480,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
   };
 
   useEffect(() => {
-    const cached = readDashboardCache(me.user.id, kind);
+    const cached = readDashboardCache(me.user.id, version, kind);
     restoredScrollRef.current = false;
       if (cached) {
         setPayload(cached.payload);
@@ -1479,22 +1501,22 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
     setSort("updated");
     setView("grid");
     void load(0);
-  }, [me.user.id, kind]);
+  }, [me.user.id, version, kind]);
 
   useEffect(() => {
     if (!payload) return;
     const entry = { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() };
-    writeDashboardCache(me.user.id, kind, entry);
-  }, [me.user.id, kind, payload, activeSection, query, sort, view]);
+    writeDashboardCache(me.user.id, version, kind, entry);
+  }, [me.user.id, version, kind, payload, activeSection, query, sort, view]);
 
   useEffect(() => {
     const saveScroll = () => {
       if (!payload) return;
-      writeDashboardCache(me.user.id, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, false);
+      writeDashboardCache(me.user.id, version, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, false);
     };
     const persistScroll = () => {
       if (!payload) return;
-      writeDashboardCache(me.user.id, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, true);
+      writeDashboardCache(me.user.id, version, kind, { payload, activeSection, query, sort, view, scrollY: window.scrollY, savedAt: Date.now() }, true);
     };
     window.addEventListener("scroll", saveScroll, { passive: true });
     window.addEventListener("pagehide", persistScroll);
@@ -1503,7 +1525,7 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
       window.removeEventListener("scroll", saveScroll);
       window.removeEventListener("pagehide", persistScroll);
     };
-  }, [me.user.id, kind, payload, activeSection, query, sort, view]);
+  }, [me.user.id, version, kind, payload, activeSection, query, sort, view]);
 
   // Set up intersection observer for infinite scroll
   useEffect(() => {
@@ -1655,18 +1677,19 @@ type ExploreRow = {
   results: ExploreResult[];
 };
 
-const exploreRowsCache = new Map<string, { rows: ExploreRow[]; savedAt: number }>();
-const exploreSearchCache = new Map<string, { results: ExploreResult[]; savedAt: number }>();
+const exploreRowsCacheTtlMs = 15 * 60_000;
+const exploreSearchCacheTtlMs = 10 * 60_000;
 
 function ExplorePage() {
   const { me } = useAuth();
-  const [rows, setRows] = useState<ExploreRow[]>(() => exploreRowsCache.get(me.user.id)?.rows ?? []);
+  const version = libraryVersion(me);
+  const [rows, setRows] = useState<ExploreRow[]>(() => queryCache.get<{ rows: ExploreRow[] }>(queryKeys.exploreRows(me.user.id, version))?.rows ?? []);
   const [loading, setLoading] = useState(rows.length === 0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const cached = exploreRowsCache.get(me.user.id);
-    if (cached && Date.now() - cached.savedAt < 15 * 60_000) {
+    const cached = queryCache.get<{ rows: ExploreRow[] }>(queryKeys.exploreRows(me.user.id, version));
+    if (cached) {
       setRows(cached.rows);
       setLoading(false);
       return;
@@ -1677,7 +1700,7 @@ function ExplorePage() {
       .then((data) => {
         if (cancelled) return;
         setRows(data.rows);
-        exploreRowsCache.set(me.user.id, { rows: data.rows, savedAt: Date.now() });
+        queryCache.set(queryKeys.exploreRows(me.user.id, version), { rows: data.rows }, { ttlMs: exploreRowsCacheTtlMs, persist: true });
         setError(null);
       })
       .catch((reason) => {
@@ -1687,7 +1710,7 @@ function ExplorePage() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [me.user.id]);
+  }, [me.user.id, version]);
 
   return (
     <AppPage eyebrow="Explore" title="Find something good" description="Search across shows, movies, books, and games, or browse cached discovery rows." mobileHelp>
@@ -1718,6 +1741,7 @@ function ExplorePage() {
 
 function ExploreSearchPage() {
   const { me } = useAuth();
+  const version = libraryVersion(me);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQuery);
@@ -1740,9 +1764,9 @@ function ExploreSearchPage() {
       setLoading(false);
       return;
     }
-    const cacheKey = `${me.user.id}:${trimmed.toLowerCase()}:${types.join(",")}`;
-    const cached = exploreSearchCache.get(cacheKey);
-    if (cached && Date.now() - cached.savedAt < 10 * 60_000) {
+    const cacheKey = queryKeys.exploreSearch(me.user.id, version, trimmed, types);
+    const cached = queryCache.get<{ results: ExploreResult[] }>(cacheKey);
+    if (cached) {
       setResults(cached.results);
       return;
     }
@@ -1751,14 +1775,14 @@ function ExploreSearchPage() {
       apiJson<{ results: ExploreResult[] }>(`/api/explore/search?q=${encodeURIComponent(trimmed)}&types=${encodeURIComponent(types.join(","))}`)
         .then((data) => {
           setResults(data.results);
-          exploreSearchCache.set(cacheKey, { results: data.results, savedAt: Date.now() });
+          queryCache.set(cacheKey, { results: data.results }, { ttlMs: exploreSearchCacheTtlMs, persist: true });
           setError(null);
         })
         .catch((reason) => setError(reason instanceof Error ? reason.message : "Search failed."))
         .finally(() => setLoading(false));
     }, 350);
     return () => window.clearTimeout(handle);
-  }, [me.user.id, query, types]);
+  }, [me.user.id, version, query, types]);
 
   return (
     <AppPage eyebrow="Explore" title="Search" description="Results update live and use local cache before provider APIs." mobileHelp>
@@ -2383,34 +2407,27 @@ type MediaDetailCacheEntry = {
   savedAt: number;
 };
 
-const mediaDetailCache = new Map<string, MediaDetailCacheEntry>();
 const mediaDetailCacheTtlMs = 10 * 60_000;
 
-function mediaDetailCacheKey(userId: string, mediaId: string) {
-  return `${userId}:${mediaId}`;
-}
-
-function readMediaDetailCache(userId: string, mediaId?: string) {
+function readMediaDetailCache(userId: string, version: number, mediaId?: string) {
   if (!mediaId) return null;
-  const key = mediaDetailCacheKey(userId, mediaId);
-  const cached = mediaDetailCache.get(key);
-  if (cached && Date.now() - cached.savedAt < mediaDetailCacheTtlMs) return cached;
-  return null;
+  return queryCache.get<MediaDetailCacheEntry>(queryKeys.mediaDetail(userId, version, mediaId));
 }
 
-function writeMediaDetailCache(userId: string, mediaId: string, entry: MediaDetailCacheEntry) {
-  mediaDetailCache.set(mediaDetailCacheKey(userId, mediaId), entry);
+function writeMediaDetailCache(userId: string, version: number, mediaId: string, entry: MediaDetailCacheEntry, persist = false) {
+  queryCache.set(queryKeys.mediaDetail(userId, version, mediaId), entry, { ttlMs: mediaDetailCacheTtlMs, persist });
 }
 
 function clearMediaDetailCache(userId: string, mediaId?: string) {
   if (!mediaId) return;
-  mediaDetailCache.delete(mediaDetailCacheKey(userId, mediaId));
+  queryCache.invalidatePrefix(["media-detail", userId]);
 }
 
 function MediaDetailPage() {
   const { type, id } = useParams();
   const { me } = useAuth();
-  const initialCache = useMemo(() => readMediaDetailCache(me.user.id, id), [me.user.id, id]);
+  const version = libraryVersion(me);
+  const initialCache = useMemo(() => readMediaDetailCache(me.user.id, version, id), [me.user.id, version, id]);
   const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<MediaDetailData | null>(() => initialCache?.detail ?? null);
@@ -2463,7 +2480,7 @@ function MediaDetailPage() {
 
   useEffect(() => {
     if (id) {
-      const cached = readMediaDetailCache(me.user.id, id);
+      const cached = readMediaDetailCache(me.user.id, version, id);
       if (cached) {
         setDetail(cached.detail);
         setEpisodes(cached.episodes);
@@ -2476,11 +2493,11 @@ function MediaDetailPage() {
         void loadData();
       }
     }
-  }, [me.user.id, id]);
+  }, [me.user.id, version, id]);
 
   useEffect(() => {
     if (!id || !detail) return;
-    writeMediaDetailCache(me.user.id, id, {
+    writeMediaDetailCache(me.user.id, version, id, {
       detail,
       episodes,
       units,
@@ -2489,12 +2506,12 @@ function MediaDetailPage() {
       scrollY: window.scrollY,
       savedAt: Date.now(),
     });
-  }, [me.user.id, id, detail, episodes, units, notesText, collapsedSeasons]);
+  }, [me.user.id, version, id, detail, episodes, units, notesText, collapsedSeasons]);
 
   useEffect(() => {
     const saveScroll = () => {
       if (!id || !detail) return;
-      writeMediaDetailCache(me.user.id, id, {
+      writeMediaDetailCache(me.user.id, version, id, {
         detail,
         episodes,
         units,
@@ -2502,7 +2519,7 @@ function MediaDetailPage() {
         collapsedSeasons: [...collapsedSeasons],
         scrollY: window.scrollY,
         savedAt: Date.now(),
-      });
+      }, true);
     };
     window.addEventListener("scroll", saveScroll, { passive: true });
     window.addEventListener("pagehide", saveScroll);
@@ -2511,7 +2528,7 @@ function MediaDetailPage() {
       window.removeEventListener("scroll", saveScroll);
       window.removeEventListener("pagehide", saveScroll);
     };
-  }, [me.user.id, id, detail, episodes, units, notesText, collapsedSeasons]);
+  }, [me.user.id, version, id, detail, episodes, units, notesText, collapsedSeasons]);
 
   const addToLibrary = async (status?: string) => {
     if (!id || !detail) return;
@@ -4772,7 +4789,7 @@ function useMe() {
   const [me, setMe] = useState<MePayload | null>(null);
   const [loading, setLoading] = useState(true);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       setMe(await apiJson<MePayload>("/api/me"));
     } catch {
@@ -4780,7 +4797,7 @@ function useMe() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
     void refresh();

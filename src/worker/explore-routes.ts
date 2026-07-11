@@ -4,6 +4,7 @@ import { mediaTypeSchema, type MediaType } from "@shared/media";
 import { searchableMediaTypes } from "@shared/media-config";
 import { addProviderResultToLibrary } from "./media-canonical-service";
 import { apiError, apiSuccess } from "./http";
+import { bumpUserLibraryVersion } from "./library-version-service";
 import type { MediaItemRecord, MediaRepository } from "./media-repository";
 import { providerExplore, providerSearch, providerTypeExplore, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
@@ -70,7 +71,8 @@ export function createExploreRoutes() {
     const auth = c.get("auth");
     const repo = c.get("mediaRepository");
     const result = await addProviderResultToLibrary({ env: c.env, repo, userId: auth.user.id, result: body.data });
-    return c.json(apiSuccess(result), result.alreadyTracked ? 200 : 201);
+    const libraryVersion = result.alreadyTracked ? null : await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ ...result, libraryVersion }), result.alreadyTracked ? 200 : 201);
   });
 
   return router;

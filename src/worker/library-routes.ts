@@ -12,6 +12,7 @@ import {
 } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { bumpUserLibraryVersion } from "./library-version-service";
 import { defaultStatus, validateStatus } from "./media-logic";
 import type { MediaRepository } from "./media-repository";
 import { offsetPage, parseOffsetPagination } from "./pagination";
@@ -157,7 +158,8 @@ export function createLibraryRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: record, media }), 201);
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: record, media, libraryVersion }), 201);
   });
 
   // DELETE /api/library/:mediaId — remove from library
@@ -182,7 +184,8 @@ export function createLibraryRoutes() {
       createdAt: new Date().toISOString(),
     });
 
-    return c.json(apiSuccess({ ok: true }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ ok: true, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/status
@@ -227,7 +230,8 @@ export function createLibraryRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/favorite
@@ -263,7 +267,8 @@ export function createLibraryRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/rating
@@ -299,7 +304,8 @@ export function createLibraryRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/notes
@@ -325,7 +331,8 @@ export function createLibraryRoutes() {
       updatedAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   router.patch("/:mediaId/progress", requireAuth(), requireCsrf(), async (c) => {
@@ -336,7 +343,8 @@ export function createLibraryRoutes() {
     const mediaId = c.req.param("mediaId");
     if (!(await repo.findUserMedia(auth.user.id, mediaId))) return apiError(c, 404, "not_found", "This item is not in your library.");
     const updated = await repo.updateUserMediaDetailProgress(auth.user.id, mediaId, body.data.value, body.data.total ?? null, body.data.unit ?? null, body.data.platform ?? null, body.data.startedAt ?? null, body.data.purchaseLibrary ?? null, new Date().toISOString());
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/watched — movies only: set watched_at, bump rewatch
@@ -384,7 +392,8 @@ export function createLibraryRoutes() {
       createdAt: now,
     });
 
-    return c.json(apiSuccess({ userMedia: updated }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   return router;

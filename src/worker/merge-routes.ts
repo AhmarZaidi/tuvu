@@ -4,6 +4,7 @@ import type { MediaType } from "@shared/media";
 import { searchableMediaTypes } from "@shared/media-config";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { bumpUserLibraryVersion, getUserLibraryVersion } from "./library-version-service";
 import { inferAirStatus, normalizeTitle, resolveOrCreateProviderCanonicalMedia } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
 import { parseOffsetPagination } from "./pagination";
@@ -120,7 +121,8 @@ export function createMergeRoutes() {
     if (!targetMediaId) return apiError(c, 400, "validation_failed", "Merge needs a target media item.");
     const result = await mergeMedia(c.env.DB, auth.user.id, body.data.sourceMediaId, targetMediaId, body.data.confidence ?? "manual", body.data.reason ?? "Accepted from merge review.");
     c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
-    return c.json(apiSuccess(result));
+    const libraryVersion = result.merged ? await bumpUserLibraryVersion(c.env.DB, auth.user.id) : await getUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ ...result, libraryVersion }));
   });
 
   router.post("/accept-exact", requireAuth(), requireCsrf(), async (c) => {
@@ -134,7 +136,9 @@ export function createMergeRoutes() {
       results.push(await mergeMedia(c.env.DB, auth.user.id, candidate.source.localMediaId, candidate.candidate!.localMediaId!, candidate.confidence, candidate.reason));
     }
     c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
-    return c.json(apiSuccess({ merged: results.length, results }));
+    const merged = results.filter((result) => result.merged).length;
+    const libraryVersion = merged > 0 ? await bumpUserLibraryVersion(c.env.DB, auth.user.id) : await getUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ merged, results, libraryVersion }));
   });
 
   router.post("/resolve-batch", requireAuth(), requireCsrf(), async (c) => {

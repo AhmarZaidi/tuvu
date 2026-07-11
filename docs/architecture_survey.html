@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tuvu - Architectural Survey</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;700&display=swap" rel="stylesheet">
+    <!-- Mermaid.js for Diagrams -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#1e1e2d',
+                primaryTextColor: '#f0f0f5',
+                primaryBorderColor: '#6366f1',
+                lineColor: '#6366f1',
+                secondaryColor: '#2a2a3c',
+                tertiaryColor: '#14141d',
+                fontFamily: 'Inter, sans-serif'
+            },
+            fontFamily: 'Inter, sans-serif'
+        });
+    </script>
     <style>
         :root {
             --bg-base: #0a0a0f;
@@ -80,7 +98,7 @@
         .content {
             margin-left: var(--sidebar-width);
             padding: 3rem 4rem;
-            max-width: 1200px;
+            max-width: 1400px;
             width: 100%;
         }
 
@@ -150,19 +168,21 @@
             color: var(--accent-primary);
         }
 
-        /* Diagrams & Grids */
+        /* Diagram Containers */
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2rem 0;
+            padding: 2rem;
+            background: var(--bg-surface-elevated);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow-x: auto;
+        }
+
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
         .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
-
-        .diagram-box {
-            background: var(--bg-surface-elevated);
-            padding: 1.5rem;
-            border-radius: 12px;
-            border: 1px dashed var(--accent-secondary);
-            text-align: center;
-            font-family: monospace;
-            color: #d1d5db;
-        }
 
         .badge {
             display: inline-block;
@@ -232,10 +252,11 @@
         <ul class="nav-links">
             <li><a href="#overview">Overview & Hosting</a></li>
             <li><a href="#architecture">System Architecture</a></li>
+            <li><a href="#usecases">System Use Cases</a></li>
             <li><a href="#database">Database Schema Map</a></li>
             <li><a href="#apis">APIs & Integrations</a></li>
             <li><a href="#data-flow">Data Strategy & Flows</a></li>
-            <li><a href="#caching">Caching & Loading</a></li>
+            <li><a href="#caching">Caching & Loading Flow</a></li>
             <li><a href="#codebase">Codebase Mapping</a></li>
             <li><a href="#optimization">Optimization & Consolidation</a></li>
         </ul>
@@ -266,7 +287,7 @@
                     <p>The architecture is intentionally bounded by Free-tier limits:</p>
                     <ul class="custom-list">
                         <li><strong>Cloudflare D1:</strong> SQLite limits apply. Heavy aggregations (dashboard stats) must not be computed per-request.</li>
-                        <li><strong>Supabase Storage:</strong> Free tier limits to 1 GB storage and 5 GB egress. File limits are capped (50MB total, but Avatars bounded to ~2MB, Banners ~5MB). Media caches must be easily evictable.</li>
+                        <li><strong>Supabase Storage:</strong> Free tier limits to 1 GB storage and 5 GB egress. File limits are capped. Media caches must be easily evictable.</li>
                         <li><strong>Workers Execution:</strong> External API hydration must be asynchronous (<code>ctx.waitUntil</code>) to avoid exceeding request timeouts or blocking UI.</li>
                     </ul>
                 </div>
@@ -275,19 +296,77 @@
 
         <!-- System Architecture -->
         <section id="architecture" style="animation-delay: 0.2s">
-            <h2>System Architecture</h2>
+            <h2>High-Level System Architecture</h2>
             <div class="card">
-                <h3>High-Level Topology</h3>
-                <div class="diagram-box" style="margin-bottom: 2rem; padding: 2.5rem 1rem;">
-                    [ React Client (Browser) ] <br>
-                    ↓ (REST / JSON) ↓ <br>
-                    [ Cloudflare Static Assets (SPA Fallback) ] <br>
-                    ↓ ( /api/* routes ) ↓ <br>
-                    [ Hono Worker (Cloudflare) ] <br>
-                    ↙ &nbsp; ↓ &nbsp; ↘ <br>
-                    [ D1 SQLite ] &nbsp; [ Supabase Storage ] &nbsp; [ External Providers ]
+                <p>The client leverages <strong>React Query / Zustand</strong> for UI state and cache, fetching from the Hono Worker. The worker validates Auth (Passkeys/OAuth via session cookies), retrieves data from <strong>D1</strong>, and proxies/hydrates missing metadata from <strong>External APIs</strong> using a Stale-While-Revalidate pattern.</p>
+                
+                <div class="mermaid">
+                flowchart TD
+                    User([User Device])
+                    
+                    subgraph Cloudflare Edge
+                        Static[Static Assets<br>SPA Fallback]
+                        Worker[Hono Worker API<br>Gateway & Logic]
+                    end
+                    
+                    subgraph Cloudflare Data
+                        D1[(D1 SQLite<br>Primary DB)]
+                    end
+                    
+                    subgraph Supabase
+                        Storage[(Supabase Storage<br>Avatars & Media Cache)]
+                    end
+                    
+                    subgraph Third-Party Providers
+                        TMDB[TMDB API]
+                        RAWG[RAWG API]
+                        OpenLib[Open Library API]
+                        Jikan[Jikan / MAL]
+                        News[NewsAPI]
+                    end
+                    
+                    User -->|Serves React App| Static
+                    User -->|REST /api/*| Worker
+                    Worker -->|Read/Write/Migrate| D1
+                    Worker -->|Upload/Serve Images| Storage
+                    Worker -->|Hydrate/Cache| TMDB
+                    Worker -->|Hydrate/Cache| RAWG
+                    Worker -->|Hydrate/Cache| OpenLib
+                    Worker -->|Hydrate/Cache| Jikan
+                    Worker -->|Hydrate/Cache| News
                 </div>
-                <p>The client leverages <strong>React Query / Zustand</strong> for UI state and cache, fetching from the Hono Worker. The worker validates Auth (Passkeys/OAuth via session cookies), retrieves data from <strong>D1</strong>, and proxies/hydrates missing metadata from <strong>External APIs</strong> (TMDB, RAWG, etc.) using a Stale-While-Revalidate caching pattern.</p>
+            </div>
+        </section>
+
+        <!-- Use Cases -->
+        <section id="usecases" style="animation-delay: 0.25s">
+            <h2>System Use Cases</h2>
+            <div class="card">
+                <div class="mermaid">
+                flowchart LR
+                    User([User])
+                    
+                    subgraph Tuvu Web App
+                        Auth[Authenticate via Passkey/OAuth]
+                        Explore[Search & Explore Media]
+                        Add[Add Canonical Media to Library]
+                        Track[Track Progress, Episodes, Units]
+                        Import[Import TV Time CSV/ZIP]
+                        Merge[Resolve & Merge Placeholders]
+                        Settings[Manage Settings & API Keys]
+                        Dash[View Dashboards & Stats]
+                    end
+                    
+                    User --> Auth
+                    User --> Explore
+                    Explore --> Add
+                    User --> Dash
+                    User --> Track
+                    User --> Import
+                    Import -.->|Creates Placeholders| Merge
+                    User --> Merge
+                    User --> Settings
+                </div>
             </div>
         </section>
 
@@ -296,40 +375,100 @@
             <h2>Database Schema Map</h2>
             <p style="margin-bottom: 1.5rem; color: var(--text-secondary)">Cloudflare D1 acts as the single source of truth. The schema is highly normalized to support imports without requiring perfect external metadata immediately.</p>
             
+            <div class="card">
+                <div class="mermaid">
+                erDiagram
+                    USERS {
+                        string id PK
+                    }
+                    USER_PROFILES {
+                        string user_id FK
+                    }
+                    SESSIONS {
+                        string id PK
+                        string user_id FK
+                    }
+                    MEDIA_ITEMS {
+                        string id PK
+                        string type
+                        string title
+                        string normalized_title
+                    }
+                    MEDIA_EXTERNAL_IDS {
+                        string media_id FK
+                        string provider
+                        string external_id
+                    }
+                    MEDIA_METADATA {
+                        string media_id FK
+                    }
+                    USER_MEDIA {
+                        string user_id FK
+                        string media_id FK
+                        string status
+                        int progress_episodes
+                    }
+                    EPISODE_ACTIVITY {
+                        string user_id FK
+                        string episode_id FK
+                    }
+                    SEASONS {
+                        string id PK
+                        string media_id FK
+                    }
+                    EPISODES {
+                        string id PK
+                        string season_id FK
+                    }
+                    IMPORT_JOBS {
+                        string id PK
+                        string user_id FK
+                        string status
+                    }
+                    PROVIDER_CACHE {
+                        string provider PK
+                        string cache_key PK
+                        string response_json
+                    }
+                    USER_STATS_SNAPSHOTS {
+                        string user_id FK
+                        string scope
+                    }
+                    USER_LIBRARY_VERSIONS {
+                        string user_id FK
+                        int version
+                    }
+                    
+                    USERS ||--o| USER_PROFILES : has
+                    USERS ||--o{ SESSIONS : authenticates
+                    USERS ||--o{ USER_MEDIA : tracks
+                    USERS ||--o{ USER_STATS_SNAPSHOTS : caches
+                    USERS ||--o| USER_LIBRARY_VERSIONS : invalidates
+                    
+                    MEDIA_ITEMS ||--o| MEDIA_METADATA : contains
+                    MEDIA_ITEMS ||--o{ MEDIA_EXTERNAL_IDS : maps_to
+                    MEDIA_ITEMS ||--o{ SEASONS : contains
+                    SEASONS ||--o{ EPISODES : contains
+                    
+                    USER_MEDIA }|--|| MEDIA_ITEMS : tracks_media
+                    USER_MEDIA ||--o{ EPISODE_ACTIVITY : logs_activity
+                    
+                    USERS ||--o{ IMPORT_JOBS : runs
+                </div>
+            </div>
+
             <div class="grid-3">
                 <div class="card">
                     <h3>Auth & Identity</h3>
-                    <span class="badge">users</span> <span class="badge">sessions</span>
-                    <span class="badge">user_profiles</span> <span class="badge">auth_passwords</span>
-                    <span class="badge">oauth_accounts</span> <span class="badge">webauthn_credentials</span>
                     <p style="margin-top: 1rem; font-size: 0.9rem;">Uses secure HTTP-only cookies. Supports Passkeys as primary, OAuth (GitHub) as convenience.</p>
                 </div>
                 <div class="card">
                     <h3>Global Media Catalog</h3>
-                    <span class="badge">media_items</span> <span class="badge">media_external_ids</span>
-                    <span class="badge">media_metadata</span> <span class="badge">media_images</span>
-                    <span class="badge">seasons</span> <span class="badge">episodes</span>
-                    <span class="badge">media_units</span> <span class="badge">people</span>
                     <p style="margin-top: 1rem; font-size: 0.9rem;"><strong>Canonical strategy:</strong> One global item per real-world object. Provider data is mapped to these rows.</p>
                 </div>
                 <div class="card">
                     <h3>User Tracking</h3>
-                    <span class="badge">user_media</span> <span class="badge">episode_activity</span>
-                    <span class="badge">unit_activity</span> <span class="badge">activity_events</span>
                     <p style="margin-top: 1rem; font-size: 0.9rem;">Strictly user-scoped. Tracks status, favorites, ratings, notes, platform choices, and append-only activity logs.</p>
-                </div>
-                <div class="card">
-                    <h3>Import & Hydration</h3>
-                    <span class="badge warning">import_jobs</span> <span class="badge warning">import_job_items</span>
-                    <span class="badge warning">provider_cache</span> <span class="badge warning">metadata_refresh_jobs</span>
-                    <p style="margin-top: 1rem; font-size: 0.9rem;">Tracks async TV Time import chunking and external metadata hydration freshness.</p>
-                </div>
-                <div class="card">
-                    <h3>Future 7.5 Additions</h3>
-                    <span class="badge success">user_provider_credentials</span>
-                    <span class="badge success">user_library_versions</span>
-                    <span class="badge success">user_stats_snapshots</span>
-                    <p style="margin-top: 1rem; font-size: 0.9rem;">Supports encrypted user API keys, cross-device cache invalidation, and pre-calculated dashboard stats.</p>
                 </div>
             </div>
         </section>
@@ -377,18 +516,6 @@
                 </table>
                 <p style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.9rem;"><strong>Strategy:</strong> Provider credentials will move from app-level <code>.dev.vars</code> to user-scoped encrypted rows in 7.5, with app secrets as a fallback.</p>
             </div>
-
-            <div class="card">
-                <h3>Internal Hono Endpoints (Worker)</h3>
-                <ul class="custom-list">
-                    <li><code>/api/auth/*</code> - Passkey / OAuth / Session handling.</li>
-                    <li><code>/api/media/*</code> - Detail retrieval, episode guides, unit tracking, cover uploads.</li>
-                    <li><code>/api/library/*</code> - User mutations (add/remove, rating, status). <em>7.5 moves stats calculation away from here to a batch snapshot service.</em></li>
-                    <li><code>/api/explore/*</code> - Search bridging local DB and Provider Caches.</li>
-                    <li><code>/api/import/*</code> - TV Time ZIP/CSV uploads, chunk processing, commits, and rollbacks.</li>
-                    <li><code>/api/merge/*</code> - Alias resolution for manually created/imported items vs canonical provider items.</li>
-                </ul>
-            </div>
         </section>
 
         <!-- Data Flows -->
@@ -425,7 +552,6 @@
                         <li>Users can manually create media if search fails.</li>
                         <li>Creates a <code>media_source_records</code> entry mapping to a canonical ID.</li>
                         <li><strong>Auth Strategy:</strong> All mutation routes require valid HTTP-only cookies validated via <code>auth-repository</code>.</li>
-                        <li><strong>Future Social:</strong> Placeholder tables exist for Comments & Reactions.</li>
                     </ul>
                 </div>
             </div>
@@ -433,7 +559,40 @@
 
         <!-- Caching & Loading -->
         <section id="caching" style="animation-delay: 0.6s">
-            <h2>Caching & Loading Strategies</h2>
+            <h2>Caching & Loading Flow</h2>
+            <div class="card">
+                <div class="mermaid">
+                sequenceDiagram
+                    actor Client
+                    participant QueryCache as Client Query Cache
+                    participant Worker as Hono Worker
+                    participant ProviderCache as D1 provider_cache
+                    participant D1 as D1 Media Tables
+                    participant External as External Provider
+                    
+                    Client->>QueryCache: Request Media Detail (version X)
+                    alt Cache Hit (Valid Version)
+                        QueryCache-->>Client: Render UI Instantly
+                    else Cache Miss / Stale Version
+                        QueryCache->>Worker: GET /api/media/:id
+                        Worker->>D1: Fetch Canonical Media & Tracking
+                        D1-->>Worker: Return Local Data
+                        
+                        Worker->>ProviderCache: Check Provider Cache Freshness
+                        alt Fresh
+                            ProviderCache-->>Worker: Return Cached Metadata
+                            Worker-->>QueryCache: Return Full Data
+                        else Stale or Missing
+                            Worker-->>QueryCache: Return Local Data immediately (SWR)
+                            Worker->>External: Background Fetch (ctx.waitUntil)
+                            External-->>Worker: Return JSON
+                            Worker->>ProviderCache: Update Cache
+                            Worker->>D1: Update Canonical Global Metadata
+                        end
+                        QueryCache-->>Client: Update UI
+                    end
+                </div>
+            </div>
             
             <div class="grid-2">
                 <div class="card">
@@ -441,7 +600,6 @@
                     <span class="badge warning">Stale-While-Revalidate</span>
                     <ul class="custom-list" style="margin-top: 1rem">
                         <li><strong>provider_cache:</strong> Saves raw provider JSON to bypass rate limits (429s).</li>
-                        <li><strong>media_metadata_freshness:</strong> Tracks detail/episode hydration expiry.</li>
                         <li>If a media page is requested and metadata is stale, the Worker returns the cached D1 data immediately and uses <code>ctx.waitUntil</code> to trigger a background refresh.</li>
                     </ul>
                 </div>
@@ -449,53 +607,68 @@
                     <h3>Client-Side Strategy</h3>
                     <span class="badge success">Version-Based Invalidation</span>
                     <ul class="custom-list" style="margin-top: 1rem">
-                        <li><strong>Phase 7.5 Query Cache:</strong> Moving away from ad-hoc maps to a formal query cache (<code>api/query-cache.ts</code>).</li>
+                        <li><strong>Phase 7.5 Query Cache:</strong> Moving away from ad-hoc maps to a formal query cache.</li>
                         <li><strong>Library Versions:</strong> Each user mutation bumps a <code>user_library_versions.version</code> in D1.</li>
-                        <li>Client checks version on window focus or mutation return; if bumped, it invalidates local caches (Dashboards, Detail pages) ensuring cross-device sync.</li>
+                        <li>Client checks version on window focus or mutation return; if bumped, it invalidates local caches ensuring cross-device sync.</li>
                     </ul>
                 </div>
-            </div>
-
-            <div class="card">
-                <h3>UI Loading & Notices</h3>
-                <p>Loading states rely entirely on client-side rendering logic.</p>
-                <ul class="custom-list" style="margin-top: 1rem; color: var(--text-secondary);">
-                    <li><strong>Skeletons:</strong> <code>SkeletonGrid</code> and inline skeletons used while React Query fetches data.</li>
-                    <li><strong>Global Snackbar:</strong> Dedupes identical error/success notices, replacing page-local <code>Toast</code> components (7.5 refactor).</li>
-                    <li><strong>Job Banners:</strong> Persistent <code>JobProgressBanner</code> used for long-running imports/merges instead of ephemeral toasts.</li>
-                </ul>
             </div>
         </section>
 
         <!-- Codebase & Optimization -->
         <section id="codebase" style="animation-delay: 0.7s">
-            <h2>Codebase Mapping & 7.5 Optimization</h2>
+            <h2>Codebase Mapping & 7.5 Refactoring Flow</h2>
             
             <div class="card">
-                <h3>The "Monolith" Problem (Pre-7.5)</h3>
-                <p>The app developed rapid feature bloat resulting in significant duplication:</p>
-                <ul class="custom-list" style="margin-top: 1rem;">
-                    <li><strong>Client Monolith:</strong> <code>src/client/app.tsx</code> contains Routing, App Shell, Fetching, Dashboard logic, and Media detail layouts.</li>
-                    <li><strong>CSS Drift:</strong> <code>src/client/styles.css</code> has hard-coded colors and duplicate light/system theme rules.</li>
-                    <li><strong>Worker Monolith:</strong> <code>media-repository.ts</code> handles catalog, library, dashboard count SQL, and activity.</li>
-                    <li><strong>Ad-Hoc Stats:</strong> Dashboard counts (Shows vs Anime) are recalculated dynamically on every request.</li>
-                </ul>
+                <p style="margin-bottom: 2rem;">The app developed rapid feature bloat resulting in significant duplication. Phase 7.5 actively fragments these monoliths into highly cohesive domain modules.</p>
+                
+                <div class="mermaid">
+                flowchart TB
+                    subgraph Client [Client Codebase (Vite / React)]
+                        direction TB
+                        AppMonolith[app.tsx - Monolithic Router, State, UI]
+                        CSSMonolith[styles.css - Hardcoded Monolith]
+                        
+                        subgraph Client_Target [Phase 7.5 Target Architecture]
+                            direction LR
+                            Design[design/ : Tokens, UI Primitives]
+                            Domain[domain/ : MediaTypeConfig Registry]
+                            Features[features/ : Library, Explore, Media Detail]
+                            API_Cache[api/query-cache.ts]
+                        end
+                        
+                        AppMonolith -.->|Decoupling into| Client_Target
+                        CSSMonolith -.->|Migrating to| Design
+                    end
+                    
+                    subgraph Worker [Worker Codebase (Hono)]
+                        direction TB
+                        RepoMonolith[media-repository.ts - Monolithic SQL & Logic]
+                        AppWorker[app.ts - Route Registration]
+                        
+                        subgraph Worker_Target [Phase 7.5 Target Architecture]
+                            direction LR
+                            Routes[routes/ : Auth, Media, Library]
+                            Services[services/ : Canonical, Stats]
+                            Repos[repositories/ : SQL Row Mapping]
+                            Providers[providers/ : TMDB, RAWG]
+                        end
+                        
+                        RepoMonolith -.->|Decoupling into| Worker_Target
+                        AppWorker -.->|Routing to| Routes
+                        Routes --> Services
+                        Services --> Repos
+                        Services --> Providers
+                    end
+                </div>
             </div>
 
             <div class="card" style="border-color: var(--accent-secondary)">
-                <h3>Phase 7.5 Restructuring Plan</h3>
-                <p>The codebase is actively being fragmented into highly cohesive domain modules.</p>
-                
+                <h3>Key Consolidation Points</h3>
                 <h4 style="margin-top: 1.5rem; margin-bottom: 0.5rem; color: var(--accent-primary)">1. Shared Domain Definitions</h4>
                 <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Media types (Shows, Anime, Books, Games, Movies) are centralized into a <code>MediaTypeConfig</code> registry to prevent scattered `if/switch` statements across client & API.</p>
                 
-                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">2. Client Architecture (Design System)</h4>
-                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Moving to <code>features/</code> (auth, profile, library), <code>design/</code> (tokens, UI components like Button, Sheet, Snackbar), and <code>shell/</code>. CSS is moving to CSS Variables (Tokens) to easily support future themes and compactness settings.</p>
-
-                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">3. Worker Architecture (Services/Repos)</h4>
-                <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 1rem;">Routes validate input. <strong>Services</strong> (<code>media-canonical-service</code>, <code>stats-service</code>, <code>hydration-service</code>) own orchestration. <strong>Repositories</strong> own SQL. Provider fetches are isolated into <code>tmdb.ts</code>, <code>rawg.ts</code>, etc.</p>
-
-                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">4. Batched Stats</h4>
+                <h4 style="margin-top: 1rem; margin-bottom: 0.5rem; color: var(--accent-primary)">2. Batched Stats</h4>
                 <p style="color: var(--text-secondary); font-size: 0.95rem;">Moving away from real-time paginated counts. Import/Merge flows now trigger a batched recalculation saved to <code>user_stats_snapshots</code>.</p>
             </div>
         </section>

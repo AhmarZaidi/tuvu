@@ -2508,6 +2508,7 @@ function MediaDetailPage() {
   const [episodeAction, setEpisodeAction] = useState<{ type: "episode"; episode: EpisodeWithActivity } | { type: "season"; seasonNumber: number; watchedCount: number; totalCount: number } | null>(null);
   const [hydrationProgress, setHydrationProgress] = useState<HydrationProgress | null>(null);
   const autoHydrateRef = useRef(new Set<string>());
+  const hydrationNoticeRef = useRef<string | null>(null);
 
   const triggerToast = (msg: string, tone: NoticeTone = "info") => notify(msg, tone);
 
@@ -2842,7 +2843,12 @@ function MediaDetailPage() {
     if (!id) return null;
     try {
       const status = await apiJson<{ job: { id: string; status: string; last_error: string | null; updated_at: string } | null; progress: HydrationProgress }>(`/api/merge/${id}/refresh-status`);
-      setHydrationProgress(status.progress);
+      const isActive = status.progress.status === "refreshing" || status.progress.activeJobs > 0 || status.progress.runningJobs > 0 || status.progress.queuedJobs > 0;
+      setHydrationProgress(isActive ? status.progress : null);
+      if (!isActive && status.progress.status === "needs_retry" && hydrationNoticeRef.current !== status.progress.status) {
+        hydrationNoticeRef.current = status.progress.status;
+        notify("Some details could not be refreshed. You can retry from media settings.", "info");
+      }
       return status.progress;
     } catch {
       return null;
@@ -3122,7 +3128,7 @@ function MediaDetailPage() {
       {(media.type === "show" || media.type === "anime") && (episodes.length > 0 || hydrationProgress) && (
         <section className="episodes-section">
           <div className="section-heading"><div><p className="eyebrow">Episode guide</p><h2>Seasons & Episodes</h2></div><span>{watchedRegularCount} of {totalRegularCount} watched</span></div>
-          {hydrationProgress && <EpisodeGuideProgress progress={hydrationProgress} onRefresh={() => void loadHydrationProgress()} />}
+          {hydrationProgress && <EpisodeGuideProgress progress={hydrationProgress} />}
           {episodes.length === 0 ? (
             <EmptyState icon={<RefreshCw size={24} />} title="Episode guide is being prepared" message="Episode details will appear here as provider data is loaded." />
           ) : <div className="season-stack">
@@ -3428,29 +3434,15 @@ function isAnimeMedia(media: MediaDetailData["media"]) {
   }).isAnime;
 }
 
-function EpisodeGuideProgress({ progress, onRefresh }: { progress: HydrationProgress; onRefresh: () => void }) {
+function EpisodeGuideProgress({ progress }: { progress: HydrationProgress }) {
   const isRefreshing = progress.status === "refreshing" || progress.activeJobs > 0;
   const label = progress.totalEpisodes > 0
     ? `${progress.hydratedEpisodes} of ${progress.totalEpisodes} episode details loaded`
-    : isRefreshing
-      ? "Preparing episode guide"
-      : "Episode guide metadata has not started yet";
-  const detail = isRefreshing
-    ? `${progress.runningJobs ? "Updating now" : "Waiting"}${progress.queuedJobs ? `, ${progress.queuedJobs} batch${progress.queuedJobs === 1 ? "" : "es"} queued` : ""}`
-    : progress.status === "needs_retry"
-      ? "Some details could not be refreshed. You can retry from media settings."
-      : "Saved details will be reused until they need refreshing.";
+    : "Preparing episode guide";
+  const detail = `${progress.runningJobs ? "Updating now" : "Waiting"}${progress.queuedJobs ? `, ${progress.queuedJobs} batch${progress.queuedJobs === 1 ? "" : "es"} queued` : ""}`;
 
-  return (
-    <div className={isRefreshing ? "episode-guide-progress active" : "episode-guide-progress"}>
-      <div>
-        <strong>{label}</strong>
-        <span>{detail}</span>
-      </div>
-      <ProgressBar value={Math.max(0, Math.min(100, progress.percent))} label={`${progress.percent}% metadata loaded`} />
-      <button className="secondary-button" onClick={onRefresh}>{isRefreshing ? "Update progress" : "Check status"}</button>
-    </div>
-  );
+  if (!isRefreshing) return null;
+  return <LoadingPanel title={label} message={detail} progress={Math.max(0, Math.min(100, progress.percent))} />;
 }
 
 function mediaNeedsHydration(media: MediaDetailData["media"], episodes: EpisodeWithActivity[]) {
@@ -3935,6 +3927,7 @@ const navigationChoices = navItems.filter((item) => item.label !== "Explore").ma
 
 function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
   const [items, setItems] = useState<string[]>(["shows", "anime", "movies", "books", "games"]);
+  const [draggedItem, setDraggedItem] = useState<string | null>(null);
   const [message, setMessage] = useState("Choose 2 to 6 navigation items. Explore is always available.");
 
   useEffect(() => {
@@ -3964,17 +3957,15 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
     });
   };
 
-  const move = (id: string, direction: -1 | 1) => {
+  const moveTo = (id: string, targetId: string) => {
     setItems((current) => {
       const index = current.indexOf(id);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const nextIndex = current.indexOf(targetId);
+      if (index < 0 || nextIndex < 0 || index === nextIndex) return current;
       const next = [...current];
-      const currentItem = next[index];
-      const targetItem = next[nextIndex];
-      if (!currentItem || !targetItem) return current;
-      next[index] = targetItem;
-      next[nextIndex] = currentItem;
+      const [moved] = next.splice(index, 1);
+      if (!moved) return current;
+      next.splice(nextIndex, 0, moved);
       return next;
     });
   };
@@ -3992,33 +3983,44 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
 
   return (
     <SettingsPanel title="Navigation" description="Choose what appears in your personal media nav.">
-      <div className="settings-choice-grid">
+      <div className="nav-settings-bar" aria-label="Choose navigation items">
         {navigationChoices.map(({ id, label, icon: Icon }) => (
-          <button className={items.includes(id) ? "settings-choice active" : "settings-choice"} key={id} onClick={() => toggle(id)} aria-pressed={items.includes(id)}>
+          <button className={items.includes(id) ? "nav-settings-icon active" : "nav-settings-icon"} key={id} onClick={() => toggle(id)} aria-pressed={items.includes(id)} title={label}>
             <Icon size={18} aria-hidden="true" />
-            <span>{label}</span>
           </button>
         ))}
-        <article className="settings-choice locked">
+        <article className="nav-settings-icon locked" title="Explore is always available">
           <Compass size={18} aria-hidden="true" />
-          <span>Explore</span>
         </article>
       </div>
-      <section className="nav-order-list" aria-label="Navigation order">
+      <section className="nav-settings-bar nav-order-preview" aria-label="Drag selected navigation items to reorder">
         {items.map((id, index) => {
           const choice = navigationChoices.find((item) => item.id === id);
           if (!choice) return null;
           const Icon = choice.icon;
           return (
-            <article className="nav-order-item" key={id}>
-              <span><Icon size={17} aria-hidden="true" />{choice.label}</span>
-              <div>
-                <IconButton label={`Move ${choice.label} left`} disabled={index === 0} onClick={() => move(id, -1)}><ChevronDown size={16} style={{ transform: "rotate(90deg)" }} /></IconButton>
-                <IconButton label={`Move ${choice.label} right`} disabled={index === items.length - 1} onClick={() => move(id, 1)}><ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} /></IconButton>
-              </div>
-            </article>
+            <button
+              className={draggedItem === id ? "nav-settings-icon ordered dragging" : "nav-settings-icon ordered"}
+              draggable
+              key={id}
+              onDragStart={() => setDraggedItem(id)}
+              onDragEnd={() => setDraggedItem(null)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                if (draggedItem) moveTo(draggedItem, id);
+                setDraggedItem(null);
+              }}
+              title={`Drag to reorder ${choice.label}`}
+            >
+              <Icon size={18} aria-hidden="true" />
+              <small>{index + 1}</small>
+            </button>
           );
         })}
+        <article className="nav-settings-icon locked ordered" title="Explore is always inserted automatically">
+          <Compass size={18} aria-hidden="true" />
+        </article>
       </section>
       <div className="action-row">
         <button className="primary-button" onClick={() => void save()}>Save navigation</button>

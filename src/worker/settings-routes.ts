@@ -128,10 +128,20 @@ export function createSettingsRoutes() {
     const payload = await buildBackupPayload(c.env.DB, auth.user.id, now);
     const payloadJson = JSON.stringify(payload);
     const id = randomId("bak");
-    await c.env.DB.prepare("INSERT INTO user_backups (id, user_id, label, status, payload_json, byte_size, created_at, updated_at) VALUES (?, ?, ?, 'complete', ?, ?, ?, ?)")
-      .bind(id, auth.user.id, `Backup ${now.slice(0, 10)}`, payloadJson, new TextEncoder().encode(payloadJson).byteLength, now, now)
+    const chunks = chunkText(payloadJson, 180_000);
+    const byteSize = new TextEncoder().encode(payloadJson).byteLength;
+    const manifest = JSON.stringify({ version: 1, storage: "chunks", chunkCount: chunks.length, exportedAt: now });
+    await c.env.DB.prepare("INSERT INTO user_backups (id, user_id, label, status, payload_json, byte_size, created_at, updated_at) VALUES (?, ?, ?, 'failed', ?, ?, ?, ?)")
+      .bind(id, auth.user.id, `Backup ${now.slice(0, 10)}`, manifest, byteSize, now, now)
       .run();
-    return c.json(apiSuccess({ backup: { id, label: `Backup ${now.slice(0, 10)}`, status: "complete", byteSize: new TextEncoder().encode(payloadJson).byteLength, createdAt: now, updatedAt: now } }), 201);
+    if (chunks.length) {
+      await c.env.DB.batch(chunks.map((chunk, index) => c.env.DB.prepare("INSERT INTO user_backup_chunks (id, backup_id, chunk_index, payload_chunk, byte_size, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(randomId("bch"), id, index, chunk, new TextEncoder().encode(chunk).byteLength, now)));
+    }
+    await c.env.DB.prepare("UPDATE user_backups SET status = 'complete', updated_at = ? WHERE id = ? AND user_id = ?")
+      .bind(now, id, auth.user.id)
+      .run();
+    return c.json(apiSuccess({ backup: { id, label: `Backup ${now.slice(0, 10)}`, status: "complete", byteSize, createdAt: now, updatedAt: now, chunkCount: chunks.length } }), 201);
   });
 
   router.get("/backups/:id/export", requireAuth(), async (c) => {
@@ -140,10 +150,31 @@ export function createSettingsRoutes() {
       .bind(c.req.param("id"), c.get("auth").user.id)
       .first<{ id: string; label: string | null; payload_json: string; byte_size: number; created_at: string }>();
     if (!row) return apiError(c, 404, "not_found", "Backup not found.");
-    return c.json(apiSuccess({ backup: { id: row.id, label: row.label, byteSize: row.byte_size, createdAt: row.created_at, payload: JSON.parse(row.payload_json) } }));
+    const payload = await readBackupPayload(c.env.DB, row);
+    return c.json(apiSuccess({ backup: { id: row.id, label: row.label, byteSize: row.byte_size, createdAt: row.created_at, payload } }));
   });
 
   return router;
+}
+
+function chunkText(value: string, size: number) {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += size) {
+    chunks.push(value.slice(index, index + size));
+  }
+  return chunks;
+}
+
+async function readBackupPayload(db: D1Database, row: { id: string; payload_json: string }) {
+  const manifest = JSON.parse(row.payload_json) as { storage?: string; chunkCount?: number };
+  if (manifest.storage !== "chunks") return manifest;
+  const chunks = await db.prepare("SELECT payload_chunk FROM user_backup_chunks WHERE backup_id = ? ORDER BY chunk_index ASC")
+    .bind(row.id)
+    .all<{ payload_chunk: string }>();
+  if ((manifest.chunkCount ?? 0) !== chunks.results.length) {
+    throw new Error("Backup is incomplete.");
+  }
+  return JSON.parse(chunks.results.map((chunk) => chunk.payload_chunk).join(""));
 }
 
 async function buildBackupPayload(db: D1Database, userId: string, exportedAt: string) {

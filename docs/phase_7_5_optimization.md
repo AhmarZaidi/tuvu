@@ -959,8 +959,9 @@ Implementation notes:
 - Import commit/rollback and merge accept paths enqueue batched stats recalculation after the library version changes instead of recalculating per item.
 - Profile stats are available at `/api/profiles/me/stats` for future profile dashboards.
 - Settings Data now combines TV Time import, backup creation, backup export, and restore placeholders. Export uses an existing backup payload rather than producing a separate export format.
+- Backups are stored as a small manifest row plus `user_backup_chunks` rows so large user libraries do not hit D1 string/blob cell limits.
 - Settings Storage now separates tracked library rows, profile media, backups, and global catalog rows.
-- Navigation settings dispatch a shell refresh event after save, and the shell also reloads saved nav on focus/route startup. Explore remains inserted automatically.
+- Navigation settings use icon-only nav bars for selection and drag/drop ordering; the shell spreads selected items across the full bottom nav width. Explore remains inserted automatically.
 - The `system` theme follows `prefers-color-scheme`; it is no longer treated as a separate visual palette.
 
 Follow-up UI consolidation notes:
@@ -974,7 +975,8 @@ Follow-up UI consolidation notes:
 
 - [ ] Create shared detail layout primitives.
 - [ ] Implement type templates:
-  - series: shows/anime
+  - shows
+  - anime 
   - movie
   - book
   - game
@@ -982,6 +984,10 @@ Follow-up UI consolidation notes:
 - [ ] Move type-specific sections out of the main page.
 - [ ] Make manual edit/customization sheet config-driven.
 - [ ] Ensure missing metadata shows stable placeholders and refresh state without layout jumps.
+
+Note: We need separate templates for shows & anime because anime will have some sections that shows don't have and vide versa.
+
+Remove unrelated/unused sections from templates
 
 ### 7.5.9 Import/Export/Backup Foundations
 

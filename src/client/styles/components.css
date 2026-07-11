@@ -240,6 +240,37 @@
   background: rgba(244, 154, 76, 0.08);
 }
 
+.loading-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  padding: 0.85rem;
+  box-shadow: var(--shadow-panel);
+}
+
+.loading-panel.compact {
+  padding: 0.65rem 0.75rem;
+}
+
+.loading-panel strong {
+  color: var(--color-text-strong);
+  font-size: 0.95rem;
+}
+
+.loading-panel p {
+  margin: 0.15rem 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.loading-panel .progress-wrap {
+  grid-column: 1 / -1;
+}
+
 .platform-picker {
   display: flex;
   flex-wrap: wrap;

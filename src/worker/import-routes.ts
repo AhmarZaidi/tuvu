@@ -13,6 +13,7 @@ import { apiError, apiSuccess } from "./http";
 import { bumpUserLibraryVersion } from "./library-version-service";
 import { resolveOrCreateImportedCanonicalMedia } from "./media-canonical-service";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
+import { recalculateAllUserStats } from "./stats-service";
 
 type ImportJobRow = {
   id: string;
@@ -124,6 +125,7 @@ export function createImportRoutes() {
       if (rows.results.length === 0) {
         await c.env.DB.prepare("UPDATE import_jobs SET status = 'committed', committed_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
         const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+        c.executionCtx.waitUntil(recalculateAllUserStats(c.env.DB, auth.user.id));
         return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id), libraryVersion }));
       }
 
@@ -182,6 +184,7 @@ export function createImportRoutes() {
       await c.env.DB.prepare("UPDATE import_jobs SET status = 'rolled_back', rolled_back_at = ?, updated_at = ? WHERE id = ?").bind(now, now, job.id).run();
       await c.env.DB.prepare("UPDATE import_job_items SET status = 'rolled_back', media_id = NULL, updated_at = ? WHERE job_id = ?").bind(now, job.id).run();
       const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+      c.executionCtx.waitUntil(recalculateAllUserStats(c.env.DB, auth.user.id));
       return c.json(apiSuccess({ done: true, job: await readJob(c.env.DB, auth.user.id, job.id), libraryVersion }));
     }
 

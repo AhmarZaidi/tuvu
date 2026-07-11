@@ -10,6 +10,7 @@ import type { MediaRepository } from "./media-repository";
 import { parseOffsetPagination } from "./pagination";
 import { providerFindByExternalId, providerSearch, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
+import { recalculateAllUserStats } from "./stats-service";
 
 type MediaRow = {
   id: string;
@@ -122,6 +123,7 @@ export function createMergeRoutes() {
     const result = await mergeMedia(c.env.DB, auth.user.id, body.data.sourceMediaId, targetMediaId, body.data.confidence ?? "manual", body.data.reason ?? "Accepted from merge review.");
     c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
     const libraryVersion = result.merged ? await bumpUserLibraryVersion(c.env.DB, auth.user.id) : await getUserLibraryVersion(c.env.DB, auth.user.id);
+    if (result.merged) c.executionCtx.waitUntil(recalculateAllUserStats(c.env.DB, auth.user.id));
     return c.json(apiSuccess({ ...result, libraryVersion }));
   });
 
@@ -138,6 +140,7 @@ export function createMergeRoutes() {
     c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
     const merged = results.filter((result) => result.merged).length;
     const libraryVersion = merged > 0 ? await bumpUserLibraryVersion(c.env.DB, auth.user.id) : await getUserLibraryVersion(c.env.DB, auth.user.id);
+    if (merged > 0) c.executionCtx.waitUntil(recalculateAllUserStats(c.env.DB, auth.user.id));
     return c.json(apiSuccess({ merged, results, libraryVersion }));
   });
 

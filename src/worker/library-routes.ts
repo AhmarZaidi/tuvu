@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { dashboardKindSchema, buildDashboardSections } from "@shared/dashboard";
-import { mediaTypesForDashboardKind } from "@shared/media-config";
 import {
   addToLibrarySchema,
   updateStatusSchema,
@@ -17,7 +16,7 @@ import { defaultStatus, validateStatus } from "./media-logic";
 import type { MediaRepository } from "./media-repository";
 import { offsetPage, parseOffsetPagination } from "./pagination";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
-import { dashboardSectionCounts } from "./stats-service";
+import { dashboardStatsSnapshot } from "./stats-service";
 
 export function createLibraryRoutes() {
   const router = new Hono<{ Bindings: Env; Variables: AppVariables & { mediaRepository: MediaRepository } }>();
@@ -42,27 +41,11 @@ export function createLibraryRoutes() {
     let sectionCounts: Record<string, number> | undefined;
 
     if (c.env.DB) {
-      // Fetch total tracked and status count breakdowns for correct stats in client pagination
-      const types = mediaTypesForDashboardKind(kind.data);
-      const typePlaceholders = types.map(() => "?").join(", ");
-      const totalTrackedRow = await c.env.DB.prepare(`
-        SELECT COUNT(*) as count
-        FROM user_media um
-        JOIN media_items mi ON mi.id = um.media_id
-        WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
-      `).bind(auth.user.id, ...types).first<{ count: number }>();
-      const statusCountsRows = await c.env.DB.prepare(`
-        SELECT um.status, COUNT(*) as count
-        FROM user_media um
-        JOIN media_items mi ON mi.id = um.media_id
-        WHERE um.user_id = ? AND mi.type IN (${typePlaceholders})
-        GROUP BY um.status
-      `).bind(auth.user.id, ...types).all<{ status: string; count: number }>();
-      totalTracked = totalTrackedRow?.count ?? totalTracked;
-      for (const r of statusCountsRows.results) {
-        statusCounts[r.status] = r.count;
-      }
-      sectionCounts = await dashboardSectionCounts(c.env.DB, auth.user.id, kind.data);
+      const snapshot = await dashboardStatsSnapshot(c.env.DB, auth.user.id, kind.data);
+      totalTracked = snapshot.totalTracked;
+      for (const key of Object.keys(statusCounts)) delete statusCounts[key];
+      Object.assign(statusCounts, snapshot.statusCounts);
+      sectionCounts = snapshot.sectionCounts;
     }
 
     return c.json(apiSuccess({

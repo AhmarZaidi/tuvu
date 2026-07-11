@@ -934,23 +934,41 @@ Implementation notes:
 
 Implementation notes:
 
-- `/profile/settings` now has section navigation for Account, Appearance, Navigation, Providers, Import / Export, Backup, and Storage.
+- `/profile/settings` now has section navigation for Account, Appearance, Navigation, Providers, Data, and Storage.
 - Account owns profile preview, profile edits, avatar/banner uploads, visibility, and logout.
 - Appearance owns theme settings and leaves a density placeholder.
-- Navigation settings save 2 to 6 chosen media nav items through `/api/settings/navigation`; Explore remains conceptually always present. The current shell still uses the fixed nav until the customizable nav-shell phase applies saved preferences.
+- Navigation settings save 2 to 6 chosen media nav items through `/api/settings/navigation`; Explore remains inserted automatically and the shell applies saved preferences.
 - Provider credentials can be listed, saved, and disabled through `/api/settings/providers`. This uses the existing `user_provider_credentials` table shape so provider lookup can read user-scoped values before app-level fallback secrets.
-- Import / Export and Backup have visible entry points/placeholders without starting backup/export jobs yet.
-- Storage reads `/api/settings/storage` for user library count, upload count/bytes, and global media count; exact D1/Supabase size endpoints remain future work.
+- Data combines TV Time import, backup/export entry points, and restore placeholders.
+- Storage reads `/api/settings/storage` for user library count, upload count/bytes, backup count/bytes, and global media count; exact D1/Supabase size endpoints remain future work.
 - `0013_phase_7_5_settings.sql` adds `user_settings` for navigation and future settings JSON.
 
 ### 7.5.7 Stats, Counts, And Activity Snapshots
 
-- [ ] Add `user_stats_snapshots`.
-- [ ] Add stats recalculation service.
-- [ ] Batch stats recalculation after import/merge.
-- [ ] Update dashboard count APIs to read snapshots where fresh.
-- [ ] Add profile stats foundation.
-- [ ] Add tests for counts not depending on pagination.
+- [x] Add `user_stats_snapshots`.
+- [x] Add stats recalculation service.
+- [x] Batch stats recalculation after import/merge.
+- [x] Update dashboard count APIs to read snapshots where fresh.
+- [x] Add profile stats foundation.
+- [x] Add tests for counts not depending on pagination.
+
+Implementation notes:
+
+- `0014_phase_7_5_stats_and_backups.sql` adds `user_stats_snapshots` for versioned dashboard/profile stats and `user_backups` for account backup payloads.
+- Dashboard APIs still return paginated entries, but total/status/section counts read a fresh snapshot when D1 is available. This prevents counts from shrinking to the currently loaded page.
+- Import commit/rollback and merge accept paths enqueue batched stats recalculation after the library version changes instead of recalculating per item.
+- Profile stats are available at `/api/profiles/me/stats` for future profile dashboards.
+- Settings Data now combines TV Time import, backup creation, backup export, and restore placeholders. Export uses an existing backup payload rather than producing a separate export format.
+- Settings Storage now separates tracked library rows, profile media, backups, and global catalog rows.
+- Navigation settings dispatch a shell refresh event after save, and the shell also reloads saved nav on focus/route startup. Explore remains inserted automatically.
+- The `system` theme follows `prefers-color-scheme`; it is no longer treated as a separate visual palette.
+
+Follow-up UI consolidation notes:
+
+- Continue replacing one-off search boxes with `SearchField`, using `pill` only for topbar search and compact fields elsewhere.
+- Continue replacing ad hoc loading/progress panels with `LoadingPanel`; media episode-guide progress can stay local because it belongs next to the episode list.
+- Keep API/server failures in snackbar notices. Inline form messages should be reserved for validation, success, or short non-technical status text.
+- Settings navigation now supports ordering; future nav customization should preserve selected order and only auto-insert Explore.
 
 ### 7.5.8 Media Detail Templates
 

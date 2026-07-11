@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { NavLink } from "react-router-dom";
@@ -107,6 +107,94 @@ export function SkeletonGrid() {
       ))}
     </section>
   );
+}
+
+export function LoadingPanel({
+  title,
+  message,
+  progress,
+  compact = false,
+}: {
+  title: string;
+  message?: string;
+  progress?: number | null;
+  compact?: boolean;
+}) {
+  return (
+    <section className={compact ? "loading-panel compact" : "loading-panel"} aria-live="polite">
+      <div className="import-spinner" />
+      <div>
+        <strong>{title}</strong>
+        {message && <p>{message}</p>}
+      </div>
+      {typeof progress === "number" && <ProgressBar value={progress} label={`${progress}% complete`} />}
+    </section>
+  );
+}
+
+export function SearchField({
+  value,
+  onChange,
+  onClear,
+  inputRef,
+  placeholder,
+  label,
+  icon,
+  variant = "compact",
+  className,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onClear?: () => void;
+  inputRef?: Ref<HTMLInputElement>;
+  placeholder: string;
+  label: string;
+  icon?: ReactNode;
+  variant?: "pill" | "compact";
+  className?: string;
+  onSubmit?: () => void;
+}) {
+  const content = (
+    <>
+      {icon}
+      <input
+        ref={inputRef}
+        aria-label={label}
+        placeholder={placeholder}
+        enterKeyHint="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value && (
+        <IconButton
+          type="button"
+          className="search-clear"
+          label="Clear search"
+          onClick={onClear ?? (() => onChange(""))}
+        >
+          <X size={14} />
+        </IconButton>
+      )}
+    </>
+  );
+
+  const classes = ["search-field", variant === "pill" ? "search-field-pill" : "search-field-compact", className].filter(Boolean).join(" ");
+  if (onSubmit) {
+    return (
+      <form
+        className={classes}
+        role="search"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        {content}
+      </form>
+    );
+  }
+  return <div className={classes}>{content}</div>;
 }
 
 export function Modal({ title, children, open = true, onClose }: { title: string; children: ReactNode; open?: boolean; onClose?: () => void }) {

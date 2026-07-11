@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "@worker/app";
 import { MemoryAuthRepository, testEnv } from "./memory-repository";
 import { MemoryMediaRepository } from "./memory-media-repository";
-import type { MediaItemRecord } from "@worker/media-repository";
+import type { MediaItemRecord, UserMediaRecord } from "@worker/media-repository";
 
 function makeApp(authRepo: MemoryAuthRepository, mediaRepo: MemoryMediaRepository) {
   return createApp({
@@ -58,6 +58,63 @@ function media(overrides: Partial<MediaItemRecord> = {}): MediaItemRecord {
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
   };
+}
+
+function userMedia(userId: string, mediaId: string, overrides: Partial<UserMediaRecord> = {}): UserMediaRecord {
+  const now = new Date().toISOString();
+  return {
+    id: overrides.id ?? `ulb_${mediaId}`,
+    userId,
+    mediaId,
+    status: overrides.status ?? "watch_later",
+    isFavorite: overrides.isFavorite ?? false,
+    rating: overrides.rating ?? null,
+    notes: overrides.notes ?? null,
+    watchedAt: overrides.watchedAt ?? null,
+    rewatchCount: overrides.rewatchCount ?? 0,
+    progressEpisodes: overrides.progressEpisodes ?? 0,
+    progressValue: overrides.progressValue ?? null,
+    progressTotal: overrides.progressTotal ?? null,
+    progressUnit: overrides.progressUnit ?? null,
+    platform: overrides.platform ?? null,
+    startedAt: overrides.startedAt ?? null,
+    purchaseLibrary: overrides.purchaseLibrary ?? null,
+    visibility: overrides.visibility ?? "private",
+    createdAt: overrides.createdAt ?? now,
+    updatedAt: overrides.updatedAt ?? now,
+  };
+}
+
+function statsSnapshotDb() {
+  return {
+    prepare(sql: string) {
+      return {
+        bind(...params: unknown[]) {
+          return {
+            async first<T>() {
+              if (sql.includes("SELECT version FROM user_library_versions")) return { version: 7 } as T;
+              if (sql.includes("FROM user_stats_snapshots")) {
+                return {
+                  total_tracked: 3,
+                  status_counts_json: JSON.stringify({ watch_later: 3 }),
+                  section_counts_json: JSON.stringify({ "watch-later": 3, all: 3 }),
+                  library_version: params.at(-1),
+                  recalculated_at: "2026-07-11T00:00:00.000Z",
+                } as T;
+              }
+              return null as T;
+            },
+            async run() {
+              return { success: true };
+            },
+            async all<T>() {
+              return { results: [] as T[] };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
 }
 
 async function seedSeries(mediaRepo: MemoryMediaRepository) {
@@ -143,6 +200,35 @@ describe("phase 7.5.0 refactor guardrails", () => {
     const moviesBody = await movies.json() as { data: { statusCounts: Record<string, number>; sections: Array<{ id: string; entries: unknown[] }> } };
     expect(moviesBody.data.statusCounts.watched).toBe(1);
     expect(moviesBody.data.sections.find((section) => section.id === "watched")?.entries).toHaveLength(1);
+  });
+
+  it("keeps dashboard counts independent from paginated dashboard entries", async () => {
+    const authRepo = new MemoryAuthRepository();
+    const mediaRepo = new MemoryMediaRepository();
+    const { app, cookie } = await register(authRepo, mediaRepo);
+    const user = [...authRepo.users.values()][0];
+    expect(user).toBeDefined();
+    const userId = user!.id;
+
+    for (const index of [1, 2, 3]) {
+      const item = media({ id: `med_snapshot_${index}`, type: "show", title: `Snapshot Show ${index}` });
+      await mediaRepo.createMedia(item);
+      await mediaRepo.upsertUserMedia(userMedia(userId, item.id, { status: "watch_later", updatedAt: `2026-07-11T00:00:0${index}.000Z` }));
+    }
+
+    const response = await app.request(
+      "/api/library/dashboard/shows?limit=1&offset=0",
+      { headers: { cookie } },
+      { ...testEnv(), DB: statsSnapshotDb() },
+    );
+    const body = await response.json() as { data: { entries: unknown[]; totalTracked: number; statusCounts: Record<string, number>; sectionCounts: Record<string, number>; page: { hasMore: boolean } } };
+
+    expect(response.status).toBe(200);
+    expect(body.data.entries).toHaveLength(1);
+    expect(body.data.page.hasMore).toBe(true);
+    expect(body.data.totalTracked).toBe(3);
+    expect(body.data.statusCounts.watch_later).toBe(3);
+    expect(body.data.sectionCounts["watch-later"]).toBe(3);
   });
 
   it("keeps local search and provider add-to-library behavior stable", async () => {

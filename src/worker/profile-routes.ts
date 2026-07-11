@@ -6,6 +6,7 @@ import { getUserLibraryVersion } from "./library-version-service";
 import { publicProfileWithUploads, publicUser } from "./responses";
 import type { UploadRecord } from "./repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
+import { profileStatsSnapshot } from "./stats-service";
 import { uploadProfileImageToSupabase, type UploadedObject, type UploadObjectInput } from "./supabase-storage";
 
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -52,6 +53,12 @@ export function createProfileRoutes(dependencies: ProfileRouteDependencies = {})
 
     const updated = await repository.updateProfile(auth.user.id, body.data, new Date().toISOString());
     return c.json(apiSuccess({ user: publicUser(updated.user), profile: await publicProfileWithUploads(repository, updated.profile) }));
+  });
+
+  routes.get("/me/stats", requireAuth(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Profile stats are unavailable.");
+    const auth = c.get("auth");
+    return c.json(apiSuccess({ stats: await profileStatsSnapshot(c.env.DB, auth.user.id) }));
   });
 
   routes.post("/uploads/profile", requireAuth(), requireCsrf(), async (c) => {

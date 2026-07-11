@@ -1059,7 +1059,7 @@ Implementation details:
 - Centralize canonical media creation/merge logic so explore add, import, and merge cannot create duplicate real-world media rows.
 - Centralize provider cache, hydration, TTL, stale-while-revalidate, and user-provider credential lookup.
 - Add a client query cache and cross-device user library versioning.
-- Overhaul Settings into Account, Appearance, Navigation, Providers, Import/Export, Backup/Restore, Storage, and Privacy/Social sections.
+- Overhaul Settings into Account, Appearance, Navigation, Providers, Data, Storage, and Privacy/Social sections. Data combines TV Time import, backup creation, backup export, and future restore so exports are produced from backup payloads instead of a separate path.
 - Prepare database/service plans for future social sharing, comments, stats, recommendations, tags, custom mixed-media lists, backups, and later media types.
 
 Testing gate:

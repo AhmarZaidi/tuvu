@@ -54,11 +54,13 @@ import { queryCache, queryKeys } from "./api/query-cache";
 import {
   EmptyState,
   IconButton,
+  LoadingPanel,
   MediaCard,
   Modal,
   PosterGrid,
   ProgressBar,
   ResponsivePoster,
+  SearchField,
   SegmentedControl,
   SkeletonGrid,
   StatusChip,
@@ -356,17 +358,29 @@ const mediaIconMap = {
 } satisfies Record<(typeof navPageConfigs)[number]["icon"], LucideIcon>;
 
 const navItems = navPageConfigs.map((item) => ({
+  id: item.id,
   to: item.route,
   label: item.label,
   icon: mediaIconMap[item.icon],
 }));
+
+const defaultNavigationPreference = ["shows", "anime", "movies", "books", "games"];
+const navigationUpdatedEventName = "tuvu:navigation-updated";
+
+function navItemsForPreference(items: string[]) {
+  const byId = new Map<string, (typeof navItems)[number]>(navItems.map((item) => [item.id, item]));
+  const selected = items.map((id) => byId.get(id)).filter((item): item is (typeof navItems)[number] => Boolean(item && item.id !== "explore"));
+  const fallback = selected.length >= 2 ? selected.slice(0, 6) : defaultNavigationPreference.map((id) => byId.get(id)).filter((item): item is (typeof navItems)[number] => Boolean(item));
+  const explore = byId.get("explore")!;
+  const midpoint = Math.ceil(fallback.length / 2);
+  return [...fallback.slice(0, midpoint), explore, ...fallback.slice(midpoint)];
+}
 
 const profileNav = [
   { to: "/library", label: "All library", icon: Library },
   { to: "/profile/merge", label: "Merge media", icon: Library },
   { to: "/profile/messages", label: "Messages", icon: Mail },
   { to: "/profile/settings", label: "Settings", icon: Settings },
-  { to: "/profile/import/tv-time", label: "Import", icon: Upload },
 ] as const;
 
 const exploreFilters = trackableMediaTypes.map((type) => {
@@ -382,10 +396,36 @@ const mergeTypeFilters: Array<{ value: "all" | MediaType; label: string; icon: L
   }),
 ];
 
+type ThemePreference = "light" | "dark" | "system";
+
+function normalizeThemePreference(value: string | null): ThemePreference {
+  return value === "light" || value === "dark" || value === "system" ? value : "system";
+}
+
+function resolvedTheme(preference: ThemePreference): "light" | "dark" {
+  if (preference === "system") {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  return preference;
+}
+
+function applyThemePreference(preference: ThemePreference) {
+  document.documentElement.dataset.theme = resolvedTheme(preference);
+}
+
 export function App() {
   useEffect(() => {
-    const stored = localStorage.getItem(uiConstants.themeStorageKey);
-    document.documentElement.dataset.theme = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    const preference = normalizeThemePreference(localStorage.getItem(uiConstants.themeStorageKey));
+    applyThemePreference(preference);
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = () => {
+      if (normalizeThemePreference(localStorage.getItem(uiConstants.themeStorageKey)) === "system") {
+        applyThemePreference("system");
+      }
+    };
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
   }, []);
 
   return (
@@ -644,6 +684,7 @@ function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
+  const [shellNavItems, setShellNavItems] = useState(() => navItemsForPreference(defaultNavigationPreference));
   const globalSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const openCreateModal = (type: MediaType = "show") => {
@@ -670,13 +711,34 @@ function AppShell() {
 
   useLibraryVersionRevalidator(me, refresh, location.pathname);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadNavigation = async () => {
+      try {
+        const data = await apiJson<{ navigation: { items: string[] } }>("/api/settings/navigation");
+        if (!cancelled) setShellNavItems(navItemsForPreference(data.navigation.items));
+      } catch {
+        if (!cancelled) setShellNavItems(navItemsForPreference(defaultNavigationPreference));
+      }
+    };
+    const onNavigationUpdated = () => { void loadNavigation(); };
+    window.addEventListener(navigationUpdatedEventName, onNavigationUpdated);
+    window.addEventListener("focus", onNavigationUpdated);
+    void loadNavigation();
+    return () => {
+      cancelled = true;
+      window.removeEventListener(navigationUpdatedEventName, onNavigationUpdated);
+      window.removeEventListener("focus", onNavigationUpdated);
+    };
+  }, [me.user.id]);
+
   return (
     <MediaCreationContext.Provider value={contextValue}>
       <div className="app-shell">
         <aside className="desktop-rail">
           <BrandMark />
           <nav className="rail-nav" aria-label="Primary">
-            {navItems.map((item) => (
+            {shellNavItems.map((item) => (
               <ShellNavLink key={item.to} {...item} />
             ))}
           </nav>
@@ -685,29 +747,33 @@ function AppShell() {
         <div className="app-frame">
           <header className="topbar">
             <BrandMark compact />
-            <form className="search-box" role="search" onSubmit={(event) => {
-              event.preventDefault();
-              const query = globalSearch.trim();
-              if (query.length >= 2) {
-                // Blur before navigating so the mobile keyboard dismisses before
-                // the route change triggers a re-render and shows the results.
-                globalSearchInputRef.current?.blur();
-                (document.activeElement as HTMLElement | null)?.blur();
-                navigate(`/explore/search?q=${encodeURIComponent(query)}`);
-              }
-            }}>
-              <Search size={18} aria-hidden="true" />
-              <input ref={globalSearchInputRef} aria-label="Search media" placeholder="Search any media" enterKeyHint="search" value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} />
-              {globalSearch && <IconButton type="button" className="search-clear" label="Clear search" onClick={() => { setGlobalSearch(""); globalSearchInputRef.current?.blur(); }}><X size={14} /></IconButton>}
-            </form>
+            <SearchField
+              variant="pill"
+              className="search-box"
+              inputRef={globalSearchInputRef}
+              icon={<Search size={18} aria-hidden="true" />}
+              label="Search media"
+              placeholder="Search any media"
+              value={globalSearch}
+              onChange={setGlobalSearch}
+              onClear={() => { setGlobalSearch(""); globalSearchInputRef.current?.blur(); }}
+              onSubmit={() => {
+                const query = globalSearch.trim();
+                if (query.length >= 2) {
+                  globalSearchInputRef.current?.blur();
+                  (document.activeElement as HTMLElement | null)?.blur();
+                  navigate(`/explore/search?q=${encodeURIComponent(query)}`);
+                }
+              }}
+            />
             <ProfileTopButton me={me} hasNotification={false} />
           </header>
 
           <Outlet />
         </div>
 
-        <nav className="bottom-nav" aria-label="Primary">
-          {navItems.map((item) => (
+        <nav className="bottom-nav" aria-label="Primary" style={{ gridTemplateColumns: `repeat(${shellNavItems.length}, minmax(0, 1fr))` }}>
+          {shellNavItems.map((item) => (
             <ShellNavLink key={item.to} {...item} compact />
           ))}
         </nav>
@@ -1344,7 +1410,7 @@ function AllLibraryPage() {
   return (
     <AppPage eyebrow="Library" title="All Library" description="Filter everything you track across shows, movies, anime, books, and games." mobileHelp>
       <div className="dashboard-toolbar">
-        <div className="dashboard-search"><Search size={16} /><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter library" aria-label="Filter all library" />{query && <IconButton className="search-clear" label="Clear filter" onClick={() => { setQuery(""); searchRef.current?.blur(); }}><X size={14} /></IconButton>}</div>
+        <SearchField className="dashboard-search" inputRef={searchRef} icon={<Search size={16} />} value={query} onChange={setQuery} onClear={() => { setQuery(""); searchRef.current?.blur(); }} placeholder="Filter library" label="Filter all library" />
       </div>
       <div className="filter-row">
         {(["all", ...trackableMediaTypes] as Array<"all" | MediaType>).map((option) => <button key={option} className={type === option ? "chip-button active" : "chip-button"} onClick={() => { setType(option); setStatus("all"); }}>{option === "all" ? "All" : mediaConfigForType(option).label}</button>)}
@@ -1353,9 +1419,8 @@ function AllLibraryPage() {
         <button className={status === "all" ? "chip-button active" : "chip-button"} onClick={() => setStatus("all")}>All statuses</button>
         {statusChoices.map((option) => <button key={option} className={status === option ? "chip-button active" : "chip-button"} onClick={() => setStatus(option)}>{formatStatusLabel(option)}</button>)}
       </div>
-      {error && <EmptyState icon={<Library size={24} />} title="Library unavailable" message={error} />}
       {loading && <SkeletonGrid />}
-      {!loading && filtered.length === 0 && !error && <EmptyState icon={<Library size={24} />} title="No library matches" message="Try a different media type, status, or search term." />}
+      {!loading && filtered.length === 0 && <EmptyState icon={<Library size={24} />} title="No library matches" message="Try a different media type, status, or search term." />}
       <section className="search-results-list" aria-label="All library results">
         {filtered.map(({ item, media }) => <NavLink className="explore-result-card" key={media.id} to={`/media/${media.type}/${media.id}`}>
           <div className="explore-result-poster" style={media.posterPath ? { backgroundImage: `url(${media.posterPath})` } : undefined}>{!media.posterPath && <span>{media.title.slice(0, 2).toUpperCase()}</span>}</div>
@@ -1638,14 +1703,13 @@ function DashboardPage({ kind, mediaType, title, description }: { kind: Dashboar
       {payload && <DashboardStats entries={payload.entries} kind={kind} totalTracked={payload.totalTracked} statusCounts={payload.statusCounts} />}
       <div className="dashboard-toolbar">
         <SortMenu value={sort} onChange={setSort} />
-        <div className="dashboard-search"><Search size={16} /><input ref={searchInputRef} aria-label={`Filter ${title}`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Filter ${title.toLowerCase()}`} />{query && <IconButton className="search-clear" label="Clear filter" onClick={() => { setQuery(""); searchInputRef.current?.blur(); }}><X size={14} /></IconButton>}</div>
+        <SearchField className="dashboard-search" inputRef={searchInputRef} icon={<Search size={16} />} value={query} onChange={setQuery} onClear={() => { setQuery(""); searchInputRef.current?.blur(); }} placeholder={`Filter ${title.toLowerCase()}`} label={`Filter ${title}`} />
         <div className="view-toggle" aria-label="View mode">
           <IconButton label="Poster grid" aria-pressed={view === "grid"} onClick={() => setView("grid")}><LayoutGrid size={17} /></IconButton>
           <IconButton label="Compact list" aria-pressed={view === "compact"} onClick={() => setView("compact")}><ListIcon size={17} /></IconButton>
         </div>
       </div>
       {sectionTabs.length > 0 && <DashboardTabs tabs={sectionTabs} active={activeSection} onChange={setActiveSection} />}
-      {error && <p className="input-error" role="alert">{error}</p>}
       {(!payload || searching) ? <SkeletonGrid /> : entries.length === 0 ? (
         <EmptyState icon={kind === "shows" ? <Clapperboard size={24} /> : kind === "movies" ? <Film size={24} /> : kind === "books" ? <BookOpen size={24} /> : <Gamepad2 size={24} />} title={query ? "No matching titles" : `Nothing in ${section?.label ?? title} yet`} message={query ? "Try a different title or clear the filter." : `Add a ${mediaType} and choose a tracking status to fill this section.`}>
           {!query && <button className="primary-button" onClick={() => openCreateModal(mediaType)}><Plus size={18} />Add {mediaType}</button>}
@@ -1743,9 +1807,8 @@ function ExplorePage() {
           </NavLink>
         ))}
       </div>
-      {error && <EmptyState icon={<Search size={24} />} title="Explore is resting" message={error} />}
       {loading && <SkeletonGrid />}
-      {!loading && rows.length === 0 && !error && <EmptyState icon={<Compass size={24} />} title="No provider rows yet" message="Add provider API keys and reload Explore to fetch cached discovery rows." />}
+      {!loading && rows.length === 0 && <EmptyState icon={<Compass size={24} />} title="No provider rows yet" message="Add provider API keys and reload Explore to fetch cached discovery rows." />}
       <div className="explore-row-stack">
         {rows.map((row) => (
           <section className="explore-row" key={row.id}>
@@ -1808,16 +1871,15 @@ function ExploreSearchPage() {
   return (
     <AppPage eyebrow="Explore" title="Search" description="Results update live and use local cache before provider APIs." mobileHelp>
       <div className="dashboard-toolbar">
-        <div className="dashboard-search"><Search size={16} /><input aria-label="Search all media" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} placeholder="Search shows, movies, books, games" />{query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}</div>
+        <SearchField className="dashboard-search" icon={<Search size={16} />} value={query} onChange={setQuery} placeholder="Search shows, movies, books, games" label="Search all media" />
       </div>
       <div className="filter-row">
         {searchableMediaTypes.map((type) => (
           <button className={types.includes(type) ? "chip-button active" : "chip-button"} key={type} onClick={() => setTypes((current) => current.includes(type) ? current.filter((item) => item !== type) : [...current, type])}>{type}</button>
         ))}
       </div>
-      {error && <EmptyState icon={<Search size={24} />} title="Search hit a snag" message={error} />}
       {loading && <SkeletonGrid />}
-      {!loading && query.trim().length >= 2 && results.length === 0 && !error && <EmptyState icon={<Search size={24} />} title="No matches yet" message="Try a different title or enable more media types." />}
+      {!loading && query.trim().length >= 2 && results.length === 0 && <EmptyState icon={<Search size={24} />} title="No matches yet" message="Try a different title or enable more media types." />}
       <section className="search-results-list" aria-label="Search results">
         {results.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
       </section>
@@ -1860,15 +1922,10 @@ function ExploreTypePage() {
   return (
     <AppPage eyebrow="Explore" title={displayType} description={`Discover popular ${displayType.toLowerCase()}.`} mobileHelp>
       <div className="dashboard-toolbar">
-        <div className="dashboard-search">
-          <Search size={16} />
-          <input autoFocus aria-label={`Search ${type}`} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} placeholder={`Search discovered ${displayType.toLowerCase()}...`} />
-          {query && <IconButton className="search-clear" label="Clear search" onClick={() => setQuery("")}><X size={14} /></IconButton>}
-        </div>
+        <SearchField className="dashboard-search" icon={<Search size={16} />} value={query} onChange={setQuery} placeholder={`Search discovered ${displayType.toLowerCase()}...`} label={`Search ${type}`} />
       </div>
-      {error && <EmptyState icon={<Search size={24} />} title="Explore is resting" message={error} />}
       {loading && <SkeletonGrid />}
-      {!loading && filtered.length === 0 && !error && <EmptyState icon={<Compass size={24} />} title="No results" message="Try a different search." />}
+      {!loading && filtered.length === 0 && <EmptyState icon={<Compass size={24} />} title="No results" message="Try a different search." />}
       <section className="search-results-list" aria-label="Explore results">
         {filtered.map((result) => <ExploreResultCard result={result} key={`${result.provider}:${result.providerId}:${result.type}`} />)}
       </section>
@@ -2196,13 +2253,11 @@ function MergePage() {
       )}
 
       {(loadingCandidates || resolving) && (
-        <div className="merge-progress-panel">
-          <div className="merge-progress-row">
-            <span>{loadingCandidates ? "Loading merge candidates..." : "Searching provider matches..."}</span>
-            <span>{loadingCandidates ? `${loadedCount}${stats?.unmerged ? ` / ${stats.unmerged}` : ""}` : `${resolveProgress} / ${resolveTotal}`}</span>
-          </div>
-          <ProgressBar value={loadingCandidates && stats?.unmerged ? Math.min(100, (loadedCount / stats.unmerged) * 100) : resolveTotal > 0 ? (resolveProgress / resolveTotal) * 100 : 0} label="Merge queue progress" />
-        </div>
+        <LoadingPanel
+          title={loadingCandidates ? "Loading merge candidates" : "Searching provider matches"}
+          message={loadingCandidates ? `${loadedCount}${stats?.unmerged ? ` / ${stats.unmerged}` : ""} loaded` : `${resolveProgress} / ${resolveTotal} checked`}
+          progress={loadingCandidates && stats?.unmerged ? Math.min(100, Math.round((loadedCount / stats.unmerged) * 100)) : resolveTotal > 0 ? Math.round((resolveProgress / resolveTotal) * 100) : null}
+        />
       )}
 
       <section className="merge-toolbar">
@@ -2220,11 +2275,7 @@ function MergePage() {
           <button className="primary-button" disabled={busy || resolving || bulkAccepting || !exactReady} onClick={() => void acceptExact()}>Accept all exact</button>
         </div>
       </section>
-      <div className="dashboard-search merge-page-search">
-        <Search size={16} />
-        <input aria-label="Search merge candidates by title or ID" placeholder="Search imported title, source ID, IMDb, TVDB..." value={mergeQuery} onChange={(event) => setMergeQuery(event.target.value)} />
-        {mergeQuery && <button type="button" aria-label="Clear merge search" onClick={() => setMergeQuery("")}><X size={15} /></button>}
-      </div>
+      <SearchField className="dashboard-search merge-page-search" icon={<Search size={16} />} value={mergeQuery} onChange={setMergeQuery} placeholder="Search imported title, source ID, IMDb, TVDB..." label="Search merge candidates by title or ID" />
       {stats && (
         <section className="stats-grid" aria-label="Merge stats">
           <article className="stat-card"><strong>{stats.unmerged}</strong><span>Unmerged</span></article>
@@ -2289,11 +2340,7 @@ function MergeCandidateCard({ candidate, busy, onAccept }: { candidate: MergeCan
       <Modal title={`Find match for ${candidate.source.title}`} open={manualOpen} onClose={() => setManualOpen(false)}>
         <div className="manual-search-sheet">
           <ExploreResultMini result={candidate.source} />
-          <div className="dashboard-search">
-            <Search size={16} />
-            <input aria-label={`Manual search for ${candidate.source.title}`} value={manualQuery} onChange={(event) => setManualQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void searchManual(); }} autoFocus />
-            {manualQuery && <button type="button" aria-label="Clear search" onClick={() => { setManualQuery(""); setManualResults([]); }}><X size={15} /></button>}
-          </div>
+          <SearchField className="dashboard-search" icon={<Search size={16} />} value={manualQuery} onChange={setManualQuery} onClear={() => { setManualQuery(""); setManualResults([]); }} placeholder="Search provider matches" label={`Manual search for ${candidate.source.title}`} onSubmit={() => void searchManual()} />
           <button className="primary-button" disabled={searching || manualQuery.trim().length < 2} onClick={() => void searchManual()}>{searching ? "Searching..." : "Search provider matches"}</button>
           {manualResults.length > 0 ? (
             <div className="manual-match-list">
@@ -2898,7 +2945,7 @@ function MediaDetailPage() {
   if (loading) {
     return (
       <AppPage eyebrow={type ?? "Media"} title="Loading..." description="Reading media records...">
-        <SkeletonGrid />
+        <LoadingPanel title="Loading media" message="Reading saved details and tracking progress..." />
       </AppPage>
     );
   }
@@ -2906,7 +2953,7 @@ function MediaDetailPage() {
   if (error || !detail) {
     const isMock = mediaItems.some((m) => m.id === id);
     return (
-      <AppPage eyebrow={type ?? "Media"} title="Not tracked yet" description={error ?? "This item is not tracked in the database."}>
+      <AppPage eyebrow={type ?? "Media"} title="Not tracked yet" description="This item is not tracked in the database.">
         {isMock ? (
           <EmptyState
             icon={<Plus size={24} />}
@@ -3653,7 +3700,7 @@ function EpisodeDetailPage() {
     }
   };
 
-  if (!data) return <AppPage eyebrow="Episode" title={error ? "Episode unavailable" : "Loading episode"} description={error ?? "Reading episode details..."}>{!error && <SkeletonGrid />}</AppPage>;
+  if (!data) return <AppPage eyebrow="Episode" title={error ? "Episode unavailable" : "Loading episode"} description="Reading episode details...">{!error && <LoadingPanel title="Loading episode" message="Reading episode and tracking details..." />}</AppPage>;
   const { episode, media, activity } = data;
   const watched = activity?.watched ?? false;
   const episodeExt = parseExtendedData(episode.extendedDataJson);
@@ -3694,7 +3741,7 @@ function UnitDetailPage() {
   };
   useEffect(() => { void load(); }, [unitId]);
   const update = async (changes: Record<string, unknown>) => { if (!unitId) return; await apiJson(`/api/units/${unitId}/activity`, { method: "PATCH", csrfToken: me.csrfToken, body: JSON.stringify(changes) }); await load(); };
-  if (!data) return <AppPage eyebrow={type ?? "Progress"} title={error ?? "Loading..."} description="Reading progress details...">{!error && <SkeletonGrid />}</AppPage>;
+  if (!data) return <AppPage eyebrow={type ?? "Progress"} title={error ? "Progress unavailable" : "Loading..."} description="Reading progress details...">{!error && <LoadingPanel title="Loading progress" message="Reading tracking details..." />}</AppPage>;
   const { unit, media, activity } = data;
   return <AppPage eyebrow={media?.title ?? type ?? "Progress"} title={unit.title ?? `${unit.kind} ${unit.position}`} description={unit.overview ?? `Track this ${unit.kind} independently.`}><NavLink className="back-link" to={`/media/${type}/${id}`}>Back to {media?.title ?? "media"}</NavLink><section className="episode-detail-hero"><div className="episode-still" style={unit.imagePath ? { backgroundImage: `url(${unit.imagePath})` } : undefined}><span>{unit.kind} {unit.position}</span></div><div className="episode-detail-copy"><div className="metadata-row"><span><CalendarDays size={16} />{unit.releaseDate ? new Date(`${unit.releaseDate}T00:00:00`).toLocaleDateString(undefined, { dateStyle: "long" }) : "Release date unavailable"}</span></div><div className="watch-toggle" role="group" aria-label="Completion status"><button className={!activity?.completed ? "active" : ""} onClick={() => void update({ completed: false })}>Not complete</button><button className={activity?.completed ? "active" : ""} onClick={() => void update({ completed: true })}><Check size={16} />Complete</button></div>{activity?.completedAt && <p className="muted-copy">Completed {new Date(activity.completedAt).toLocaleString()}</p>}<div className="rating-picker"><span>Your rating</span><div>{[1,2,3,4,5,6,7,8,9,10].map((rating) => <button className={activity?.rating === rating ? "active" : ""} key={rating} onClick={() => void update({ rating })}>{rating}</button>)}</div></div><label className="notes-field">Private notes<textarea value={notes} onChange={(event) => setNotes(event.target.value)} onBlur={() => void update({ notes: notes || null })} placeholder={`Notes about this ${unit.kind}`} /></label></div></section></AppPage>;
 }
@@ -3717,26 +3764,20 @@ function PersonPlaceholderPage() {
   const fallbackPerson = useMemo(() => personFromNavigationState(location.state, id), [location.state, id]);
   const [person, setPerson] = useState<PersonProfilePayload | null>(() => fallbackPerson);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(fallbackPerson ? "Loading full profile..." : null);
   const [loading, setLoading] = useState(!fallbackPerson);
 
   useEffect(() => {
     if (!id) return;
     setPerson(fallbackPerson);
     setError(null);
-    setNotice(fallbackPerson ? "Loading full profile..." : null);
     setLoading(!fallbackPerson);
     void (async () => {
       try {
         const next = await apiJson<PersonProfilePayload>(`/api/people/${id}`);
         setPerson(next);
-        setNotice(null);
       } catch (reason) {
-        const message = friendlyErrorMessage(reason, "Full profile could not be loaded right now.");
-        if (fallbackPerson) {
-          setNotice(message);
-        } else {
-          setError(message);
+        if (!fallbackPerson) {
+          setError(friendlyErrorMessage(reason, "Full profile could not be loaded right now."));
         }
       } finally {
         setLoading(false);
@@ -3746,15 +3787,15 @@ function PersonPlaceholderPage() {
 
   if (!person) {
     return (
-      <AppPage eyebrow="Cast" title={error ? "Person unavailable" : "Loading person"} description={error ?? "Reading cast profile..."}>
-        {!error && <div className="profile-loading-panel"><div className="import-spinner" /><span>Loading profile details...</span></div>}
+      <AppPage eyebrow="Cast" title={error ? "Person unavailable" : "Loading person"} description="Reading cast profile...">
+        {!error && <LoadingPanel title="Loading profile" message="Fetching person details..." />}
       </AppPage>
     );
   }
 
   return (
     <AppPage eyebrow={person.knownForDepartment ?? "Cast"} title={person.name} description={person.biography || "Biography is not available yet."}>
-      {(loading || notice) && <div className={loading ? "profile-loading-panel" : "profile-loading-panel warning"}>{loading && <div className="import-spinner" />}<span>{notice ?? "Loading full profile..."}</span></div>}
+      {loading && <LoadingPanel title="Loading profile" message="Fetching updated person details..." compact />}
       <section className="person-profile-layout">
         <div className="person-profile-image" style={person.profilePath ? { backgroundImage: `url(${person.profilePath})` } : undefined}>{!person.profilePath && person.name.slice(0, 1)}</div>
         <div className="detail-panel">
@@ -3822,15 +3863,14 @@ function MessagesPage() {
   );
 }
 
-type SettingsSectionId = "account" | "appearance" | "navigation" | "providers" | "import-export" | "backup" | "storage";
+type SettingsSectionId = "account" | "appearance" | "navigation" | "providers" | "data" | "storage";
 
 const settingsSections: Array<{ id: SettingsSectionId; label: string; icon: LucideIcon }> = [
   { id: "account", label: "Account", icon: User },
   { id: "appearance", label: "Appearance", icon: Moon },
   { id: "navigation", label: "Navigation", icon: Compass },
   { id: "providers", label: "Providers", icon: ShieldCheck },
-  { id: "import-export", label: "Import / Export", icon: Upload },
-  { id: "backup", label: "Backup", icon: RefreshCw },
+  { id: "data", label: "Data", icon: Upload },
   { id: "storage", label: "Storage", icon: BarChart3 },
 ];
 
@@ -3854,8 +3894,7 @@ function SettingsPage() {
           {activeSection === "appearance" && <AppearanceSettingsPanel />}
           {activeSection === "navigation" && <NavigationSettingsPanel csrfToken={me.csrfToken} />}
           {activeSection === "providers" && <ProviderCredentialsPanel csrfToken={me.csrfToken} />}
-          {activeSection === "import-export" && <ImportExportSettingsPanel />}
-          {activeSection === "backup" && <BackupSettingsPanel />}
+          {activeSection === "data" && <DataSettingsPanel csrfToken={me.csrfToken} />}
           {activeSection === "storage" && <StorageSettingsPanel />}
         </div>
       </div>
@@ -3925,13 +3964,29 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
     });
   };
 
+  const move = (id: string, direction: -1 | 1) => {
+    setItems((current) => {
+      const index = current.indexOf(id);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const currentItem = next[index];
+      const targetItem = next[nextIndex];
+      if (!currentItem || !targetItem) return current;
+      next[index] = targetItem;
+      next[nextIndex] = currentItem;
+      return next;
+    });
+  };
+
   const save = async () => {
     try {
       await apiJson("/api/settings/navigation", { method: "PUT", csrfToken, body: JSON.stringify({ items }) });
       notify("Navigation preference saved.", "success");
-      setMessage("Saved. Full nav reordering will apply when the customizable nav shell lands.");
+      window.dispatchEvent(new Event(navigationUpdatedEventName));
+      setMessage("Saved. Your navigation updated on this device.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Navigation preference could not be saved.");
+      setMessage("Navigation preference could not be saved.");
     }
   };
 
@@ -3949,6 +4004,22 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
           <span>Explore</span>
         </article>
       </div>
+      <section className="nav-order-list" aria-label="Navigation order">
+        {items.map((id, index) => {
+          const choice = navigationChoices.find((item) => item.id === id);
+          if (!choice) return null;
+          const Icon = choice.icon;
+          return (
+            <article className="nav-order-item" key={id}>
+              <span><Icon size={17} aria-hidden="true" />{choice.label}</span>
+              <div>
+                <IconButton label={`Move ${choice.label} left`} disabled={index === 0} onClick={() => move(id, -1)}><ChevronDown size={16} style={{ transform: "rotate(90deg)" }} /></IconButton>
+                <IconButton label={`Move ${choice.label} right`} disabled={index === items.length - 1} onClick={() => move(id, 1)}><ChevronDown size={16} style={{ transform: "rotate(-90deg)" }} /></IconButton>
+              </div>
+            </article>
+          );
+        })}
+      </section>
       <div className="action-row">
         <button className="primary-button" onClick={() => void save()}>Save navigation</button>
       </div>
@@ -3996,7 +4067,7 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
       notify(`${providerNames[activeProvider]} connected.`, "success");
       setMessage(`${providerNames[activeProvider]} saved for this account.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Provider credentials could not be saved.");
+      setMessage("Provider credentials could not be saved.");
     }
   };
 
@@ -4006,7 +4077,7 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
       await load();
       notify(`${providerNames[provider]} disabled.`, "success");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Provider could not be disabled.");
+      setMessage("Provider could not be disabled.");
     }
   };
 
@@ -4043,32 +4114,74 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
   );
 }
 
-function ImportExportSettingsPanel() {
+type UserBackup = { id: string; label: string | null; status: string; byteSize: number; createdAt: string; updatedAt: string };
+
+function DataSettingsPanel({ csrfToken }: { csrfToken: string }) {
+  const [backups, setBackups] = useState<UserBackup[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("Create a backup first, then export that backup when needed.");
+
+  const load = useCallback(async () => {
+    const data = await apiJson<{ backups: UserBackup[] }>("/api/settings/backups");
+    setBackups(data.backups);
+  }, []);
+
+  useEffect(() => {
+    void load().catch(() => {});
+  }, [load]);
+
+  const createBackup = async () => {
+    setBusy(true);
+    try {
+      await apiJson("/api/settings/backups", { method: "POST", csrfToken });
+      await load();
+      notify("Backup created.", "success");
+      setMessage("Backup ready. Export it when you want an offline copy.");
+    } catch (error) {
+      setMessage("Backup could not be created.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportBackup = async (backupId: string) => {
+    try {
+      const data = await apiJson<{ backup: { id: string; label: string | null; payload: unknown } }>(`/api/settings/backups/${backupId}/export`);
+      const blob = new Blob([JSON.stringify(data.backup.payload, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `tuvu-backup-${data.backup.id}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      notify("Backup exported.", "success");
+    } catch (error) {
+      setMessage("Backup could not be exported.");
+    }
+  };
+
   return (
-    <SettingsPanel title="Import / Export" description="Move data into and out of Tuvu.">
+    <SettingsPanel title="Data" description="Import TV Time data, create account backups, and export backups.">
       <section className="settings-list">
         <NavLink className="setting-row" to="/profile/import/tv-time"><div className="setting-icon"><Upload size={20} /></div><div><h2>TV Time import</h2><p>Import ZIP or individual backup files.</p></div><ChevronRight size={18} /></NavLink>
-        <SettingRow icon={<Library size={20} />} title="Account export" value="ZIP export placeholder" />
-        <SettingRow icon={<RefreshCw size={20} />} title="Restore from export" value="Restore flow placeholder" />
+        <article className="setting-row"><div className="setting-icon"><RefreshCw size={20} /></div><div><h2>Create backup</h2><p>Packages account tracking data into a D1 backup record.</p></div><button className="secondary-button" disabled={busy} onClick={() => void createBackup()}>{busy ? "Creating..." : "Create"}</button></article>
+        <SettingRow icon={<Library size={20} />} title="Restore backup" value="Restore safety checks pending" />
       </section>
-    </SettingsPanel>
-  );
-}
-
-function BackupSettingsPanel() {
-  return (
-    <SettingsPanel title="Backup" description="Backup jobs will package database rows and user media.">
-      <section className="settings-list">
-        <SettingRow icon={<Upload size={20} />} title="Create backup" value="Supabase backup placeholder" />
-        <SettingRow icon={<RefreshCw size={20} />} title="Restore backup" value="Restore safety checks pending" />
-        <SettingRow icon={<Library size={20} />} title="Backup history" value="No backups yet" />
+      <section className="backup-list" aria-label="Backups">
+        {backups.length === 0 ? <EmptyState icon={<RefreshCw size={24} />} title="No backups yet" message="Create a backup to enable export." /> : backups.map((backup) => (
+          <article className="backup-card" key={backup.id}>
+            <div><h3>{backup.label ?? "Backup"}</h3><p>{new Date(backup.createdAt).toLocaleString()} - {formatBytes(backup.byteSize)}</p></div>
+            <button className="secondary-button" onClick={() => void exportBackup(backup.id)}>Export</button>
+          </article>
+        ))}
       </section>
+      <p className="form-message" role="status">{message}</p>
     </SettingsPanel>
   );
 }
 
 function StorageSettingsPanel() {
-  const [storage, setStorage] = useState<{ libraryItems: number; userUploads: number; userUploadBytes: number; globalMediaItems: number; databaseBytes: number | null; supabaseBytes: number | null } | null>(null);
+  const [storage, setStorage] = useState<{ libraryItems: number; userUploads: number; userUploadBytes: number; globalMediaItems: number; backups: number; backupBytes: number; databaseBytes: number | null; supabaseBytes: number | null } | null>(null);
   useEffect(() => {
     let cancelled = false;
     apiJson<{ storage: NonNullable<typeof storage> }>("/api/settings/storage").then((data) => { if (!cancelled) setStorage(data.storage); }).catch(() => {});
@@ -4077,15 +4190,27 @@ function StorageSettingsPanel() {
   return (
     <SettingsPanel title="Storage" description="Current usage estimates and future backup sizing.">
       <section className="settings-storage-grid">
-        <Stat icon={<Library size={20} />} label="Library" value={String(storage?.libraryItems ?? 0)} />
-        <Stat icon={<Upload size={20} />} label="Uploads" value={formatBytes(storage?.userUploadBytes ?? 0)} />
-        <Stat icon={<BarChart3 size={20} />} label="Global media" value={String(storage?.globalMediaItems ?? 0)} />
+        <StorageCard icon={<Library size={20} />} label="Tracked items" value={String(storage?.libraryItems ?? 0)} detail="User library rows" />
+        <StorageCard icon={<Upload size={20} />} label="Profile media" value={formatBytes(storage?.userUploadBytes ?? 0)} detail={`${storage?.userUploads ?? 0} upload records`} />
+        <StorageCard icon={<RefreshCw size={20} />} label="Backups" value={formatBytes(storage?.backupBytes ?? 0)} detail={`${storage?.backups ?? 0} backup records`} />
+        <StorageCard icon={<BarChart3 size={20} />} label="Global media" value={String(storage?.globalMediaItems ?? 0)} detail="Shared catalog rows" />
       </section>
       <section className="settings-list">
         <SettingRow icon={<BarChart3 size={20} />} title="Database size" value={storage?.databaseBytes == null ? "Estimate endpoint pending" : formatBytes(storage.databaseBytes)} />
         <SettingRow icon={<Upload size={20} />} title="Supabase media size" value={storage?.supabaseBytes == null ? "Estimate endpoint pending" : formatBytes(storage.supabaseBytes)} />
       </section>
     </SettingsPanel>
+  );
+}
+
+function StorageCard({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+  return (
+    <article className="storage-card">
+      <div className="setting-icon">{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </article>
   );
 }
 
@@ -4125,7 +4250,9 @@ function ImportPage() {
       setSummary(parsed);
       setMessage(`Parsed ${parsed.fileNames.length} file(s). Review data below before uploading.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Files could not be parsed.");
+      const nextError = reason instanceof Error ? reason.message : "Files could not be parsed.";
+      notify(nextError, "error");
+      setError(nextError);
     } finally {
       setBusy(false);
     }
@@ -4161,7 +4288,8 @@ function ImportPage() {
       setJob(refreshed.job);
       setMessage("Chunks uploaded. Commit when ready.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Data upload failed.");
+      const nextError = reason instanceof Error ? reason.message : "Data upload failed.";
+      setError(nextError);
     } finally {
       setBusy(false);
       setUploadProgress(null);
@@ -4177,7 +4305,8 @@ function ImportPage() {
       setJob({ ...job, status: "committing" });
       setMessage("Import started in background. You can navigate away.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Commit failed to start.");
+      const nextError = reason instanceof Error ? reason.message : "Commit failed to start.";
+      setError(nextError);
     } finally {
       setBusy(false);
     }
@@ -4195,7 +4324,8 @@ function ImportPage() {
       setJob(rolledBack.job);
       setMessage(`Rollback complete. Removed ${rolledBack.removed} created record(s).`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Rollback failed.");
+      const nextError = reason instanceof Error ? reason.message : "Rollback failed.";
+      setError(nextError);
     } finally {
       setBusy(false);
     }
@@ -4221,7 +4351,6 @@ function ImportPage() {
           <input type="file" multiple accept=".zip,.json,.csv,.html,text/csv,application/json,text/html" onChange={(event) => void chooseFiles(event.target.files)} disabled={busy} />
         </label>
         <p className="muted-copy">{message}</p>
-        {error && <p className="input-error" role="alert">{error}</p>}
         {summary && <ImportReview summary={summary} />}
         {job && <ImportJobPanel job={job} />}
 
@@ -4236,12 +4365,6 @@ function ImportPage() {
           </div>
         )}
 
-        {importState.activeJob?.status === "failed" && importState.activeJob.error_message && (
-          <div style={{ margin: "1.5rem 0", padding: "1rem", background: "rgba(255, 107, 107, 0.05)", border: "1px solid rgba(255, 107, 107, 0.2)", borderRadius: "0.5rem" }}>
-             <p className="eyebrow" style={{ marginBottom: "0.5rem", color: "#ff6b6b" }}>Import Failed</p>
-             <p style={{ margin: 0, fontSize: "0.9rem", color: "#ff6b6b" }}>{importState.activeJob.error_message}</p>
-          </div>
-        )}
 
         <div className="import-actions">
           {(!job || job.status === "created") && summary && (
@@ -4298,7 +4421,7 @@ function ImportHistory() {
       await apiJson(`/api/imports/tv-time/jobs/${id}`, { method: "DELETE", csrfToken: me.csrfToken });
       fetchJobs();
     } catch (e) {
-      alert("Failed to delete log.");
+      notify("Import log could not be deleted.", "error");
     }
   };
 
@@ -4569,7 +4692,7 @@ function AppPage({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/profile/messages", "/profile/settings", "/profile/import/tv-time", "/profile/merge", "/anime", "/youtube"]);
+  const topLevelPaths = new Set(["/books", "/games", "/shows", "/movies", "/explore", "/profile", "/profile/explore", "/anime", "/youtube"]);
   const isSubPage = !topLevelPaths.has(location.pathname) && location.pathname !== "/";
   
   // Snap the navigation direction at component mount time.
@@ -4789,17 +4912,20 @@ function Stat({ icon, label, value }: { icon: ReactNode; label: string; value: s
   );
 }
 
-type ThemePreference = "light" | "dark" | "system";
-
 function ThemeSetting() {
   const [theme, setTheme] = useState<ThemePreference>(() => {
-    const stored = localStorage.getItem(uiConstants.themeStorageKey);
-    return stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    return normalizeThemePreference(localStorage.getItem(uiConstants.themeStorageKey));
   });
 
   useEffect(() => {
     localStorage.setItem(uiConstants.themeStorageKey, theme);
-    document.documentElement.dataset.theme = theme;
+    applyThemePreference(theme);
+    if (theme !== "system") return;
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = () => applyThemePreference("system");
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
   }, [theme]);
 
   return (
@@ -4851,7 +4977,7 @@ function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Pr
       await onSaved();
       setMessage("Profile saved.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Profile save failed.");
+      setMessage("Profile save failed.");
     }
   }
 
@@ -4870,7 +4996,7 @@ function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Pr
       await onSaved();
       setMessage(`${kind} uploaded.`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : `${kind} upload failed.`);
+      setMessage(`${kind} upload failed.`);
     }
   }
 
@@ -4879,7 +5005,7 @@ function ProfileSettingsForm({ me, onSaved }: { me: MePayload; onSaved: () => Pr
       await apiJson("/api/auth/logout", { method: "POST", csrfToken: me.csrfToken });
       window.location.assign("/auth");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Logout failed.");
+      setMessage("Logout failed.");
     }
   }
 

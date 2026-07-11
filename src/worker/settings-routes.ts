@@ -93,10 +93,11 @@ export function createSettingsRoutes() {
   router.get("/storage", requireAuth(), async (c) => {
     if (!c.env.DB) return apiError(c, 503, "server_error", "Storage estimates are unavailable.");
     const auth = c.get("auth");
-    const [library, uploads, media] = await Promise.all([
+    const [library, uploads, media, backups] = await Promise.all([
       c.env.DB.prepare("SELECT COUNT(*) AS count FROM user_media WHERE user_id = ?").bind(auth.user.id).first<{ count: number }>(),
       c.env.DB.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(byte_size), 0) AS bytes FROM uploads WHERE user_id = ?").bind(auth.user.id).first<{ count: number; bytes: number }>(),
       c.env.DB.prepare("SELECT COUNT(*) AS count FROM media_items").first<{ count: number }>(),
+      c.env.DB.prepare("SELECT COUNT(*) AS count, COALESCE(SUM(byte_size), 0) AS bytes FROM user_backups WHERE user_id = ? AND status != 'deleted'").bind(auth.user.id).first<{ count: number; bytes: number }>(),
     ]);
     return c.json(apiSuccess({
       storage: {
@@ -104,13 +105,67 @@ export function createSettingsRoutes() {
         userUploads: uploads?.count ?? 0,
         userUploadBytes: uploads?.bytes ?? 0,
         globalMediaItems: media?.count ?? 0,
+        backups: backups?.count ?? 0,
+        backupBytes: backups?.bytes ?? 0,
         databaseBytes: null,
         supabaseBytes: null,
       },
     }));
   });
 
+  router.get("/backups", requireAuth(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Backup storage is unavailable.");
+    const rows = await c.env.DB.prepare("SELECT id, label, status, byte_size, created_at, updated_at FROM user_backups WHERE user_id = ? AND status != 'deleted' ORDER BY created_at DESC LIMIT 20")
+      .bind(c.get("auth").user.id)
+      .all<{ id: string; label: string | null; status: string; byte_size: number; created_at: string; updated_at: string }>();
+    return c.json(apiSuccess({ backups: rows.results.map((row) => ({ id: row.id, label: row.label, status: row.status, byteSize: row.byte_size, createdAt: row.created_at, updatedAt: row.updated_at })) }));
+  });
+
+  router.post("/backups", requireAuth(), requireCsrf(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Backup storage is unavailable.");
+    const auth = c.get("auth");
+    const now = new Date().toISOString();
+    const payload = await buildBackupPayload(c.env.DB, auth.user.id, now);
+    const payloadJson = JSON.stringify(payload);
+    const id = randomId("bak");
+    await c.env.DB.prepare("INSERT INTO user_backups (id, user_id, label, status, payload_json, byte_size, created_at, updated_at) VALUES (?, ?, ?, 'complete', ?, ?, ?, ?)")
+      .bind(id, auth.user.id, `Backup ${now.slice(0, 10)}`, payloadJson, new TextEncoder().encode(payloadJson).byteLength, now, now)
+      .run();
+    return c.json(apiSuccess({ backup: { id, label: `Backup ${now.slice(0, 10)}`, status: "complete", byteSize: new TextEncoder().encode(payloadJson).byteLength, createdAt: now, updatedAt: now } }), 201);
+  });
+
+  router.get("/backups/:id/export", requireAuth(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Backup storage is unavailable.");
+    const row = await c.env.DB.prepare("SELECT id, label, payload_json, byte_size, created_at FROM user_backups WHERE id = ? AND user_id = ? AND status = 'complete'")
+      .bind(c.req.param("id"), c.get("auth").user.id)
+      .first<{ id: string; label: string | null; payload_json: string; byte_size: number; created_at: string }>();
+    if (!row) return apiError(c, 404, "not_found", "Backup not found.");
+    return c.json(apiSuccess({ backup: { id: row.id, label: row.label, byteSize: row.byte_size, createdAt: row.created_at, payload: JSON.parse(row.payload_json) } }));
+  });
+
   return router;
+}
+
+async function buildBackupPayload(db: D1Database, userId: string, exportedAt: string) {
+  const [profile, userMedia, episodeActivity, unitActivity, uploads] = await Promise.all([
+    db.prepare("SELECT users.id, users.email, users.username, users.display_name, user_profiles.bio, user_profiles.visibility, user_profiles.preferred_language, user_profiles.preferred_region FROM users JOIN user_profiles ON user_profiles.user_id = users.id WHERE users.id = ?")
+      .bind(userId)
+      .first(),
+    db.prepare("SELECT * FROM user_media WHERE user_id = ? ORDER BY updated_at DESC").bind(userId).all(),
+    db.prepare("SELECT * FROM episode_activity WHERE user_id = ? ORDER BY updated_at DESC").bind(userId).all(),
+    db.prepare("SELECT * FROM unit_activity WHERE user_id = ? ORDER BY updated_at DESC").bind(userId).all(),
+    db.prepare("SELECT id, bucket, object_path, public_url, content_type, byte_size, kind, status, created_at, updated_at FROM uploads WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
+  ]);
+  return {
+    version: 1,
+    exportedAt,
+    userId,
+    profile,
+    userMedia: userMedia.results,
+    episodeActivity: episodeActivity.results,
+    unitActivity: unitActivity.results,
+    uploads: uploads.results,
+  };
 }
 
 async function readUserSetting(db: D1Database | undefined, userId: string, key: string) {

@@ -47,7 +47,7 @@ export async function recalculateDashboardStats(db: D1Database, userId: string, 
   const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
   const typeClause = kind === "anime"
     ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
-    : kind === "shows"
+    : (kind === "shows" || kind === "movies")
       ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
       : `mi.type IN (${typePlaceholders})`;
   const totalTrackedRow = await db.prepare(`
@@ -224,7 +224,7 @@ export async function dashboardSectionCounts(db: D1Database, userId: string, kin
         SUM(CASE WHEN date(mi.release_date) > date('now') THEN 1 ELSE 0 END) AS upcoming
       FROM user_media um
       JOIN media_items mi ON mi.id = um.media_id
-      WHERE um.user_id = ? AND mi.type = 'movie'
+      WHERE um.user_id = ? AND mi.type = 'movie' AND NOT (mi.extended_data_json LIKE '%"category":"anime"%' OR mi.extended_data_json LIKE '%"anime":%')
     `).bind(userId).first<Record<string, number | null>>();
     return { watchlist: row?.watchlist ?? 0, watched: row?.watched ?? 0, favorites: row?.favorites ?? 0, upcoming: row?.upcoming ?? 0, all: row?.all_count ?? 0 };
   }

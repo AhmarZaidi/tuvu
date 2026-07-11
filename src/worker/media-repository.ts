@@ -559,7 +559,7 @@ export class D1MediaRepository implements MediaRepository {
     const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
     const typeClause = kind === "anime"
       ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
-      : kind === "shows"
+      : (kind === "shows" || kind === "movies")
         ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
         : `mi.type IN (${typePlaceholders})`;
     const trimmedQuery = query?.trim();

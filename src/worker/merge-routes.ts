@@ -4,7 +4,9 @@ import type { MediaType } from "@shared/media";
 import { searchableMediaTypes } from "@shared/media-config";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { inferAirStatus, normalizeTitle, resolveOrCreateProviderCanonicalMedia } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
+import { parseOffsetPagination } from "./pagination";
 import { providerFindByExternalId, providerSearch, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
@@ -40,8 +42,8 @@ type MergeCandidate = {
 const mergeBodySchema = z.object({
   sourceMediaId: z.string().min(1),
   targetMediaId: z.string().min(1).optional(),
-  providerResult: z.object({
-    provider: z.enum(["tmdb", "rawg", "openlibrary", "local"]),
+    providerResult: z.object({
+    provider: z.enum(["tmdb", "igdb", "rawg", "openlibrary", "jikan", "local"]),
     providerId: z.string(),
     type: z.enum(["show", "movie", "anime", "game", "book"]),
     title: z.string(),
@@ -95,8 +97,7 @@ export function createMergeRoutes() {
   router.get("/candidates", requireAuth(), async (c) => {
     if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
     const auth = c.get("auth");
-    const limit = Number(c.req.query("limit") ?? 30);
-    const offset = Number(c.req.query("offset") ?? 0);
+    const { limit, offset } = parseOffsetPagination({ limit: c.req.query("limit"), offset: c.req.query("offset") }, { limit: 30, maxLimit: 100 });
     const search = c.req.query("q")?.trim() || null;
     const candidates = await buildCandidates(c.env, auth.user.id, parseType(c.req.query("type")), limit, offset, search);
     return c.json(apiSuccess({ candidates }));
@@ -115,7 +116,7 @@ export function createMergeRoutes() {
     const auth = c.get("auth");
     const body = mergeBodySchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return apiError(c, 400, "validation_failed", "Merge request is invalid.", body.error.flatten());
-    const targetMediaId = body.data.targetMediaId ?? body.data.providerResult?.localMediaId ?? await createCanonicalFromProvider(c.env.DB, body.data.providerResult, new Date().toISOString());
+    const targetMediaId = body.data.targetMediaId ?? body.data.providerResult?.localMediaId ?? await createCanonicalFromProvider(c.env.DB, c.get("mediaRepository"), body.data.providerResult, new Date().toISOString());
     if (!targetMediaId) return apiError(c, 400, "validation_failed", "Merge needs a target media item.");
     const result = await mergeMedia(c.env.DB, auth.user.id, body.data.sourceMediaId, targetMediaId, body.data.confidence ?? "manual", body.data.reason ?? "Accepted from merge review.");
     c.executionCtx.waitUntil(import("./hydration").then(m => m.scheduleHydrationJobs(c.env)));
@@ -318,23 +319,10 @@ async function findTitleCandidate(db: D1Database, source: MergeCandidate["source
   return { source, candidate: mapProviderSource(row), confidence: source.year ? "title_year_strong" : "title_only_review", reason: source.year ? "Matched by normalized title and nearby year." : "Matched by normalized title." };
 }
 
-async function createCanonicalFromProvider(db: D1Database, providerResult: z.infer<typeof mergeBodySchema>["providerResult"], now: string) {
+async function createCanonicalFromProvider(db: D1Database, repo: MediaRepository, providerResult: z.infer<typeof mergeBodySchema>["providerResult"], now: string) {
   if (!providerResult) return null;
-  if (providerResult.provider === "local" && providerResult.localMediaId) return providerResult.localMediaId;
-  const existing = await db.prepare("SELECT media_id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(providerResult.provider, providerResult.providerId).first<{ media_id: string }>();
-  if (existing) return existing.media_id;
-  const mediaId = randomId("med");
-  await db.prepare(`INSERT INTO media_items (id, type, title, overview, poster_path, backdrop_path, air_status, runtime_minutes, release_date, year, language, country, source, source_id, total_episodes, total_seasons, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`)
-    .bind(mediaId, providerResult.type, providerResult.title, providerResult.overview ?? null, providerResult.posterPath ?? null, providerResult.backdropPath ?? null, inferAirStatus(providerResult.type, providerResult.releaseDate ?? null), providerResult.releaseDate ?? null, providerResult.year ?? null, providerResult.provider, providerResult.providerId, now, now)
-    .run();
-  await db.prepare("INSERT INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(randomId("mex"), mediaId, providerResult.provider, providerResult.providerId, now)
-    .run();
-  await db.prepare("INSERT OR IGNORE INTO media_source_records (id, media_id, source_kind, source_id, raw_title, raw_type, raw_year, normalized_title, cache_key, raw_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)")
-    .bind(randomId("msr"), mediaId, providerResult.provider, providerResult.providerId, providerResult.title, providerResult.type, providerResult.year ?? null, normalizeTitle(providerResult.title), JSON.stringify(providerResult), now, now)
-    .run();
-  return mediaId;
+  const media = await resolveOrCreateProviderCanonicalMedia({ db, repo, result: providerResult, now });
+  return media.id;
 }
 
 async function mergeMedia(db: D1Database, userId: string, sourceMediaId: string, targetMediaId: string, confidence: string, reason: string) {
@@ -539,13 +527,4 @@ function mapProviderSource(row: MediaRow): MergeCandidate["source"] {
 
 function parseType(type?: string): MediaType | null {
   return type === "show" || type === "movie" || type === "anime" || type === "game" || type === "book" ? type : null;
-}
-
-function normalizeTitle(title: string) {
-  return title.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function inferAirStatus(type: MediaType, releaseDate: string | null) {
-  if (releaseDate && releaseDate > new Date().toISOString().slice(0, 10)) return "upcoming";
-  return type === "show" || type === "anime" ? "continuing" : "released";
 }

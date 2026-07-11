@@ -10,6 +10,7 @@ import {
 } from "@shared/tv-time-import";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { resolveOrCreateImportedCanonicalMedia } from "./media-canonical-service";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
 type ImportJobRow = {
@@ -391,48 +392,16 @@ async function commitMovie(db: D1Database, userId: string, jobId: string, item: 
 }
 
 async function resolveOrCreateMedia(db: D1Database, jobId: string, input: { type: "show" | "movie"; title: string; year: number | null; sourceUuid: string | null; tvdbId: string | null; imdbId: string | null; releaseDate: string | null; createdAt: string | null }, now: string) {
-  const existing = await findMediaByExternalIds(db, input.tvdbId, input.imdbId, input.sourceUuid);
-  if (existing) {
-    await addExternalIds(db, jobId, existing, input, now);
-    return existing;
+  const result = await resolveOrCreateImportedCanonicalMedia({
+    db,
+    item: input,
+    now,
+    onCreated: (tableName, recordId) => recordCreated(db, jobId, tableName, recordId, now),
+  });
+  if (result.created) {
+    await addWarning(db, jobId, input.sourceUuid ?? input.tvdbId ?? input.title, "warning", "placeholder_created", `Created a lightweight placeholder for ${input.title}.`, { title: input.title }, now);
   }
-  const mediaId = randomId("med");
-  await db.prepare(`INSERT INTO media_items (id, type, title, overview, poster_path, backdrop_path, air_status, runtime_minutes, release_date, year, language, country, source, source_id, total_episodes, total_seasons, created_at, updated_at)
-    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, 'tv_time', ?, NULL, NULL, ?, ?)`)
-    .bind(mediaId, input.type, input.title, input.releaseDate, input.year, input.sourceUuid ?? input.tvdbId ?? input.imdbId, input.createdAt ?? now, now)
-    .run();
-  await recordCreated(db, jobId, "media_items", mediaId, now);
-  await addExternalIds(db, jobId, mediaId, input, now);
-  await upsertMediaSourceRecord(db, mediaId, "tv_time", input.sourceUuid ?? input.tvdbId ?? input.imdbId, input.title, input.type, input.year, { tvdbId: input.tvdbId, imdbId: input.imdbId, sourceUuid: input.sourceUuid }, now);
-  await addWarning(db, jobId, input.sourceUuid ?? input.tvdbId ?? input.title, "warning", "placeholder_created", `Created a lightweight placeholder for ${input.title}.`, { title: input.title }, now);
-  return mediaId;
-}
-
-async function addExternalIds(db: D1Database, jobId: string, mediaId: string, input: { sourceUuid: string | null; tvdbId: string | null; imdbId: string | null }, now: string) {
-  const ids = [
-    ["tvtime_uuid", input.sourceUuid],
-    ["tvdb", input.tvdbId],
-    ["imdb", input.imdbId],
-  ].filter((pair): pair is [string, string] => Boolean(pair[1]));
-  for (const [source, externalId] of ids) {
-    const exists = await rowExists(db, "media_external_ids", "source = ? AND external_id = ?", [source, externalId]);
-    if (!exists) {
-      const id = randomId("mex");
-      await db.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
-        .bind(id, mediaId, source, externalId, now)
-        .run();
-      await recordCreated(db, jobId, "media_external_ids", id, now);
-    }
-  }
-}
-
-async function upsertMediaSourceRecord(db: D1Database, mediaId: string, sourceKind: string, sourceId: string | null, title: string, type: string, year: number | null, raw: unknown, now: string) {
-  if (!sourceId) return;
-  await db.prepare(`INSERT INTO media_source_records (id, media_id, source_kind, source_id, raw_title, raw_type, raw_year, normalized_title, cache_key, raw_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
-    ON CONFLICT(source_kind, source_id) DO UPDATE SET media_id=excluded.media_id, raw_title=excluded.raw_title, raw_type=excluded.raw_type, raw_year=excluded.raw_year, normalized_title=excluded.normalized_title, raw_json=excluded.raw_json, updated_at=excluded.updated_at`)
-    .bind(randomId("msr"), mediaId, sourceKind, sourceId, title, type, year, normalizeMergeTitle(title), JSON.stringify(raw), now, now)
-    .run();
+  return result.mediaId;
 }
 
 async function resolveOrCreateSeason(db: D1Database, jobId: string, mediaId: string, seasonNumber: number, isSpecial: boolean, episodeCount: number, now: string) {
@@ -455,19 +424,6 @@ async function resolveOrCreateEpisode(db: D1Database, jobId: string, mediaId: st
     .run();
   await recordCreated(db, jobId, "episodes", id, now);
   return id;
-}
-
-async function findMediaByExternalIds(db: D1Database, tvdbId: string | null, imdbId: string | null, sourceUuid: string | null) {
-  const ids = [
-    ["tvtime_uuid", sourceUuid],
-    ["tvdb", tvdbId],
-    ["imdb", imdbId],
-  ].filter((pair): pair is [string, string] => Boolean(pair[1]));
-  for (const [source, externalId] of ids) {
-    const row = await db.prepare("SELECT media_id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(source, externalId).first<{ media_id: string }>();
-    if (row) return row.media_id;
-  }
-  return null;
 }
 
 async function readJob(db: D1Database, userId: string, jobId: string) {
@@ -554,8 +510,4 @@ function normalizeDateTime(value: string | null) {
   if (!value) return null;
   if (value.includes("T")) return value;
   return value.replace(" ", "T") + "Z";
-}
-
-function normalizeMergeTitle(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }

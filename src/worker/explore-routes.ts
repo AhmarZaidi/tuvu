@@ -2,9 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { mediaTypeSchema, type MediaType } from "@shared/media";
 import { searchableMediaTypes } from "@shared/media-config";
-import { randomId } from "./crypto";
+import { addProviderResultToLibrary } from "./media-canonical-service";
 import { apiError, apiSuccess } from "./http";
-import { defaultStatus } from "./media-logic";
 import type { MediaItemRecord, MediaRepository } from "./media-repository";
 import { providerExplore, providerSearch, providerTypeExplore, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
@@ -70,70 +69,8 @@ export function createExploreRoutes() {
 
     const auth = c.get("auth");
     const repo = c.get("mediaRepository");
-    const now = new Date().toISOString();
-    let media: MediaItemRecord | null = c.env.DB
-      ? await findMediaByExternalId(c.env.DB, body.data.provider, body.data.providerId)
-      : await findMediaByProviderResult(repo, body.data.provider, body.data.providerId, body.data.title, body.data.type);
-    if (!media) {
-      media = {
-        id: randomId("med"),
-        type: body.data.type,
-        title: body.data.title,
-        overview: body.data.overview ?? null,
-        posterPath: body.data.posterPath ?? null,
-        backdropPath: body.data.backdropPath ?? null,
-        airStatus: inferAirStatus(body.data.type, body.data.releaseDate ?? null),
-        runtimeMinutes: null,
-        releaseDate: body.data.releaseDate ?? null,
-        year: body.data.year ?? null,
-        language: null,
-        country: null,
-        source: body.data.provider,
-        sourceId: body.data.providerId,
-        totalEpisodes: null,
-        totalSeasons: null,
-        extendedDataJson: body.data.extendedDataJson ?? null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await repo.createMedia(media);
-      if (c.env.DB) {
-        await c.env.DB.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
-          .bind(randomId("exi"), media.id, body.data.provider, body.data.providerId, now)
-          .run();
-          
-        await c.env.DB.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
-          .bind(randomId("mrj"), media.id, body.data.provider, now, now)
-          .run();
-      }
-    }
-
-    const existing = await repo.findUserMedia(auth.user.id, media.id);
-    if (existing) return c.json(apiSuccess({ media, userMedia: existing, alreadyTracked: true }));
-    const status = defaultStatus(media.type);
-    const userMedia = await repo.upsertUserMedia({
-      id: randomId("ulb"),
-      userId: auth.user.id,
-      mediaId: media.id,
-      status,
-      isFavorite: false,
-      rating: null,
-      notes: null,
-      watchedAt: null,
-      rewatchCount: 0,
-      progressEpisodes: 0,
-      progressValue: null,
-      progressTotal: null,
-      progressUnit: null,
-      platform: null,
-      startedAt: null,
-      purchaseLibrary: null,
-      visibility: "private",
-      createdAt: now,
-      updatedAt: now,
-    });
-    await repo.createActivityEvent({ id: randomId("act"), userId: auth.user.id, type: "add_library", mediaId: media.id, episodeId: null, dataJson: JSON.stringify({ status, provider: body.data.provider, providerId: body.data.providerId }), createdAt: now });
-    return c.json(apiSuccess({ media, userMedia, alreadyTracked: false }), 201);
+    const result = await addProviderResultToLibrary({ env: c.env, repo, userId: auth.user.id, result: body.data });
+    return c.json(apiSuccess(result), result.alreadyTracked ? 200 : 201);
   });
 
   return router;
@@ -277,44 +214,4 @@ function dedupeMarkedResults(results: ProviderResult[]) {
 
 function resultKey(result: ProviderResult) {
   return `${result.provider}:${result.providerId}:${result.type}`;
-}
-
-async function findMediaByExternalId(db: D1Database, provider: string, providerId: string): Promise<MediaItemRecord | null> {
-  const row = await db.prepare(`SELECT mi.* FROM media_items mi
-    LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
-    WHERE (mi.source = ? AND mi.source_id = ?) OR (ex.source = ? AND ex.external_id = ?)
-    LIMIT 1`).bind(provider, providerId, provider, providerId).first<{
-      id: string; type: MediaType; title: string; overview: string | null; poster_path: string | null; backdrop_path: string | null; air_status: string | null; runtime_minutes: number | null; release_date: string | null; year: number | null; language: string | null; country: string | null; source: string; source_id: string | null; total_episodes: number | null; total_seasons: number | null; extended_data_json: string | null; created_at: string; updated_at: string;
-    }>();
-  return row ? {
-    id: row.id,
-    type: row.type,
-    title: row.title,
-    overview: row.overview,
-    posterPath: row.poster_path,
-    backdropPath: row.backdrop_path,
-    airStatus: row.air_status,
-    runtimeMinutes: row.runtime_minutes,
-    releaseDate: row.release_date,
-    year: row.year,
-    language: row.language,
-    country: row.country,
-    source: row.source,
-    sourceId: row.source_id,
-    totalEpisodes: row.total_episodes,
-    totalSeasons: row.total_seasons,
-    extendedDataJson: row.extended_data_json,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  } : null;
-}
-
-async function findMediaByProviderResult(repo: MediaRepository, provider: string, providerId: string, title: string, type: MediaType) {
-  const candidates = await repo.searchMedia(title, type, 10);
-  return candidates.find((candidate) => candidate.source === provider && candidate.sourceId === providerId) ?? null;
-}
-
-function inferAirStatus(type: MediaType, releaseDate: string | null) {
-  if (releaseDate && releaseDate > new Date().toISOString().slice(0, 10)) return "upcoming";
-  return type === "show" || type === "anime" ? "continuing" : "released";
 }

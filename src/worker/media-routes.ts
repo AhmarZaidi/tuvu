@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { createMediaSchema, createSeasonSchema, createEpisodeSchema, createMediaUnitSchema } from "@shared/media";
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
+import { resolveMergedMediaId } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 import { uploadMediaCoverToSupabase } from "./supabase-storage";
@@ -51,8 +52,8 @@ export function createMediaRoutes() {
   router.get("/:id", requireAuth(), async (c) => {
     const mediaRepo = c.get("mediaRepository");
     const requestedId = c.req.param("id");
-    const alias = c.env.DB ? await c.env.DB.prepare("SELECT target_media_id FROM media_merge_aliases WHERE source_media_id = ? AND status = 'merged'").bind(requestedId).first<{ target_media_id: string }>() : null;
-    const media = await mediaRepo.findMediaById(alias?.target_media_id ?? requestedId);
+    const resolved = c.env.DB ? await resolveMergedMediaId(c.env.DB, requestedId) : { mediaId: requestedId, aliasFromMediaId: null };
+    const media = await mediaRepo.findMediaById(resolved.mediaId);
     if (!media) {
       return apiError(c, 404, "not_found", "Media item not found.");
     }
@@ -63,7 +64,7 @@ export function createMediaRoutes() {
       media.extendedDataJson = await enrichRelatedMedia(c.env.DB, auth.user.id, media.extendedDataJson);
     }
 
-    return c.json(apiSuccess({ media, userMedia, canonicalMediaId: media.id, aliasFromMediaId: alias ? requestedId : null }));
+    return c.json(apiSuccess({ media, userMedia, canonicalMediaId: media.id, aliasFromMediaId: resolved.aliasFromMediaId }));
   });
 
   // GET /api/media/:id/seasons — list seasons

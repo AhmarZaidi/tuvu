@@ -837,12 +837,21 @@ Implementation notes:
 
 ### 7.5.2 API And Repository Boundaries
 
-- [ ] Split `media-repository.ts` by responsibility.
-- [ ] Move dashboard count logic into `stats-service`.
-- [ ] Move canonical lookup/create/merge decisions into `media-canonical-service`.
-- [ ] Make explore add, import, and merge use the same canonical service.
-- [ ] Add route-level pagination helpers and consistent response shapes.
-- [ ] Add tests for canonical dedupe and aliases.
+- [x] Split `media-repository.ts` by responsibility.
+- [x] Move dashboard count logic into `stats-service`.
+- [x] Move canonical lookup/create/merge decisions into `media-canonical-service`.
+- [x] Make explore add, import, and merge use the same canonical service.
+- [x] Add route-level pagination helpers and consistent response shapes.
+- [x] Add tests for canonical dedupe and aliases.
+
+Implementation notes:
+
+- `src/worker/repositories/media-repository-boundaries.ts` defines repository role slices for catalog and user-library work. The large D1 implementation still exists for compatibility, but new services now depend on narrower boundaries instead of the full repository surface.
+- `src/worker/stats-service.ts` owns dashboard section count SQL. Library routes now call this service instead of embedding count SQL directly.
+- `src/worker/media-canonical-service.ts` owns provider canonical creation, import placeholder resolution, external ID attachment, source-record upsert, metadata refresh enqueueing, and merged-alias resolution.
+- Explore add, Merge accept with provider result, and TV Time import placeholder creation now share canonical service logic.
+- `src/worker/pagination.ts` provides shared offset pagination parsing and page metadata helpers for routes that expose `limit`/`offset`.
+- Tests cover provider add dedupe through the canonical boundary and merged media alias resolution.
 
 ### 7.5.3 Provider And Hydration Reliability
 

@@ -1042,6 +1042,36 @@ Acceptance gate:
 
 - Shows, movies, anime, games, and books can all be searched or created, tracked, listed, rated, and shown on the profile.
 
+### Phase 7.5: Optimization, Consolidation, and Architecture Reset
+
+Goal:
+
+Consolidate the app architecture before social, stats, messaging, backups, and richer settings expand the codebase.
+
+Implementation details:
+
+- Follow `docs/phase_7_5_optimization.md` as the source of truth for the 7.5.x sub-phases.
+- Preserve all Phase 1-7 functionality while refactoring.
+- Split monolithic client and stylesheet into route, feature, design-system, and cache modules.
+- Introduce a shared media type registry so Shows, Anime, Movies, Explore, Books, YouTube, and Games are driven by one configuration.
+- Separate Anime from Shows in dashboard and API logic.
+- Add cartoon/anime classification rules for provider results.
+- Centralize canonical media creation/merge logic so explore add, import, and merge cannot create duplicate real-world media rows.
+- Centralize provider cache, hydration, TTL, stale-while-revalidate, and user-provider credential lookup.
+- Add a client query cache and cross-device user library versioning.
+- Overhaul Settings into Account, Appearance, Navigation, Providers, Import/Export, Backup/Restore, Storage, and Privacy/Social sections.
+- Prepare database/service plans for future social sharing, comments, stats, recommendations, tags, custom mixed-media lists, backups, and later media types.
+
+Testing gate:
+
+- TypeScript compiles after each 7.5.x sub-phase.
+- Existing auth, import, merge, dashboard, media detail, search/add, and tracking tests continue to pass.
+- New tests cover anime/show dashboard separation, canonical dedupe, cache invalidation, and provider credential fallback.
+
+Acceptance gate:
+
+- Existing app behavior remains intact, but future work has clear code ownership, cache rules, media type rules, settings structure, and database maps.
+
 ### Phase 8: Lists, Social, Comments, and Messaging
 
 Goal:

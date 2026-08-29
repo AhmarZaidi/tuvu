@@ -23,18 +23,16 @@ export function SectionPills({ sections, activeSectionId, onSelectSection }: Sec
         return (
           <Pressable
             key={section.id}
-            style={[styles.pill, isActive && styles.pillActive]}
+            style={[styles.tabButton, isActive && styles.tabButtonActive]}
             onPress={() => onSelectSection(section.id)}
           >
-            <Text style={[styles.pillText, isActive && styles.pillTextActive]}>
+            <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
               {section.label}
             </Text>
             {count > 0 && (
-              <View style={[styles.badge, isActive && styles.badgeActive]}>
-                <Text style={[styles.badgeText, isActive && styles.badgeTextActive]}>
-                  {count}
-                </Text>
-              </View>
+              <Text style={[styles.tabCount, isActive && styles.tabCountActive]}>
+                {count}
+              </Text>
             )}
           </Pressable>
         );
@@ -45,52 +43,40 @@ export function SectionPills({ sections, activeSectionId, onSelectSection }: Sec
 
 const styles = StyleSheet.create({
   scrollView: {
-    maxHeight: 44,
+    maxHeight: 46,
     marginBottom: 8,
   },
   container: {
     paddingHorizontal: theme.spacing.md,
-    gap: 8,
+    gap: 6,
     alignItems: 'center',
   },
-  pill: {
+  tabButton: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    paddingVertical: 8,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: 'transparent',
     gap: 6,
   },
-  pillActive: {
-    backgroundColor: theme.colors.accent,
-    borderColor: theme.colors.accent,
+  tabButtonActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.09)',
   },
-  pillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.colors.textMuted,
-  },
-  pillTextActive: {
-    color: theme.colors.accentContrast,
-  },
-  badge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: theme.borderRadius.pill,
-  },
-  badgeActive: {
-    backgroundColor: 'rgba(29, 21, 5, 0.2)',
-  },
-  badgeText: {
-    fontSize: 11,
+  tabText: {
+    fontSize: 13,
     fontWeight: '800',
-    color: theme.colors.textSubtle,
+    color: '#c9cac5',
   },
-  badgeTextActive: {
-    color: theme.colors.accentContrast,
+  tabTextActive: {
+    color: '#fff4d3',
+  },
+  tabCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#858984',
+  },
+  tabCountActive: {
+    color: theme.colors.accent,
   },
 });

@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import { theme } from '../../constants/theme';
+import { TopBar } from '../../components/TopBar';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -22,9 +23,11 @@ export default function ProfileScreen() {
   });
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Profile Hero Card matching web */}
-      <View style={styles.userCard}>
+    <View style={styles.container}>
+      <TopBar />
+      <ScrollView contentContainerStyle={styles.content}>
+        {/* Profile Hero Card matching web */}
+        <View style={styles.userCard}>
         <View style={styles.avatar}>
           <Ionicons name="person" size={28} color={theme.colors.accent} />
         </View>
@@ -113,7 +116,8 @@ export default function ProfileScreen() {
         <Text style={styles.infoText}>Tuvu Mobile v1.0.0 (Expo SDK 57)</Text>
         <Text style={styles.infoSubtext}>Obsidian & Warm Gold Design System</Text>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }
 

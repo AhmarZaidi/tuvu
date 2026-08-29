@@ -6,7 +6,7 @@ export default function AnimeScreen() {
     <DashboardView
       kind="anime"
       title="Anime"
-      eyebrow="Anime"
+      mediaType="anime"
       emptyMessage="Manage, track, and discover your anime collections."
     />
   );

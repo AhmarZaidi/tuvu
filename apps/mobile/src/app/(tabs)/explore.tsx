@@ -17,6 +17,7 @@ import { api, DashboardEntry, ExploreResult } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { MediaCard } from '../../components/MediaCard';
 import { SectionHeader } from '../../components/SectionHeader';
+import { TopBar } from '../../components/TopBar';
 
 const MEDIA_TYPES = [
   { key: '', label: 'All Media' },
@@ -69,6 +70,7 @@ export default function ExploreScreen() {
 
   return (
     <View style={styles.container}>
+      <TopBar />
       {/* Search Input Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>

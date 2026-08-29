@@ -1,7 +1,8 @@
-import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { DashboardEntry } from '../services/api';
 import { StatusBadge, StatusTone } from './StatusBadge';
@@ -10,6 +11,7 @@ interface MediaCardProps {
   item: DashboardEntry;
   width?: number;
   variant?: 'grid' | 'compact';
+  onMarkNext?: (episodeId: string) => Promise<void>;
 }
 
 function resolveStatusTone(status: string): StatusTone {
@@ -25,8 +27,15 @@ function formatStatus(status: string): string {
   return (status || '').replace(/_/g, ' ');
 }
 
-export function MediaCard({ item, width = 125, variant = 'grid' }: MediaCardProps) {
+export function MediaCard({
+  item,
+  width = 160,
+  variant = 'grid',
+  onMarkNext,
+}: MediaCardProps) {
   const router = useRouter();
+  const [marking, setMarking] = useState(false);
+
   const posterUrl = item.posterPath
     ? (item.posterPath.startsWith('http') ? item.posterPath : `https://image.tmdb.org/t/p/w342${item.posterPath}`)
     : null;
@@ -37,120 +46,191 @@ export function MediaCard({ item, width = 125, variant = 'grid' }: MediaCardProp
     progressPercent = Math.min(100, Math.round((item.progressValue / item.progressTotal) * 100));
   } else if (item.totalRegularEpisodes && item.totalRegularEpisodes > 0 && item.progressEpisodes > 0) {
     progressPercent = Math.min(100, Math.round((item.progressEpisodes / item.totalRegularEpisodes) * 100));
+  } else if (['watched', 'completed', 'finished'].includes(item.status)) {
+    progressPercent = 100;
   }
 
-  let metaString = '';
-  if (item.nextEpisode) {
-    metaString = `S${item.nextEpisode.seasonNumber} E${item.nextEpisode.episodeNumber}`;
-  } else if (item.year) {
-    metaString = `${item.year}`;
-  }
+  const nextLabel = item.nextEpisode
+    ? `S${item.nextEpisode.seasonNumber} E${item.nextEpisode.episodeNumber}`
+    : null;
+  const displayYear = item.year ? String(item.year) : '';
 
+  const handleQuickWatch = async () => {
+    if (!item.nextEpisode?.id || !onMarkNext) return;
+    setMarking(true);
+    try {
+      await onMarkNext(item.nextEpisode.id);
+    } finally {
+      setMarking(false);
+    }
+  };
+
+  // Compact List Row View
   if (variant === 'compact') {
     return (
-      <Pressable
-        style={styles.compactContainer}
-        onPress={() => router.push(`/media/${item.mediaId}`)}
-        android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
-      >
-        <View style={styles.compactPoster}>
-          {posterUrl ? (
-            <Image source={{ uri: posterUrl }} style={styles.poster} contentFit="cover" />
-          ) : (
-            <View style={styles.placeholder}>
-              <Text style={styles.compactPlaceholderText} numberOfLines={2}>
-                {item.title}
-              </Text>
-            </View>
-          )}
-        </View>
+      <View style={styles.compactWrap}>
+        <Pressable
+          style={styles.compactCard}
+          onPress={() => router.push(`/media/${item.mediaId}`)}
+          android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
+        >
+          {/* Mini Poster with Progress Overlay */}
+          <View style={styles.compactPosterWrap}>
+            {posterUrl ? (
+              <>
+                <Image source={{ uri: posterUrl }} style={[styles.posterFill, { opacity: 0.25 }]} contentFit="cover" />
+                <View style={[styles.clipWrap, { width: `${progressPercent}%` }]}>
+                  <Image source={{ uri: posterUrl }} style={[styles.posterFill, { width: 50 }]} contentFit="cover" />
+                </View>
+              </>
+            ) : (
+              <View style={styles.compactPlaceholder}>
+                <Text style={styles.compactPlaceholderText} numberOfLines={2}>{item.title}</Text>
+              </View>
+            )}
+          </View>
 
-        <View style={styles.compactInfo}>
-          <Text style={styles.compactTitle} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <View style={styles.compactMetaRow}>
-            {metaString ? <Text style={styles.metaText}>{metaString}</Text> : null}
+          {/* Body */}
+          <View style={styles.compactBody}>
+            <Text style={styles.compactTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={styles.compactMeta}>{nextLabel ?? displayYear}</Text>
             <StatusBadge label={formatStatus(item.status)} tone={resolveStatusTone(item.status)} />
           </View>
-          {progressPercent > 0 && (
-            <View style={styles.compactProgressTrack}>
-              <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-            </View>
-          )}
-        </View>
-      </Pressable>
+        </Pressable>
+
+        {/* Quick Watch Button */}
+        {item.nextEpisode && onMarkNext && (
+          <Pressable style={styles.quickWatchThinner} onPress={handleQuickWatch} disabled={marking}>
+            {marking ? (
+              <ActivityIndicator size="small" color={theme.colors.accent} />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
+                <Text style={styles.quickWatchText}>Mark watched</Text>
+              </>
+            )}
+          </Pressable>
+        )}
+      </View>
     );
   }
 
+  // Grid Card View
   return (
-    <Pressable
-      style={[styles.gridContainer, { width }]}
-      onPress={() => router.push(`/media/${item.mediaId}`)}
-      android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
-    >
-      <View style={styles.posterContainer}>
+    <View style={[styles.gridCardContainer, { width }]}>
+      <Pressable
+        style={styles.posterContainer}
+        onPress={() => router.push(`/media/${item.mediaId}`)}
+        android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
+      >
         {posterUrl ? (
-          <Image
-            source={{ uri: posterUrl }}
-            style={styles.poster}
-            contentFit="cover"
-            transition={150}
-          />
+          <>
+            {/* Background dimmed poster (0.25 opacity) */}
+            <Image
+              source={{ uri: posterUrl }}
+              style={[styles.posterFill, { opacity: 0.25 }]}
+              contentFit="cover"
+            />
+
+            {/* Foreground bright poster revealed horizontally via width percentage */}
+            {progressPercent > 0 && (
+              <View style={[styles.clipWrap, { width: `${progressPercent}%` }]}>
+                <Image
+                  source={{ uri: posterUrl }}
+                  style={[styles.posterFill, { width }]}
+                  contentFit="cover"
+                />
+              </View>
+            )}
+          </>
         ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText} numberOfLines={3}>
-              {item.title}
-            </Text>
+          <View style={styles.placeholderContainer}>
+            <Text style={styles.placeholderText} numberOfLines={3}>{item.title}</Text>
           </View>
         )}
 
-        {progressPercent > 0 && (
-          <View style={styles.progressBarWrap}>
-            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-          </View>
-        )}
-      </View>
-
-      <View style={styles.metaBody}>
-        <Text style={styles.title} numberOfLines={1}>
-          {item.title}
-        </Text>
-
-        <View style={styles.footerRow}>
-          {metaString ? <Text style={styles.metaText}>{metaString}</Text> : null}
-          <StatusBadge
-            label={formatStatus(item.status)}
-            tone={resolveStatusTone(item.status)}
-          />
+        {/* Top-Left Overlay: Status Chip */}
+        <View style={styles.topLeftOverlay}>
+          <StatusBadge label={formatStatus(item.status)} tone={resolveStatusTone(item.status)} />
         </View>
-      </View>
-    </Pressable>
+
+        {/* Top-Right Overlay: Episode Chip (e.g. S01 E02) */}
+        {nextLabel && (
+          <View style={styles.topRightOverlay}>
+            <View style={styles.episodeChip}>
+              <Text style={styles.episodeChipText}>{nextLabel}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Bottom Gradient Overlay: Title and Year Chip */}
+        <View style={styles.bottomOverlay}>
+          <Text style={styles.overlayTitle} numberOfLines={2}>
+            {item.title}
+          </Text>
+          {displayYear ? (
+            <View style={styles.yearChip}>
+              <Text style={styles.yearChipText}>{displayYear}</Text>
+            </View>
+          ) : null}
+        </View>
+      </Pressable>
+
+      {/* Button below card: Mark next episode watched */}
+      {item.nextEpisode && onMarkNext ? (
+        <Pressable
+          style={styles.quickWatchButton}
+          onPress={handleQuickWatch}
+          disabled={marking}
+        >
+          {marking ? (
+            <ActivityIndicator size="small" color={theme.colors.accent} />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
+              <Text style={styles.quickWatchText}>Mark {nextLabel} watched</Text>
+            </>
+          )}
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gridContainer: {
-    marginRight: 12,
+  gridCardContainer: {
+    marginBottom: 14,
   },
   posterContainer: {
     width: '100%',
     aspectRatio: 2 / 3,
     borderRadius: theme.borderRadius.md,
     overflow: 'hidden',
-    backgroundColor: theme.colors.card,
+    backgroundColor: '#171819',
     borderWidth: 1,
-    borderColor: theme.colors.cardBorder,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    position: 'relative',
   },
-  poster: {
-    width: '100%',
+  posterFill: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
     height: '100%',
+    width: '100%',
   },
-  placeholder: {
+  clipWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    overflow: 'hidden',
+  },
+  placeholderContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: theme.spacing.sm,
+    padding: 10,
     backgroundColor: '#1c1d1e',
   },
   placeholderText: {
@@ -159,57 +239,110 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
-  progressBarWrap: {
+  topLeftOverlay: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    zIndex: 10,
+  },
+  topRightOverlay: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 10,
+  },
+  episodeChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: theme.borderRadius.pill,
+    backgroundColor: 'rgba(16, 17, 18, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.3)',
+  },
+  episodeChipText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: theme.colors.accent,
+  },
+  bottomOverlay: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 3,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: theme.colors.accent,
-  },
-  metaBody: {
-    marginTop: 6,
-    gap: 3,
-  },
-  title: {
-    color: theme.colors.text,
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 16,
-  },
-  footerRow: {
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.82)',
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
     gap: 4,
+    zIndex: 10,
   },
-  metaText: {
-    color: theme.colors.textSubtle,
+  overlayTitle: {
+    flex: 1,
+    color: '#fff8e8',
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 15,
+  },
+  yearChip: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: 'rgba(16, 17, 18, 0.8)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  yearChipText: {
+    color: '#aeb1ac',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  quickWatchButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 207, 92, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.25)',
+    borderRadius: theme.borderRadius.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    marginTop: 6,
+    gap: 4,
+  },
+  quickWatchText: {
+    color: theme.colors.accent,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '800',
   },
-  // Compact list layout
-  compactContainer: {
+  // Compact styles
+  compactWrap: {
+    marginBottom: 8,
+  },
+  compactCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
-    borderColor: theme.colors.cardBorder,
-    borderRadius: theme.borderRadius.md,
-    padding: 8,
-    marginBottom: 8,
-  },
-  compactPoster: {
-    width: 44,
-    height: 66,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: theme.borderRadius.sm,
+    padding: 8,
+    gap: 10,
+  },
+  compactPosterWrap: {
+    width: 50,
+    height: 75,
+    borderRadius: 4,
     overflow: 'hidden',
     backgroundColor: '#1c1d1e',
-    marginRight: 12,
+    position: 'relative',
+  },
+  compactPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
   },
   compactPlaceholderText: {
     color: theme.colors.textStrong,
@@ -217,26 +350,29 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
   },
-  compactInfo: {
+  compactBody: {
     flex: 1,
-    justifyContent: 'center',
-    gap: 4,
+    gap: 3,
   },
   compactTitle: {
     color: theme.colors.textStrong,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
   },
-  compactMetaRow: {
+  compactMeta: {
+    color: '#aeb1ac',
+    fontSize: 11,
+  },
+  quickWatchThinner: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  compactProgressTrack: {
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginTop: 2,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 207, 92, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.22)',
+    borderRadius: theme.borderRadius.sm,
+    paddingVertical: 5,
+    marginTop: 4,
+    gap: 4,
   },
 });

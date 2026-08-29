@@ -7,26 +7,35 @@ import {
   RefreshControl,
   ActivityIndicator,
   Pressable,
+  useWindowDimensions,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, DashboardResponse, DashboardEntry } from '../services/api';
 import { theme } from '../constants/theme';
-import { MediaCard } from './MediaCard';
-import { SectionPills } from './SectionPills';
+import { TopBar } from './TopBar';
+import { PageHeader } from './PageHeader';
+import { DashboardStats } from './DashboardStats';
 import { DashboardToolbar, SortMode } from './DashboardToolbar';
+import { SectionPills } from './SectionPills';
+import { MediaCard } from './MediaCard';
+import { CreateMediaModal } from './CreateMediaModal';
 
 interface DashboardViewProps {
   kind: 'shows' | 'anime' | 'movies' | 'books' | 'games';
   title: string;
-  eyebrow?: string;
+  mediaType: string;
   emptyMessage?: string;
 }
 
-export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardViewProps) {
+export function DashboardView({ kind, title, mediaType, emptyMessage }: DashboardViewProps) {
+  const queryClient = useQueryClient();
+  const { width: windowWidth } = useWindowDimensions();
+
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'compact'>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('updated');
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   const {
     data,
@@ -42,7 +51,6 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
 
   const sections = useMemo(() => {
     if (!data?.sections) return [];
-    // Ensure an 'All' section exists if not already provided
     const hasAll = data.sections.some((s) => s.id === 'all');
     if (!hasAll && data.entries) {
       return [{ id: 'all', label: `All ${title}`, entries: data.entries }, ...data.sections];
@@ -50,7 +58,6 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
     return data.sections;
   }, [data, title]);
 
-  // Set default active section once data arrives
   const currentSection = useMemo(() => {
     if (activeSectionId === 'all') {
       const allSec = sections.find((s) => s.id === 'all');
@@ -72,8 +79,8 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
       list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     } else if (sortMode === 'year') {
       list.sort((a, b) => (b.year || 0) - (a.year || 0));
-    } else if (sortMode === 'rating') {
-      list.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+    } else if (sortMode === 'progress') {
+      list.sort((a, b) => (b.progressEpisodes || 0) - (a.progressEpisodes || 0));
     } else {
       list.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
     }
@@ -85,31 +92,51 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
     setSortMode((prev) => {
       if (prev === 'updated') return 'title';
       if (prev === 'title') return 'year';
-      if (prev === 'year') return 'rating';
+      if (prev === 'year') return 'progress';
       return 'updated';
     });
   };
 
+  // Quick mark episode watched
+  const handleMarkNext = async (episodeId: string) => {
+    try {
+      await api.updateEpisodeActivity(episodeId, { watched: true });
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    } catch (e) {
+      console.error('Failed to mark next episode watched', e);
+    }
+  };
+
+  // Calculate 2-column card width on mobile with proper margins
+  const cardWidth = Math.max(140, Math.floor((windowWidth - 32 - 12) / 2));
+
   if (isLoading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={theme.colors.accent} />
-        <Text style={styles.loadingText}>Loading {title.toLowerCase()}...</Text>
+      <View style={styles.container}>
+        <TopBar />
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={theme.colors.accent} />
+          <Text style={styles.loadingText}>Opening your library...</Text>
+        </View>
       </View>
     );
   }
 
   if (isError) {
     return (
-      <View style={styles.centerContainer}>
-        <View style={styles.errorBox}>
-          <Text style={styles.errorTitle}>Could not load {title.toLowerCase()}</Text>
-          <Text style={styles.errorSubtitle}>
-            {(error as Error)?.message || 'Please check that the local server is running.'}
-          </Text>
-          <Pressable style={styles.retryButton} onPress={() => refetch()}>
-            <Text style={styles.retryButtonText}>Retry Connection</Text>
-          </Pressable>
+      <View style={styles.container}>
+        <TopBar />
+        <View style={styles.centerContainer}>
+          <View style={styles.errorBox}>
+            <Text style={styles.errorTitle}>Could not load {title.toLowerCase()}</Text>
+            <Text style={styles.errorSubtitle}>
+              {(error as Error)?.message || 'Please check that the local server is running.'}
+            </Text>
+            <Pressable style={styles.retryButton} onPress={() => refetch()}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     );
@@ -117,36 +144,15 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
 
   return (
     <View style={styles.container}>
-      {/* Top Section Filter Pills */}
-      {sections.length > 0 && (
-        <SectionPills
-          sections={sections}
-          activeSectionId={activeSectionId}
-          onSelectSection={setActiveSectionId}
-        />
-      )}
+      {/* 1. Mobile TopBar matching web .topbar */}
+      <TopBar />
 
-      {/* Toolbar: Search, Sort, Grid/Compact View */}
-      <DashboardToolbar
-        search={search}
-        onSearchChange={setSearch}
-        viewMode={viewMode}
-        onToggleViewMode={() => setViewMode((prev) => (prev === 'grid' ? 'compact' : 'grid'))}
-        sortMode={sortMode}
-        onCycleSort={cycleSort}
-        placeholder={`Search ${currentSection?.label || title}...`}
-      />
-
-      {/* Main Items List */}
       <FlatList
         data={displayedEntries}
         keyExtractor={(item) => item.mediaId}
         key={viewMode}
-        numColumns={viewMode === 'grid' ? 3 : 1}
-        contentContainerStyle={[
-          styles.listContent,
-          viewMode === 'grid' ? styles.gridContent : styles.compactContent,
-        ]}
+        numColumns={viewMode === 'grid' ? 2 : 1}
+        contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -155,21 +161,85 @@ export function DashboardView({ kind, title, eyebrow, emptyMessage }: DashboardV
             colors={[theme.colors.accent]}
           />
         }
+        ListHeaderComponent={
+          <>
+            {/* 2. Page Heading & + Add Media Action */}
+            <PageHeader
+              eyebrow="Library"
+              title={title}
+              actionLabel={`+ Add ${mediaType}`}
+              onAction={() => setCreateModalOpen(true)}
+            />
+
+            {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
+            {data && (
+              <DashboardStats
+                entries={data.entries}
+                kind={kind}
+                totalTracked={data.totalTracked}
+                statusCounts={data.statusCounts}
+              />
+            )}
+
+            {/* 4. Dashboard Toolbar (Sort button, Search pill, View toggle) */}
+            <DashboardToolbar
+              search={search}
+              onSearchChange={setSearch}
+              viewMode={viewMode}
+              onToggleViewMode={() => setViewMode((prev) => (prev === 'grid' ? 'compact' : 'grid'))}
+              sortMode={sortMode}
+              onCycleSort={cycleSort}
+              placeholder={`Filter ${title.toLowerCase()}...`}
+            />
+
+            {/* 5. Section Tabs (Watch Next, Continue Watching, Away, etc.) */}
+            {sections.length > 0 && (
+              <SectionPills
+                sections={sections}
+                activeSectionId={activeSectionId}
+                onSelectSection={setActiveSectionId}
+              />
+            )}
+          </>
+        }
         renderItem={({ item }) => (
           <View style={viewMode === 'grid' ? styles.gridItem : styles.compactItem}>
-            <MediaCard item={item} width={viewMode === 'grid' ? 108 : undefined} variant={viewMode} />
+            <MediaCard
+              item={item}
+              width={viewMode === 'grid' ? cardWidth : undefined}
+              variant={viewMode}
+              onMarkNext={handleMarkNext}
+            />
           </View>
         )}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>No items found</Text>
+            <Text style={styles.emptyTitle}>
+              {search.trim() ? 'No matching titles' : `Nothing in ${currentSection?.label ?? title} yet`}
+            </Text>
             <Text style={styles.emptySubtitle}>
               {search.trim()
-                ? 'Try a different search query.'
-                : emptyMessage || `Nothing in ${currentSection?.label || title} yet.`}
+                ? 'Try a different title or clear the filter.'
+                : emptyMessage || `Add a ${mediaType} to fill this section.`}
             </Text>
+            {!search.trim() && (
+              <Pressable style={styles.emptyAddButton} onPress={() => setCreateModalOpen(true)}>
+                <Text style={styles.emptyAddButtonText}>+ Add {mediaType}</Text>
+              </Pressable>
+            )}
           </View>
         }
+      />
+
+      {/* Add Media Modal */}
+      <CreateMediaModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        defaultType={mediaType}
+        onMediaAdded={() => {
+          refetch();
+          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        }}
       />
     </View>
   );
@@ -179,30 +249,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
-    paddingTop: 8,
   },
   listContent: {
-    paddingHorizontal: theme.spacing.md,
     paddingBottom: 24,
   },
-  gridContent: {
-    gap: 12,
-  },
-  compactContent: {},
   gridItem: {
-    flex: 1 / 3,
+    flex: 1 / 2,
     alignItems: 'center',
-    marginBottom: 12,
+    paddingHorizontal: 6,
   },
   compactItem: {
     width: '100%',
+    paddingHorizontal: theme.spacing.md,
   },
   centerContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: theme.spacing.lg,
-    backgroundColor: theme.colors.background,
   },
   loadingText: {
     color: theme.colors.textMuted,
@@ -247,7 +311,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
-    marginTop: 24,
+    marginTop: 20,
+    marginHorizontal: theme.spacing.md,
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: theme.borderRadius.md,
     borderWidth: 1,
@@ -263,5 +328,17 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 13,
     textAlign: 'center',
+    marginBottom: 14,
+  },
+  emptyAddButton: {
+    backgroundColor: theme.colors.accent,
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  emptyAddButtonText: {
+    color: theme.colors.accentContrast,
+    fontSize: 13,
+    fontWeight: '800',
   },
 });

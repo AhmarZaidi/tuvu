@@ -21,6 +21,7 @@ export default function TabsLayout() {
           fontSize: 10,
           fontWeight: '700',
         },
+        headerShown: false,
         headerStyle: {
           backgroundColor: theme.colors.background,
           borderBottomColor: theme.colors.border,

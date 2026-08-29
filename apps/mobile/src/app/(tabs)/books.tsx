@@ -6,7 +6,7 @@ export default function BooksScreen() {
     <DashboardView
       kind="books"
       title="Books & Manga"
-      eyebrow="Books"
+      mediaType="book"
       emptyMessage="Keep reading, plan the next book, and revisit finished favorites."
     />
   );

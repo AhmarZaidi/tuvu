@@ -6,7 +6,7 @@ export default function MoviesScreen() {
     <DashboardView
       kind="movies"
       title="Movies"
-      eyebrow="Movies"
+      mediaType="movie"
       emptyMessage="Your watchlist, watched movies, favorites, and upcoming releases."
     />
   );

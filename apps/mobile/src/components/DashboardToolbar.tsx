@@ -3,7 +3,7 @@ import { View, TextInput, StyleSheet, Pressable, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 
-export type SortMode = 'updated' | 'title' | 'year' | 'rating';
+export type SortMode = 'updated' | 'title' | 'year' | 'progress';
 
 interface DashboardToolbarProps {
   search: string;
@@ -19,7 +19,7 @@ const sortLabels: Record<SortMode, string> = {
   updated: 'Updated',
   title: 'Title',
   year: 'Year',
-  rating: 'Rating',
+  progress: 'Progress',
 };
 
 export function DashboardToolbar({
@@ -29,12 +29,18 @@ export function DashboardToolbar({
   onToggleViewMode,
   sortMode,
   onCycleSort,
-  placeholder = 'Filter dashboard...',
+  placeholder = 'Filter shows...',
 }: DashboardToolbarProps) {
   return (
     <View style={styles.container}>
+      {/* 1. Sort Menu Button (Square with gold icon) */}
+      <Pressable style={styles.sortButton} onPress={onCycleSort}>
+        <Ionicons name="swap-vertical" size={17} color={theme.colors.accent} />
+      </Pressable>
+
+      {/* 2. In-Dashboard Search Pill */}
       <View style={styles.searchWrap}>
-        <Ionicons name="search" size={16} color={theme.colors.textSubtle} style={styles.searchIcon} />
+        <Ionicons name="search" size={15} color={theme.colors.textSubtle} style={styles.searchIcon} />
         <TextInput
           style={styles.searchInput}
           placeholder={placeholder}
@@ -45,22 +51,31 @@ export function DashboardToolbar({
         />
         {search.length > 0 && (
           <Pressable onPress={() => onSearchChange('')} hitSlop={8}>
-            <Ionicons name="close-circle" size={16} color={theme.colors.textSubtle} />
+            <Ionicons name="close-circle" size={15} color={theme.colors.textSubtle} />
           </Pressable>
         )}
       </View>
 
-      <View style={styles.actions}>
-        <Pressable style={styles.actionButton} onPress={onCycleSort}>
-          <Ionicons name="swap-vertical" size={15} color={theme.colors.accent} />
-          <Text style={styles.actionText}>{sortLabels[sortMode]}</Text>
-        </Pressable>
-
-        <Pressable style={styles.iconButton} onPress={onToggleViewMode}>
+      {/* 3. View Mode Toggle (Grid vs List) */}
+      <View style={styles.viewToggleGroup}>
+        <Pressable
+          style={[styles.viewToggleButton, viewMode === 'grid' && styles.viewToggleActive]}
+          onPress={() => viewMode !== 'grid' && onToggleViewMode()}
+        >
           <Ionicons
-            name={viewMode === 'grid' ? 'grid-outline' : 'list-outline'}
-            size={18}
-            color={theme.colors.textStrong}
+            name="grid"
+            size={16}
+            color={viewMode === 'grid' ? theme.colors.accent : theme.colors.textSubtle}
+          />
+        </Pressable>
+        <Pressable
+          style={[styles.viewToggleButton, viewMode === 'compact' && styles.viewToggleActive]}
+          onPress={() => viewMode !== 'compact' && onToggleViewMode()}
+        >
+          <Ionicons
+            name="list"
+            size={16}
+            color={viewMode === 'compact' ? theme.colors.accent : theme.colors.textSubtle}
           />
         </Pressable>
       </View>
@@ -76,15 +91,25 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 10,
   },
+  sortButton: {
+    width: 38,
+    height: 38,
+    borderRadius: theme.borderRadius.sm,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   searchWrap: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    borderRadius: theme.borderRadius.sm,
+    borderRadius: theme.borderRadius.pill,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     height: 38,
   },
   searchIcon: {
@@ -96,35 +121,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     height: '100%',
   },
-  actions: {
+  viewToggleGroup: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: 10,
-    height: 38,
-    gap: 4,
+    overflow: 'hidden',
   },
-  actionText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: theme.colors.textStrong,
-  },
-  iconButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: theme.borderRadius.sm,
-    width: 38,
-    height: 38,
+  viewToggleButton: {
+    width: 36,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  viewToggleActive: {
+    backgroundColor: 'rgba(255, 255, 255, 0.09)',
   },
 });

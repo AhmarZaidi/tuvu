@@ -6,8 +6,8 @@ export default function ShowsScreen() {
     <DashboardView
       kind="shows"
       title="Shows"
-      eyebrow="Shows"
-      emptyMessage="Pick up the next episode, catch up, or add shows from Explore."
+      mediaType="show"
+      emptyMessage="Pick up the next episode, catch up, or reorganize what you want to watch."
     />
   );
 }

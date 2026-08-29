@@ -6,7 +6,7 @@ export default function GamesScreen() {
     <DashboardView
       kind="games"
       title="Games"
-      eyebrow="Games"
+      mediaType="game"
       emptyMessage="Move between your backlog, current games, completed titles, and upcoming releases."
     />
   );

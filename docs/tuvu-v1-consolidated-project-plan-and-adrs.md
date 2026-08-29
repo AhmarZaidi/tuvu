@@ -1,12 +1,12 @@
-# Tuv V1 consolidated project plan and architecture decisions
+# Tuvu V1 consolidated project plan and architecture decisions
 
-> Portable decision snapshot generated from the Tuv repository on 2026-08-29.
+> Portable decision snapshot generated from the Tuvu repository on 2026-08-29.
 > It contains the complete `docs/project_plan.md` followed by every tracked ADR from `0001` through `0129`.
 
 ## Handoff instructions for another agent
 
-- Treat the embedded project plan and ADR bodies as the authoritative Tuv V1 decision snapshot at the generation date.
-- Preserve Tuv domain vocabulary, privacy boundaries, permissions, provenance, degraded behavior, accessibility, compatibility, and performance requirements when transferring behavior.
+- Treat the embedded project plan and ADR bodies as the authoritative Tuvu V1 decision snapshot at the generation date.
+- Preserve Tuvu domain vocabulary, privacy boundaries, permissions, provenance, degraded behavior, accessibility, compatibility, and performance requirements when transferring behavior.
 - Separate product invariants from repository-specific implementation choices. Reconcile the destination application architecture before adopting Cloudflare, Supabase, Expo, queue, storage, or deployment decisions verbatim.
 - When two embedded statements appear to conflict, use the more specific ADR for the decision it owns and the project plan for overall scope and milestone sequencing. Record any intentional divergence in the destination repository.
 - Source-boundary comments are included so tools can split or verify the consolidated file mechanically. Source bodies are reproduced verbatim apart from line-ending normalization.
@@ -34,7 +34,7 @@
 - [ADR 0018 — User Backups use server-managed private storage](#adr-0018)
 - [ADR 0019 — V1 Restore is a nondestructive merge](#adr-0019)
 - [ADR 0020 — Offline sync uses versioned Domain Mutations](#adr-0020)
-- [ADR 0021 — Normal API access uses opaque Tuv Sessions](#adr-0021)
+- [ADR 0021 — Normal API access uses opaque Tuvu Sessions](#adr-0021)
 - [ADR 0022 — D1 read projections are added only after measurement](#adr-0022)
 - [ADR 0023 — Authoritative writes do not depend on Queue availability](#adr-0023)
 - [ADR 0024 — V1 jobs use Postgres and Queues with polling](#adr-0024)
@@ -151,14 +151,14 @@
 **Source:** `docs/project_plan.md`
 
 <!-- BEGIN SOURCE: docs/project_plan.md -->
-# Tuv — Complete Product and Technical Plan
+# Tuvu — Complete Product and Technical Plan
 
 > **Status:** Consolidated V1 source of truth after product grilling
 > **Decision date:** 2026-07-19
 > **Scope:** Product behavior, domain model, provider strategy, import contract, web and Android clients, Cloudflare/Supabase architecture, database structures, API, jobs, caching, security, testing, operations, repository structure, V1 milestones, and V2 exclusions
 > **Supersedes:** All earlier project-plan documents and assumptions. `CONTEXT.md` and `docs/adr/` preserve decision history but are not required to understand this plan.
 
-This document is standalone. A reader should be able to understand and implement Tuv without consulting the original TV Time export or another planning document. The supplied export remains a private local acceptance dataset and must never be committed.
+This document is standalone. A reader should be able to understand and implement Tuvu without consulting the original TV Time export or another planning document. The supplied export remains a private local acceptance dataset and must never be committed.
 
 ## 0. Executive decisions
 
@@ -176,7 +176,7 @@ This document is standalone. A reader should be able to understand and implement
 | Database access | Restricted Postgres roles through Hyperdrive with transaction-local Owner/role context and RLS |
 | Storage | Private Supabase Storage; no R2 and no Cloudflare Images/Image Resizing |
 | AI | Workers AI, AI Search, and Vectorize are V2 and have no V1 bindings or schemas |
-| Auth | Supabase Auth verifies email/username plus password; Tuv issues opaque revocable D1 sessions |
+| Auth | Supabase Auth verifies email/username plus password; Tuvu issues opaque revocable D1 sessions |
 | Bootstrap/recovery | Deployment Bootstrap Token, mandatory offline Recovery Codes, and free best-effort Supabase Auth email only after verification |
 | Web offline | Cached/readable PWA only; no queued web mutations in V1 |
 | Mobile | React Native with Expo, Android only in V1; Android supports offline Domain Mutations and SQLite cache |
@@ -199,7 +199,7 @@ This document is standalone. A reader should be able to understand and implement
 
 ## 1. Product definition and scope
 
-Tuv is an app-like personal media tracker that unifies six media domains without flattening their differences. It imports a large TV Time history, enriches selected media from multiple providers, tracks progress and repeat consumption, calculates explainable statistics, surfaces upcoming releases and availability, and remains useful during provider or network failure.
+Tuvu is an app-like personal media tracker that unifies six media domains without flattening their differences. It imports a large TV Time history, enriches selected media from multiple providers, tracks progress and repeat consumption, calculates explainable statistics, surfaces upcoming releases and availability, and remains useful during provider or network failure.
 
 ### 1.1 V1 Owner outcomes
 
@@ -516,7 +516,7 @@ Runtime Provider Configuration may change enablement, base path/version, rate po
 |---|---|---|---|
 | Shows/movies/anime | TMDB | Enabled primary discovery/details/images/Credits/external IDs/videos/relations/availability | Encrypted runtime Provider Credential; approved non-commercial use or written commercial agreement; attribution/image/region/cache rules |
 | Shows | TVmaze | Enabled schedule, airstamps, runtimes, networks, cast/crew, next episode augment | Keyless runtime config; CC BY-SA attribution/ShareAlike; documented backoff/rate guidance |
-| Cross-domain AV | TVDB | Disabled; manual external ID/fields only | Enable only after Tuv project authorization plus current license, retention, attribution, and image-rights evidence |
+| Cross-domain AV | TVDB | Disabled; manual external ID/fields only | Enable only after Tuvu project authorization plus current license, retention, attribution, and image-rights evidence |
 | Anime/manga | Jikan/MAL | Disabled; manual MAL external ID/fields only | Documented scraping-derived route lacks upstream-use evidence; never scrape or treat it as a hard dependency |
 | Anime/manga | AniList | Disabled | Enable only after written authorization/compliance evidence; inability never blocks V1 |
 | Written works | Google Books | Editions/ISBN/pages/preview/sale/access | Runtime key; regional access/preview limitations |
@@ -594,7 +594,7 @@ The supplied `tv_time_backup_data.zip` is approximately 1.34 MiB compressed and 
 | `tvtime-movies-2026-05-07.csv` | Movie fallback/cross-check | Common JSON fields except favorite | 1,050 |
 | `tvtime-summary-2026-05-07.html` | Count/anomaly/warning reference | 647 show summaries, 1,050 movie summaries, links, computed progress, anomaly flags | 1 report |
 
-Show JSON and both show CSVs agree on common fields; movie JSON/CSV agree; episode JSON/CSV agree exactly when keyed by TVDB episode ID. Season/episode composite alone is not unique. The client permits local raw-file inspection and warning review before commit, but raw sources never upload to or persist in Tuv.
+Show JSON and both show CSVs agree on common fields; movie JSON/CSV agree; episode JSON/CSV agree exactly when keyed by TVDB episode ID. Season/episode composite alone is not unique. The client permits local raw-file inspection and warning review before commit, but raw sources never upload to or persist in Tuvu.
 
 ### 6.2 Measured facts that must remain regression assertions
 
@@ -635,7 +635,7 @@ HTML warnings: one ghost `Harry Potter` Entry (TVDB 433637, no episodes); three 
 
 Precedence is rich JSON → matching CSV fallback/cross-check → HTML count/warning reference. Import identity is `source=tvtime` plus show/movie UUID. Episode identity is TVDB episode ID, falling back to `(series UUID, source row ordinal, season, episode, special)`, never numbering alone.
 
-| TV Time source value | Initial Tuv mapping |
+| TV Time source value | Initial Tuvu mapping |
 |---|---|
 | `up_to_date` | Library Status `active`; calculated Progress State determines caught up/completed |
 | `continuing` | Library Status `active` |
@@ -756,7 +756,7 @@ flowchart TB
 |---|---|---|
 | Worker Static Assets | Web SPA files, headers, SPA fallback | Runtime secrets, mutable Catalog |
 | Hono Worker | HTTP authz/validation, commands/queries, provider gateway, signed Storage operations, iCal | Large ZIP parsing, unbounded fan-out, durable background progress |
-| Supabase Auth | Email/password verification, optional free verification/recovery email | Tuv authorization roles, normal API sessions |
+| Supabase Auth | Email/password verification, optional free verification/recovery email | Tuvu authorization roles, normal API sessions |
 | Postgres | Catalog, observations/selections, Owner data, Activity, jobs, Outbox, audit, imports, notifications, backup manifests | Plaintext secrets, raw import archives, news/lyrics bodies |
 | Hyperdrive | Pooled TLS Worker/Postgres access, safe query cache where valid | Long transactions, `LISTEN/NOTIFY`, exposed DB credentials |
 | D1 | Opaque session hashes, WebAuthn/recovery/email challenges with short TTL, auth/provider rate buckets | Catalog/library projections, jobs, Activity, general cache |
@@ -778,7 +778,7 @@ sequenceDiagram
 
     C->>API: Versioned command + idempotency key
     API->>PG: Begin restricted transaction
-    API->>PG: SET LOCAL tuv.user_id / role
+    API->>PG: SET LOCAL tuvu.user_id / role
     API->>PG: Validate base row version
     API->>PG: Domain write + Activity + Outbox Event
     PG-->>API: Commit authoritative result
@@ -803,7 +803,7 @@ stateDiagram-v2
     [*] --> Unclaimed
     Unclaimed --> Claimed: valid Bootstrap Token + Owner setup
     Claimed --> Authenticated: Supabase email/username + password
-    Authenticated --> Session: issue opaque Tuv Session
+    Authenticated --> Session: issue opaque Tuvu Session
     Session --> Authenticated: expiry/revocation/sign-in
     Claimed --> Recovering: verified email or Recovery Code
     Recovering --> Claimed: reset password; revoke sessions/devices
@@ -817,7 +817,7 @@ stateDiagram-v2
 - Supabase verification/recovery email uses only its included free best-effort provider, currently two emails/hour/project. No custom SMTP or paid dependency. Setup does not block on delivery; email recovery works only after verification.
 - Ten single-use Recovery Codes are displayed/downloaded once, stored as keyed hashes, mandatory at setup, and regenerated only with Sensitive Confirmation. Recovery revokes all sessions and device confirmation credentials.
 - Web session: 14-day idle, 30-day absolute. Android: 30-day idle, 90-day absolute. `last_seen` writes at most once per 15-minute bucket.
-- Normal API access accepts only opaque Tuv Sessions: secure HttpOnly SameSite=Lax cookie on web and OS secure storage on Android. Raw Supabase tokens do not authorize normal routes.
+- Normal API access accepts only opaque Tuvu Sessions: secure HttpOnly SameSite=Lax cookie on web and OS secure storage on Android. Raw Supabase tokens do not authorize normal routes.
 - Sensitive Confirmation lasts 10 minutes/current session and is required only for Owner erasure, Recovery Code regeneration, Full Instance Restore, and replace/delete Instance Credential. PWA uses WebAuthn user verification; Android uses a device-bound strong-biometric credential; password fallback exists. It cannot log in or recover.
 
 ### 7.5 One Queue, one DLQ, one scheduler
@@ -845,7 +845,7 @@ One Queue envelope is reference-only and versioned:
 ### 7.6 Read and cache path
 
 1. Render bounded authorized client cache immediately.
-2. Revalidate Tuv API with ETag/version/watermark.
+2. Revalidate Tuvu API with ETag/version/watermark.
 3. Query Postgres through Hyperdrive; no broad D1 projections in V1.
 4. Call providers only on explicit search/refresh or bounded stale hydration.
 5. Cache credential-safe public responses at edge only when keys include provider, endpoint, locale, region, adult policy, and authorization-relevant scope.
@@ -878,7 +878,7 @@ News Results and Lyrics Results are client-cache-only and never enter Postgres/D
 
 These are verification snapshots, not timeless requirements. Release checks re-read official limits.
 
-| Resource | Current included ceiling (2026-07) | Tuv internal target |
+| Resource | Current included ceiling (2026-07) | Tuvu internal target |
 |---|---|---|
 | Worker | 100k dynamic requests/day; 10 ms CPU; 128 MB; 50 external subrequests; 6 simultaneous connections; 3 MB script | p95 CPU ≤10 ms; ≤8 normal subrequests; no large parsing |
 | Static Assets | Requests free/unlimited; 20k files/version; 25 MiB/file | hashed route chunks; initial JS ≤250 KiB compressed |
@@ -903,9 +903,9 @@ The following is the full planning-input ledger, retained even for services V1 d
 - **Queues:** the conservative planning input is 100,000 operations/month with non-configurable 24-hour Free retention. Current implementation checks also include the official daily operations allowance, 128 KB/message, maximum batch 100, and 15-minute consumer wall time. Budget against the stricter applicable allowance; a normal successfully delivered message commonly consumes write, read, and delete operations, so batching/reference envelopes are mandatory.
 - **Workers AI:** recorded per-minute task ceilings are 720 for automatic speech recognition; 3,000 for image classification, object detection, and text embeddings; 720 for image-to-text, translation, and base text-to-image; 1,500–2,000 for summarization/text classification; and model-dependent 300–1,500 for text generation. A recorded Free allocation also used 10,000 neurons/day. **V1 has no Workers AI binding or core-path dependency.**
 - **Vectorize:** the input records 30 million queried dimensions/month and 5 million queried vectors/month; another pricing snapshot exposes a Free allowance in stored dimensions. **V1 has no Vectorize index.** A later spike must record the then-current units before enabling it.
-- **Hyperdrive:** accelerates supported Postgres/MySQL origins. The implementation snapshot is 100,000 queries/day, roughly 20 origin connections/configuration, and 60-second maximum statement duration; Tuv uses much smaller internal limits.
+- **Hyperdrive:** accelerates supported Postgres/MySQL origins. The implementation snapshot is 100,000 queries/day, roughly 20 origin connections/configuration, and 60-second maximum statement duration; Tuvu uses much smaller internal limits.
 - **AI Search:** supplies managed natural-language retrieval using Workers AI/Vectorize infrastructure. One recorded open-beta snapshot allowed 20,000 queries/month, 100 instances, 100,000 files/instance, 4 MB/file, and 500 crawled pages/day. **V1 has no AI Search instance.** Its presence never justifies R2 or private-data indexing.
-- **Cloudflare API tokens/control plane:** recorded global limit 1,200 requests/5 minutes/User with HTTP 429 on excess; client API 1,200/5 minutes per User/token and 200/second per IP; token quotas 50 User tokens and 500 account tokens. These constrain deployment/Admin automation, not Tuv product traffic. GitHub and Cloudflare tokens remain repo/deployment scoped and least privilege.
+- **Cloudflare API tokens/control plane:** recorded global limit 1,200 requests/5 minutes/User with HTTP 429 on excess; client API 1,200/5 minutes per User/token and 200/second per IP; token quotas 50 User tokens and 500 account tokens. These constrain deployment/Admin automation, not Tuvu product traffic. GitHub and Cloudflare tokens remain repo/deployment scoped and least privilege.
 - **Unavailable by design in the cardless environment:** Cloudflare R2, Images/Image Resizing, Containers, and outbound Email Sending cannot be required because the recorded environment needs billing/payment for them. No critical workflow assumes them.
 - **Supabase:** Postgres 500 MB and recorded shared micro/nano compute around 500 MB memory; Free projects may pause after one week of inactivity; Storage 1 GB and 50 MB/file; Auth 50,000 MAU; Realtime 200 concurrent connections and 2 million messages/month; Edge Functions 500,000 invocations/month; 5 GB uncached plus 5 GB cached egress/month; unlimited API requests; at most two active projects/account. V1 uses Postgres, Storage, and Auth only; it must show cold-start state and must not generate traffic merely to defeat Free-tier pausing.
 - **Global rule:** every allowance is shared with the Owner’s other projects. Minimize compute, rows read/written, messages, connections, egress, and storage. Infrastructure must be trusted, production-grade, and usable without a card/payment method. A new equally trustworthy cardless service may be proposed only through an ADR that preserves portability and this plan’s invariants.
@@ -1136,7 +1136,7 @@ No Catalog projections, job mirrors, news, statistics, general response cache, o
 
 | Module | Public responsibility | Hidden complexity |
 |---|---|---|
-| `identity` | bootstrap, authenticate, recover, issue/revoke/check Tuv Session, Sensitive Confirmation | Supabase exchange, D1 session/challenge/rate state, username resolver, Recovery Code hashing |
+| `identity` | bootstrap, authenticate, recover, issue/revoke/check Tuvu Session, Sensitive Confirmation | Supabase exchange, D1 session/challenge/rate state, username resolver, Recovery Code hashing |
 | `catalog` | query Entries/Editions/Units/entities; Admin changes, merge/retire/alias | field evidence/selection, identity constraints, provenance, graph cycles |
 | `tracking` | typed commands and Item Data Erasure | invariants, Activity/compensation, stats dirtiness, Outbox |
 | `search-discovery` | local search, provider expansion, filters/sorts/lists/recommendations | RRF, provider cursors, dedupe, transient references, adult policy |
@@ -1383,7 +1383,7 @@ Jobs process reference IDs and bounded pages, not raw files or large row arrays.
 Stored privately, at most three completed archives. A verified fourth evicts the oldest; failed/incomplete never evict valid data and expire after seven days. Each archive max 50 MiB; total 100 MiB.
 
 ```text
-tuv-user-backup/
+tuvu-user-backup/
   manifest.json
   profile.ndjson
   settings.ndjson
@@ -1408,7 +1408,7 @@ Restore is mandatory dry-run-first nondestructive merge: exact facts dedupe; lat
 - Works from web PWA and Android through the same manifest/page/checksum protocol with client-specific file APIs.
 - Server emits stable paginated NDJSON/object streams; client assembles bounded streaming archive without loading whole file. Unsupported browsers may download numbered parts.
 - Contains Catalog, Editions/Units/entities, provider definitions and non-secret configuration, observations/selections/provenance, Owner portable data, audit minimum, object manifests/objects, and schema/format metadata.
-- Completed archive is never stored by Tuv. Provider secrets, Recovery Codes, Bootstrap Token, session tokens, master keys, Hyperdrive/DB credentials, and Supabase service role are excluded. After restore, unavailable encryption master keys require credential re-entry.
+- Completed archive is never stored by Tuvu. Provider secrets, Recovery Codes, Bootstrap Token, session tokens, master keys, Hyperdrive/DB credentials, and Supabase service role are excluded. After restore, unavailable encryption master keys require credential re-entry.
 - Restore has dry run, counts/hashes, compatibility, conflict report, Sensitive Confirmation, and resumable non-cancellable apply after first batch.
 
 ### 12.3 Retention matrix
@@ -1443,7 +1443,7 @@ Admins may shorten operational windows at runtime; extending storage/security-se
 ## 13. Proposed DRY repository structure
 
 ```text
-tuv/
+tuvu/
 ├─ apps/
 │  ├─ web/
 │  │  ├─ src/
@@ -1662,11 +1662,11 @@ its Product Milestone gate.
 
 ### 17.3 Operational Telemetry
 
-- First-party Cloudflare/Supabase/Tuv only; no Sentry, product analytics, ads, cross-site tracking, or session replay.
+- First-party Cloudflare/Supabase/Tuvu only; no Sentry, product analytics, ads, cross-site tracking, or session replay.
 - Structured logs: request/trace ID, route template, pseudonymous Owner ID, status, elapsed/CPU, query/subrequest counts, cache result, provider code, job/message ID, stable error code. Errors/security/Admin actions 100%; success may sample.
 - Admin UI: Worker/API health, Postgres/Storage use, Queue age/retries/DLQ, jobs, provider latency/429/circuit, scheduler checkpoints, cache effectiveness, stats lag.
 - Warnings: any DLQ; Queue oldest >10 min; scheduler >15 min late; five-minute API errors >2%; effective Storage/Postgres 70%; repeated provider 429/invalid; failed backup/restore/reconciliation.
-- Cloudflare/Supabase account-native alerts may operate outside Tuv; no Tuv email/SMS/push operations channel.
+- Cloudflare/Supabase account-native alerts may operate outside Tuvu; no Tuvu email/SMS/push operations channel.
 
 ## 18. Verification strategy
 
@@ -1910,7 +1910,7 @@ This plan is understandable without opening any other local document. External s
 - TMDB: <https://developer.themoviedb.org/>
 - TVDB: <https://thetvdb.com/api-information>
 - OMDb: <https://www.omdbapi.com/>
-- AniList: <https://docs.anilist.co/> — disabled after T05; enable only with written authorization for Tuv's competing tracker use.
+- AniList: <https://docs.anilist.co/> — disabled after T05; enable only with written authorization for Tuvu's competing tracker use.
 - Jikan/MyAnimeList-derived API: <https://docs.api.jikan.moe/> — disabled after T05 because the documented service is scraping-derived and upstream-use permission was not established.
 - Open Library: <https://openlibrary.org/developers/api>
 - Google Books: <https://developers.google.com/books>
@@ -1945,7 +1945,7 @@ Provider names are candidates and capability sources, not a license to violate t
 <!-- BEGIN SOURCE: docs/adr/0001-provider-data-scope-follows-provider-terms.md -->
 # Provider data scope follows provider terms
 
-Tuv prefers to reuse non-User-specific metadata fetched with any valid Provider Credential across the Instance because this reduces duplicate calls and makes the shared Catalog faster and more consistent. When a provider’s terms do not permit Instance-wide reuse, its observations remain User-scoped instead of disabling the provider; credentials and User-specific provider data are always private.
+Tuvu prefers to reuse non-User-specific metadata fetched with any valid Provider Credential across the Instance because this reduces duplicate calls and makes the shared Catalog faster and more consistent. When a provider’s terms do not permit Instance-wide reuse, its observations remain User-scoped instead of disabling the provider; credentials and User-specific provider data are always private.
 <!-- END SOURCE: docs/adr/0001-provider-data-scope-follows-provider-terms.md -->
 
 <a id="adr-0002"></a>
@@ -1981,7 +1981,7 @@ Every Catalog Entry has exactly one Media Type, with Format representing subtype
 <!-- BEGIN SOURCE: docs/adr/0004-release-variations-are-editions-of-one-catalog-entry.md -->
 # Release variations are Editions of one Catalog Entry
 
-Tuv models one creative work as one Catalog Entry and represents translations, printings, regional releases, platform ports, deluxe releases, remasters, and substantially equivalent cuts as Editions. Remakes, reboots, sequels, re-recordings, and materially different adaptations remain separate related Catalog Entries; Users track the Entry and may select an Edition when its Units or progress differ.
+Tuvu models one creative work as one Catalog Entry and represents translations, printings, regional releases, platform ports, deluxe releases, remasters, and substantially equivalent cuts as Editions. Remakes, reboots, sequels, re-recordings, and materially different adaptations remain separate related Catalog Entries; Users track the Entry and may select an Edition when its Units or progress differ.
 <!-- END SOURCE: docs/adr/0004-release-variations-are-editions-of-one-catalog-entry.md -->
 
 <a id="adr-0005"></a>
@@ -2005,7 +2005,7 @@ Current Tracking State is authoritative for the UI, while immutable Activity rec
 <!-- BEGIN SOURCE: docs/adr/0006-library-intent-is-separate-from-calculated-progress.md -->
 # Library intent is separate from calculated progress
 
-Tuv stores User-chosen Library Status—planned, active, paused, or stopped—separately from calculated Progress State—not started, in progress, caught up, or completed. New releases and completed Units may change Progress State but never silently overwrite deliberate intent; imported raw statuses remain preserved and initialize intent only where their meaning is compatible.
+Tuvu stores User-chosen Library Status—planned, active, paused, or stopped—separately from calculated Progress State—not started, in progress, caught up, or completed. New releases and completed Units may change Progress State but never silently overwrite deliberate intent; imported raw statuses remain preserved and initialize intent only where their meaning is compatible.
 <!-- END SOURCE: docs/adr/0006-library-intent-is-separate-from-calculated-progress.md -->
 
 <a id="adr-0007"></a>
@@ -2029,7 +2029,7 @@ Caught-up and completed Progress State use released regular Units as their defau
 <!-- BEGIN SOURCE: docs/adr/0008-completion-count-is-the-only-normalized-consumption-counter.md -->
 # Completion Count is the only normalized consumption counter
 
-Tuv stores one authoritative Completion Count for each User and trackable target, deriving Repeat Count as `max(Completion Count - 1, 0)` with a medium-specific label. Imports retain raw completion and repeat fields as provenance but normalize them into this invariant and warn when the source values disagree.
+Tuvu stores one authoritative Completion Count for each User and trackable target, deriving Repeat Count as `max(Completion Count - 1, 0)` with a medium-specific label. Imports retain raw completion and repeat fields as provenance but normalize them into this invariant and warn when the source values disagree.
 <!-- END SOURCE: docs/adr/0008-completion-count-is-the-only-normalized-consumption-counter.md -->
 
 <a id="adr-0009"></a>
@@ -2149,7 +2149,7 @@ Provider Credential secrets and Recovery Codes are never exported in a User Back
 <!-- BEGIN SOURCE: docs/adr/0018-user-backups-use-server-managed-private-storage.md -->
 # User Backups use server-managed private storage
 
-Tuv stores User Backups in access-controlled private storage and authorizes creation, download, and restore through the owning User’s session. It deliberately does not add client-side passphrase encryption because the recovery and implementation complexity is disproportionate to the data sensitivity; sensitive categories remain opt-in and Provider Credential secrets remain excluded.
+Tuvu stores User Backups in access-controlled private storage and authorizes creation, download, and restore through the owning User’s session. It deliberately does not add client-side passphrase encryption because the recovery and implementation complexity is disproportionate to the data sensitivity; sensitive categories remain opt-in and Provider Credential secrets remain excluded.
 <!-- END SOURCE: docs/adr/0018-user-backups-use-server-managed-private-storage.md -->
 
 <a id="adr-0019"></a>
@@ -2178,15 +2178,15 @@ Web and mobile mutations carry a base state version and idempotency key; non-ove
 
 <a id="adr-0021"></a>
 
-## ADR 0021 — Normal API access uses opaque Tuv Sessions
+## ADR 0021 — Normal API access uses opaque Tuvu Sessions
 
-**Source:** `docs/adr/0021-normal-api-access-uses-opaque-tuv-sessions.md`
+**Source:** `docs/adr/0021-normal-api-access-uses-opaque-tuvu-sessions.md`
 
-<!-- BEGIN SOURCE: docs/adr/0021-normal-api-access-uses-opaque-tuv-sessions.md -->
-# Normal API access uses opaque Tuv Sessions
+<!-- BEGIN SOURCE: docs/adr/0021-normal-api-access-uses-opaque-tuvu-sessions.md -->
+# Normal API access uses opaque Tuvu Sessions
 
-Supabase Auth verifies credentials and Auth Identity, after which Tuv exchanges that result for an opaque session whose hash, User identity, expiries, and revocation state live in D1. Web keeps the token in a secure HTTP-only SameSite cookie and mobile in OS secure storage; normal API routes do not accept raw Supabase tokens, providing immediate revocation and one authorization boundary across clients.
-<!-- END SOURCE: docs/adr/0021-normal-api-access-uses-opaque-tuv-sessions.md -->
+Supabase Auth verifies credentials and Auth Identity, after which Tuvu exchanges that result for an opaque session whose hash, User identity, expiries, and revocation state live in D1. Web keeps the token in a secure HTTP-only SameSite cookie and mobile in OS secure storage; normal API routes do not accept raw Supabase tokens, providing immediate revocation and one authorization boundary across clients.
+<!-- END SOURCE: docs/adr/0021-normal-api-access-uses-opaque-tuvu-sessions.md -->
 
 <a id="adr-0022"></a>
 
@@ -2197,7 +2197,7 @@ Supabase Auth verifies credentials and Auth Identity, after which Tuv exchanges 
 <!-- BEGIN SOURCE: docs/adr/0022-d1-read-projections-are-added-only-after-measurement.md -->
 # D1 read projections are added only after measurement
 
-Tuv initially serves authoritative catalog and library reads from Supabase Postgres through Hyperdrive, using D1 only for opaque sessions, bounded rate-limit state, and lightweight job-status fallback. Repository interfaces preserve a path to rebuildable D1 projections, but each projection is introduced only after measurements demonstrate a concrete latency, cold-start, quota, or query-cost problem that justifies projection, lag, outbox, and rebuild complexity.
+Tuvu initially serves authoritative catalog and library reads from Supabase Postgres through Hyperdrive, using D1 only for opaque sessions, bounded rate-limit state, and lightweight job-status fallback. Repository interfaces preserve a path to rebuildable D1 projections, but each projection is introduced only after measurements demonstrate a concrete latency, cold-start, quota, or query-cost problem that justifies projection, lag, outbox, and rebuild complexity.
 <!-- END SOURCE: docs/adr/0022-d1-read-projections-are-added-only-after-measurement.md -->
 
 <a id="adr-0023"></a>
@@ -2233,7 +2233,7 @@ V1 stores authoritative job state, steps, checkpoints, warnings, and retry evide
 <!-- BEGIN SOURCE: docs/adr/0025-catalog-growth-is-demand-driven.md -->
 # Catalog growth is demand-driven
 
-Tuv creates or hydrates catalog identities only when a User imports, tracks, manually proposes, or explicitly selects media. Provider search results and bounded Explore rows remain temporary Discovery References until selected, and background refresh targets only tracked, listed, upcoming, or recently viewed entries rather than crawling external catalogs.
+Tuvu creates or hydrates catalog identities only when a User imports, tracks, manually proposes, or explicitly selects media. Provider search results and bounded Explore rows remain temporary Discovery References until selected, and background refresh targets only tracked, listed, upcoming, or recently viewed entries rather than crawling external catalogs.
 <!-- END SOURCE: docs/adr/0025-catalog-growth-is-demand-driven.md -->
 
 <a id="adr-0026"></a>
@@ -2245,7 +2245,7 @@ Tuv creates or hydrates catalog identities only when a User imports, tracks, man
 <!-- BEGIN SOURCE: docs/adr/0026-raw-provider-payloads-have-short-retention.md -->
 # Raw provider payloads have short retention
 
-Tuv persists normalized Provider Observations with source identity, timestamps, source URL, and payload hash rather than retaining complete provider responses indefinitely. Successful raw payloads expire within seven days, unresolved match or metadata-conflict payloads within thirty days, and provider terms may require shorter retention; remote images and article bodies are never mirrored merely for archival purposes.
+Tuvu persists normalized Provider Observations with source identity, timestamps, source URL, and payload hash rather than retaining complete provider responses indefinitely. Successful raw payloads expire within seven days, unresolved match or metadata-conflict payloads within thirty days, and provider terms may require shorter retention; remote images and article bodies are never mirrored merely for archival purposes.
 <!-- END SOURCE: docs/adr/0026-raw-provider-payloads-have-short-retention.md -->
 
 <a id="adr-0027"></a>
@@ -2329,7 +2329,7 @@ Completing a Release Group increments only its own Completion Count and does not
 <!-- BEGIN SOURCE: docs/adr/0033-anime-classification-is-based-on-production-origin.md -->
 # Anime classification is based on production origin
 
-Tuv classifies animated works primarily produced in Japan, China, or South Korea as Anime, including Japanese anime, Chinese donghua, and Korean aeni regardless of spoken language. Other animation remains show or movie, live action never qualifies, and co-productions use primary production origin plus provider evidence with uncertain cases resolved through Catalog Proposals or Admin review.
+Tuvu classifies animated works primarily produced in Japan, China, or South Korea as Anime, including Japanese anime, Chinese donghua, and Korean aeni regardless of spoken language. Other animation remains show or movie, live action never qualifies, and co-productions use primary production origin plus provider evidence with uncertain cases resolved through Catalog Proposals or Admin review.
 <!-- END SOURCE: docs/adr/0033-anime-classification-is-based-on-production-origin.md -->
 
 <a id="adr-0034"></a>
@@ -2413,7 +2413,7 @@ V1 supports provenance-bearing main-story, main-plus-extras, and completionist G
 <!-- BEGIN SOURCE: docs/adr/0040-metadata-enrichment-is-field-aware-and-identity-linked.md -->
 # Metadata enrichment is field-aware and identity-linked
 
-Each media domain maintains a field-by-field provider coverage matrix: Tuv queries its primary provider first, then enriches missing or stale high-value fields through exact external identifiers or other strong identity evidence. TVDB requires an approved project credential, license compliance, and attribution; Wikidata, Wikipedia, and Wikimedia requests are identified, batched, cached, and provenance-bearing; heuristic encyclopedia matches require review and manual values remain the final fallback.
+Each media domain maintains a field-by-field provider coverage matrix: Tuvu queries its primary provider first, then enriches missing or stale high-value fields through exact external identifiers or other strong identity evidence. TVDB requires an approved project credential, license compliance, and attribution; Wikidata, Wikipedia, and Wikimedia requests are identified, batched, cached, and provenance-bearing; heuristic encyclopedia matches require review and manual values remain the final fallback.
 <!-- END SOURCE: docs/adr/0040-metadata-enrichment-is-field-aware-and-identity-linked.md -->
 
 <a id="adr-0041"></a>
@@ -2427,9 +2427,9 @@ Each media domain maintains a field-by-field provider coverage matrix: Tuv queri
 
 Anime support in V1 uses authorized TMDB access plus bounded exact-ID Wikimedia enrichment without depending on AniList, Jikan/MAL, or TVDB. Manual external IDs and Owner-entered fields remain available when an automated source is disabled.
 
-The T05 review verified on 2026-08-03 that AniList's API terms prohibit competing non-complementary tracker use without specific authorization, and that Jikan documents its service as scraping MyAnimeList without establishing upstream-use permission for Tuv. Production calls to both providers therefore remain disabled. TVDB also remains disabled until a Tuv project credential and applicable license, retention, attribution, and media-rights evidence are recorded.
+The T05 review verified on 2026-08-03 that AniList's API terms prohibit competing non-complementary tracker use without specific authorization, and that Jikan documents its service as scraping MyAnimeList without establishing upstream-use permission for Tuvu. Production calls to both providers therefore remain disabled. TVDB also remains disabled until a Tuvu project credential and applicable license, retention, attribution, and media-rights evidence are recorded.
 
-Mappings and sanitized adapter-contract fixtures may exist for these disabled outcomes, but they must not trigger an outbound request. AniList may be reconsidered after written authorization for Tuv; Jikan/MAL may be reconsidered only after a new dated primary-source review establishes a lawful non-scraping access and redistribution basis.
+Mappings and sanitized adapter-contract fixtures may exist for these disabled outcomes, but they must not trigger an outbound request. AniList may be reconsidered after written authorization for Tuvu; Jikan/MAL may be reconsidered only after a new dated primary-source review establishes a lawful non-scraping access and redistribution basis.
 <!-- END SOURCE: docs/adr/0041-anilist-remains-disabled-until-compliance-is-resolved.md -->
 
 <a id="adr-0042"></a>
@@ -2525,7 +2525,7 @@ V1 replaces Private per-title Access links with Admin-defined, Instance-visible 
 <!-- BEGIN SOURCE: docs/adr/0049-link-template-logos-are-fetched-once-and-stored.md -->
 # Link Template logos are fetched once and stored
 
-Saving a Link Template may enqueue one bounded favicon or manifest-logo discovery job that revalidates redirects, rejects private or reserved destinations, and accepts only small supported images. Tuv stores the result for reuse, permits an Admin-uploaded replacement, and falls back to a generated domain icon, avoiding external favicon requests from every client.
+Saving a Link Template may enqueue one bounded favicon or manifest-logo discovery job that revalidates redirects, rejects private or reserved destinations, and accepts only small supported images. Tuvu stores the result for reuse, permits an Admin-uploaded replacement, and falls back to a generated domain icon, avoiding external favicon requests from every client.
 <!-- END SOURCE: docs/adr/0049-link-template-logos-are-fetched-once-and-stored.md -->
 
 <a id="adr-0050"></a>
@@ -2561,7 +2561,7 @@ Clients request news through the credential-protecting provider gateway, which n
 <!-- BEGIN SOURCE: docs/adr/0052-provider-artwork-is-referenced-not-mirrored.md -->
 # Provider artwork is referenced, not mirrored
 
-Tuv stores provider image identity, remote URL or path, dimensions, language, provenance, attribution, and Catalog Selection without copying general provider artwork into Supabase Storage. Clients use documented provider delivery URLs and local image caches; Storage is reserved for User/Admin uploads, profile assets, generated assets, backups, and Link Template logos, with alternate observations or placeholders handling broken remote images.
+Tuvu stores provider image identity, remote URL or path, dimensions, language, provenance, attribution, and Catalog Selection without copying general provider artwork into Supabase Storage. Clients use documented provider delivery URLs and local image caches; Storage is reserved for User/Admin uploads, profile assets, generated assets, backups, and Link Template logos, with alternate observations or placeholders handling broken remote images.
 <!-- END SOURCE: docs/adr/0052-provider-artwork-is-referenced-not-mirrored.md -->
 
 <a id="adr-0053"></a>
@@ -2597,7 +2597,7 @@ Each User chooses Off, At release, One day before, or Seven days before per Medi
 <!-- BEGIN SOURCE: docs/adr/0055-v1-allows-a-revocable-minimal-calendar-feed.md -->
 # V1 allows a revocable minimal Calendar Feed
 
-A Calendar Feed is disabled until a User creates a labeled token and exposes only opted-in Release Event title, Media Type, date or time, and canonical Tuv link. Token values appear only at creation while hashes are stored, rotation and revocation are immediate, and no progress, rating, note, profile, or credential data enters the feed; it is a narrow V1 exception to the general V2 deferral of External Share Links.
+A Calendar Feed is disabled until a User creates a labeled token and exposes only opted-in Release Event title, Media Type, date or time, and canonical Tuvu link. Token values appear only at creation while hashes are stored, rotation and revocation are immediate, and no progress, rating, note, profile, or credential data enters the feed; it is a narrow V1 exception to the general V2 deferral of External Share Links.
 <!-- END SOURCE: docs/adr/0055-v1-allows-a-revocable-minimal-calendar-feed.md -->
 
 <a id="adr-0056"></a>
@@ -2633,7 +2633,7 @@ V1 Recommendations use bounded provider relationships, shared Catalog similarity
 <!-- BEGIN SOURCE: docs/adr/0058-discovery-blends-ranks-not-provider-scores.md -->
 # Discovery blends ranks, not provider scores
 
-Tuv preserves provider-attributed Trending, Popular, New, Upcoming, and Top Rated Discovery Lists, deduplicates only exact matched identities, and uses deterministic reciprocal-rank fusion for an optional Blended Discovery List. It never averages incompatible provider scores, retains badges and placement reasons, client-caches results, and hydrates only User-selected media.
+Tuvu preserves provider-attributed Trending, Popular, New, Upcoming, and Top Rated Discovery Lists, deduplicates only exact matched identities, and uses deterministic reciprocal-rank fusion for an optional Blended Discovery List. It never averages incompatible provider scores, retains badges and placement reasons, client-caches results, and hydrates only User-selected media.
 <!-- END SOURCE: docs/adr/0058-discovery-blends-ranks-not-provider-scores.md -->
 
 <a id="adr-0059"></a>
@@ -2681,7 +2681,7 @@ Library Status may be planned, active, paused, stopped, or absent when a User ha
 <!-- BEGIN SOURCE: docs/adr/0062-mobile-uses-expo-with-development-builds.md -->
 # Mobile uses Expo with development builds
 
-The React Native client uses Expo, Expo Router, `expo-sqlite`, `expo-secure-store`, and development builds with Continuous Native Generation when native projects are needed. Local builds remain supported and EAS is optional rather than a paid or cloud dependency, following React Native’s recommended framework path without coupling Tuv to hosted build infrastructure.
+The React Native client uses Expo, Expo Router, `expo-sqlite`, `expo-secure-store`, and development builds with Continuous Native Generation when native projects are needed. Local builds remain supported and EAS is optional rather than a paid or cloud dependency, following React Native’s recommended framework path without coupling Tuvu to hosted build infrastructure.
 <!-- END SOURCE: docs/adr/0062-mobile-uses-expo-with-development-builds.md -->
 
 <a id="adr-0063"></a>
@@ -2693,7 +2693,7 @@ The React Native client uses Expo, Expo Router, `expo-sqlite`, `expo-secure-stor
 <!-- BEGIN SOURCE: docs/adr/0063-v1-mobile-acceptance-targets-android.md -->
 # V1 mobile acceptance targets Android
 
-The Expo client keeps shared React Native code and configuration portable, but V1 requires Android builds, offline behavior, secure Tuv Sessions, synchronization, testing, and distribution only. iOS-specific signing, build validation, device acceptance, and App Store delivery move to V2.
+The Expo client keeps shared React Native code and configuration portable, but V1 requires Android builds, offline behavior, secure Tuvu Sessions, synchronization, testing, and distribution only. iOS-specific signing, build validation, device acceptance, and App Store delivery move to V2.
 <!-- END SOURCE: docs/adr/0063-v1-mobile-acceptance-targets-android.md -->
 
 <a id="adr-0064"></a>
@@ -2717,7 +2717,7 @@ The V1 web app ships an installable PWA shell and shows previously persisted lib
 <!-- BEGIN SOURCE: docs/adr/0065-v1-invitations-and-recovery-use-out-of-band-single-use-links.md -->
 # V1 uses Bootstrap Token and Recovery Codes, not Invitations
 
-V1 has no Invitations or Admin-issued Recovery Grants. An Unclaimed Instance accepts one Bootstrap-Token-protected Owner setup with email, editable inferred Username, password, and confirmation, then permanently disables that token. Sole-owner recovery uses mandatory offline Recovery Codes plus optional verified-email recovery through Supabase’s included best-effort provider, and recovery revokes all Tuv Sessions and device confirmation credentials. Invitations, Recovery Grants for other Users, general passkey login, and application email move to V2. ADR-0121 and ADR-0122 supersede the original link workflow.
+V1 has no Invitations or Admin-issued Recovery Grants. An Unclaimed Instance accepts one Bootstrap-Token-protected Owner setup with email, editable inferred Username, password, and confirmation, then permanently disables that token. Sole-owner recovery uses mandatory offline Recovery Codes plus optional verified-email recovery through Supabase’s included best-effort provider, and recovery revokes all Tuvu Sessions and device confirmation credentials. Invitations, Recovery Grants for other Users, general passkey login, and application email move to V2. ADR-0121 and ADR-0122 supersede the original link workflow.
 <!-- END SOURCE: docs/adr/0065-v1-invitations-and-recovery-use-out-of-band-single-use-links.md -->
 
 <a id="adr-0066"></a>
@@ -2729,7 +2729,7 @@ V1 has no Invitations or Admin-issued Recovery Grants. An Unclaimed Instance acc
 <!-- BEGIN SOURCE: docs/adr/0066-web-and-android-use-different-session-lifetimes.md -->
 # Web and Android use different Session lifetimes
 
-Web Tuv Sessions expire after fourteen idle days or thirty absolute days, while Android Sessions expire after thirty idle days or ninety absolute days. Activity updates `last_seen` at most once per fifteen-minute bucket, and logout-all, password recovery, suspension, or Account Erasure revokes immediately; expiry requires normal Supabase authentication again.
+Web Tuvu Sessions expire after fourteen idle days or thirty absolute days, while Android Sessions expire after thirty idle days or ninety absolute days. Activity updates `last_seen` at most once per fifteen-minute bucket, and logout-all, password recovery, suspension, or Account Erasure revokes immediately; expiry requires normal Supabase authentication again.
 <!-- END SOURCE: docs/adr/0066-web-and-android-use-different-session-lifetimes.md -->
 
 <a id="adr-0067"></a>
@@ -2753,7 +2753,7 @@ V1 deploys the Vite SPA through Workers Static Assets and runs Hono only for `/a
 <!-- BEGIN SOURCE: docs/adr/0068-normal-api-sql-uses-a-restricted-hyperdrive-role.md -->
 # Normal API SQL uses a restricted Hyperdrive role
 
-Hono repositories access Supabase Postgres directly through Hyperdrive using a dedicated role that cannot bypass row-level security. Each request transaction sets a local Tuv User and role context enforced by policies and ownership checks, while Queue/Admin maintenance uses separate narrowly scoped operations; Supabase service credentials are excluded from ordinary Catalog and library queries, with Auth and Storage accessed through supported APIs.
+Hono repositories access Supabase Postgres directly through Hyperdrive using a dedicated role that cannot bypass row-level security. Each request transaction sets a local Tuvu User and role context enforced by policies and ownership checks, while Queue/Admin maintenance uses separate narrowly scoped operations; Supabase service credentials are excluded from ordinary Catalog and library queries, with Auth and Storage accessed through supported APIs.
 <!-- END SOURCE: docs/adr/0068-normal-api-sql-uses-a-restricted-hyperdrive-role.md -->
 
 <a id="adr-0069"></a>
@@ -2861,7 +2861,7 @@ D1 owns opaque Sessions and bounded rate-limit state, Postgres owns Provider Con
 <!-- BEGIN SOURCE: docs/adr/0077-d1-is-limited-to-sessions-challenges-and-rate-limits.md -->
 # D1 is limited to Sessions, challenges, and rate limits
 
-V1 D1 stores opaque Tuv Sessions, short-lived auth and recovery challenges, and bounded auth/provider rate-limit state only. Postgres remains the sole job authority and polling source; this supersedes the job-status fallback in ADR-0022 because stale mirrored progress is misleading when Postgres is unavailable and the job cannot continue.
+V1 D1 stores opaque Tuvu Sessions, short-lived auth and recovery challenges, and bounded auth/provider rate-limit state only. Postgres remains the sole job authority and polling source; this supersedes the job-status fallback in ADR-0022 because stale mirrored progress is misleading when Postgres is unavailable and the job cannot continue.
 <!-- END SOURCE: docs/adr/0077-d1-is-limited-to-sessions-challenges-and-rate-limits.md -->
 
 <a id="adr-0078"></a>
@@ -2897,7 +2897,7 @@ V1 publishes versioned reference-only messages to one work Queue, dispatches by 
 <!-- BEGIN SOURCE: docs/adr/0080-provider-credentials-use-versioned-application-encryption.md -->
 # Provider Credentials use versioned application encryption
 
-Tuv encrypts each Provider Credential with AES-GCM using a fresh nonce and authenticated provider, User, and Instance scope, stores ciphertext plus key version in Postgres, and holds master keys only as Worker secrets. Older values re-encrypt lazily or through a bounded rotation job, while plaintext is never logged, returned after submission, or revealed through Admin or Break-glass access.
+Tuvu encrypts each Provider Credential with AES-GCM using a fresh nonce and authenticated provider, User, and Instance scope, stores ciphertext plus key version in Postgres, and holds master keys only as Worker secrets. Older values re-encrypt lazily or through a bounded rotation job, while plaintext is never logged, returned after submission, or revealed through Admin or Break-glass access.
 <!-- END SOURCE: docs/adr/0080-provider-credentials-use-versioned-application-encryption.md -->
 
 <a id="adr-0081"></a>
@@ -2909,7 +2909,7 @@ Tuv encrypts each Provider Credential with AES-GCM using a fresh nonce and authe
 <!-- BEGIN SOURCE: docs/adr/0081-each-user-retains-at-most-three-completed-backups.md -->
 # Each User retains at most three completed Backups
 
-After a new User Backup passes checksum verification, Tuv deletes the oldest completed backup beyond three; failed or incomplete artifacts expire independently and never evict valid data. Users may inspect, download, or delete backups, Account Erasure removes all of them, and V1 provides neither pinning nor unlimited retention.
+After a new User Backup passes checksum verification, Tuvu deletes the oldest completed backup beyond three; failed or incomplete artifacts expire independently and never evict valid data. Users may inspect, download, or delete backups, Account Erasure removes all of them, and V1 provides neither pinning nor unlimited retention.
 <!-- END SOURCE: docs/adr/0081-each-user-retains-at-most-three-completed-backups.md -->
 
 <a id="adr-0082"></a>
@@ -3005,7 +3005,7 @@ Each Written Work selects Pages, Percentage, eligible volume/chapter Units, or C
 <!-- BEGIN SOURCE: docs/adr/0089-private-storage-has-a-500-mib-deployment-ceiling.md -->
 # Private storage has a 500 MiB deployment ceiling
 
-Tuv initially stops storage-increasing operations when private Supabase Storage reaches 500 MiB, leaving the remainder of the platform quota as operational headroom. Admins may lower the global ceiling and the fixed per-class limits at runtime but cannot raise them above deployment-configured maxima; raising a maximum requires a reviewed redeployment. Processed defaults are 512 KiB for avatars, 2 MiB for banners or backdrops, 1 MiB for posters, and 256 KiB for link logos; ordinary User assets are limited to 25 MiB per User, User Backups to 50 MiB each and 100 MiB total per User while retaining at most three, and Admin-managed catalog and link assets to 100 MiB Instance-wide. Tuv warns Admins at seventy percent of the effective global ceiling, rejects only operations that would increase storage once the ceiling is reached, and continues to permit downloads, deletions, and other recovery operations. Original import archives remain client-side and do not consume this budget.
+Tuvu initially stops storage-increasing operations when private Supabase Storage reaches 500 MiB, leaving the remainder of the platform quota as operational headroom. Admins may lower the global ceiling and the fixed per-class limits at runtime but cannot raise them above deployment-configured maxima; raising a maximum requires a reviewed redeployment. Processed defaults are 512 KiB for avatars, 2 MiB for banners or backdrops, 1 MiB for posters, and 256 KiB for link logos; ordinary User assets are limited to 25 MiB per User, User Backups to 50 MiB each and 100 MiB total per User while retaining at most three, and Admin-managed catalog and link assets to 100 MiB Instance-wide. Tuvu warns Admins at seventy percent of the effective global ceiling, rejects only operations that would increase storage once the ceiling is reached, and continues to permit downloads, deletions, and other recovery operations. Original import archives remain client-side and do not consume this budget.
 <!-- END SOURCE: docs/adr/0089-private-storage-has-a-500-mib-deployment-ceiling.md -->
 
 <a id="adr-0090"></a>
@@ -3029,7 +3029,7 @@ V1 is delivered through seven production-quality milestones: (1) Foundation and 
 <!-- BEGIN SOURCE: docs/adr/0091-operational-records-have-bounded-retention-windows.md -->
 # Operational records have bounded Retention Windows
 
-Tuv retains User library data, Tracking State, Activity, and settings until explicit User deletion or Account Erasure, while scheduled cleanup bounds operational records as follows: all in-app notifications for 180 days; successful job execution details for 30 days and failed details for 90; transient import chunk acknowledgements for 30 days while durable import manifests, provenance, and rollback summaries remain as long as imported data depends on them; raw Provider Health observations for 30 days and daily aggregates for 180; administrative and security audit evidence for 365 days, reduced to the minimum pseudonymous evidence after Account Erasure; ordinary API idempotency responses for 24 hours; applied offline Domain Mutation identifiers and synchronization tombstones for 180 days, after which an old client must perform a full resynchronization; and failed or incomplete backup artifacts for seven days, while a User Backup manifest exists only with its completed archive. Existing seven-day successful and thirty-day unresolved-conflict raw provider-payload limits still apply. Admins may shorten operational windows at runtime but extending security- or storage-sensitive maxima requires reviewed redeployment.
+Tuvu retains User library data, Tracking State, Activity, and settings until explicit User deletion or Account Erasure, while scheduled cleanup bounds operational records as follows: all in-app notifications for 180 days; successful job execution details for 30 days and failed details for 90; transient import chunk acknowledgements for 30 days while durable import manifests, provenance, and rollback summaries remain as long as imported data depends on them; raw Provider Health observations for 30 days and daily aggregates for 180; administrative and security audit evidence for 365 days, reduced to the minimum pseudonymous evidence after Account Erasure; ordinary API idempotency responses for 24 hours; applied offline Domain Mutation identifiers and synchronization tombstones for 180 days, after which an old client must perform a full resynchronization; and failed or incomplete backup artifacts for seven days, while a User Backup manifest exists only with its completed archive. Existing seven-day successful and thirty-day unresolved-conflict raw provider-payload limits still apply. Admins may shorten operational windows at runtime but extending security- or storage-sensitive maxima requires reviewed redeployment.
 <!-- END SOURCE: docs/adr/0091-operational-records-have-bounded-retention-windows.md -->
 
 <a id="adr-0092"></a>
@@ -3053,7 +3053,7 @@ Remove from Library only unsets a User’s Library Status and leaves independent
 <!-- BEGIN SOURCE: docs/adr/0093-v1-list-visibility-is-saved-but-not-effective.md -->
 # V1 list visibility is saved but not effective
 
-Every V1 Personal List is authorized owner-only even though its owner may save an Intended Visibility of Private, Connections-visible, or Instance-visible, with Private as the default. Choosing a future-visible value clearly states that the list remains private until V2, collaborator controls are a disabled Coming in V2 preview, and server authorization—not route hiding—enforces the V1 boundary. When V2 introduces cross-User list access, Tuv requires a one-time owner confirmation before activating any previously saved non-Private Intended Visibility, preventing a historical preference from unexpectedly exposing content.
+Every V1 Personal List is authorized owner-only even though its owner may save an Intended Visibility of Private, Connections-visible, or Instance-visible, with Private as the default. Choosing a future-visible value clearly states that the list remains private until V2, collaborator controls are a disabled Coming in V2 preview, and server authorization—not route hiding—enforces the V1 boundary. When V2 introduces cross-User list access, Tuvu requires a one-time owner confirmation before activating any previously saved non-Private Intended Visibility, preventing a historical preference from unexpectedly exposing content.
 <!-- END SOURCE: docs/adr/0093-v1-list-visibility-is-saved-but-not-effective.md -->
 
 <a id="adr-0094"></a>
@@ -3079,7 +3079,7 @@ Profile and detail cards expose Statistics Rollups by primary Media Type, Format
 <!-- BEGIN SOURCE: docs/adr/0095-release-notifications-use-status-defaults-and-entry-overrides.md -->
 # Release notifications use status defaults and Entry overrides
 
-A User is subscribed to release notifications for a Catalog Entry by default when its Library Status is Planned or Active, including an Active series whose calculated Progress State is caught up; Paused, Stopped, or unset status is unsubscribed by default. A per-Entry Default, On, or Off control can preserve the status-derived behavior, subscribe regardless of status, or suppress all release notifications. Favorite state and Personal List membership never subscribe silently, completed one-off media has no further release unless a related Edition or Unit is explicitly followed, and Tuv never alerts a User for the entire shared Catalog. The User’s per-Media-Type Release Preference and lead time select the same Effective Release Event used by Upcoming, Calendar, iCal, and notifications, while stable event identity lets reschedules and duplicate provider observations update or coalesce pending notifications rather than create spam.
+A User is subscribed to release notifications for a Catalog Entry by default when its Library Status is Planned or Active, including an Active series whose calculated Progress State is caught up; Paused, Stopped, or unset status is unsubscribed by default. A per-Entry Default, On, or Off control can preserve the status-derived behavior, subscribe regardless of status, or suppress all release notifications. Favorite state and Personal List membership never subscribe silently, completed one-off media has no further release unless a related Edition or Unit is explicitly followed, and Tuvu never alerts a User for the entire shared Catalog. The User’s per-Media-Type Release Preference and lead time select the same Effective Release Event used by Upcoming, Calendar, iCal, and notifications, while stable event identity lets reschedules and duplicate provider observations update or coalesce pending notifications rather than create spam.
 <!-- END SOURCE: docs/adr/0095-release-notifications-use-status-defaults-and-entry-overrides.md -->
 
 <a id="adr-0096"></a>
@@ -3131,7 +3131,7 @@ Authoritative API routes without external provider calls target p95 elapsed time
 
 Sensitive Confirmation is required only for Erase Owner Data and Unclaim Instance, regenerating Recovery Codes, restoring an Instance Backup, and replacing or deleting an Instance Provider Credential. V1 has no Recovery Grant or Admin role-management action. Ordinary User backups and restores, downloads, Personal Credentials, imports, Catalog merges, storage settings, session revocation, and routine Admin work use normal authorization and action-specific confirmation without recent reauthentication.
 
-Supported clients prefer a registered device credential and fall back to the account password. The PWA uses a WebAuthn platform credential with required user verification, while Android uses a device-bound credential gated by strong system biometric authentication; both answer a fresh server challenge and produce a ten-minute grant scoped to the current Tuv Session. Enrolling the credential requires the account password, unsupported devices use password confirmation, and a V1 confirmation credential cannot establish an Auth Identity, start a Tuv Session, or recover an account. General passkey login remains V2, and a client-only biometric prompt never substitutes for server verification.
+Supported clients prefer a registered device credential and fall back to the account password. The PWA uses a WebAuthn platform credential with required user verification, while Android uses a device-bound credential gated by strong system biometric authentication; both answer a fresh server challenge and produce a ten-minute grant scoped to the current Tuvu Session. Enrolling the credential requires the account password, unsupported devices use password confirmation, and a V1 confirmation credential cannot establish an Auth Identity, start a Tuvu Session, or recover an account. General passkey login remains V2, and a client-only biometric prompt never substitutes for server verification.
 <!-- END SOURCE: docs/adr/0099-v1-sensitive-confirmation-is-narrow-and-biometric-first.md -->
 
 <a id="adr-0100"></a>
@@ -3167,7 +3167,7 @@ mandatory before the applicable Product Milestone gate.
 
 V1 uses Cloudflare, Supabase, and Tuv’s own structured Operational Telemetry without Sentry, product analytics, advertising analytics, cross-site tracking, or session replay. JSON logs may include request and trace IDs, route templates, pseudonymous User IDs, status, elapsed and CPU time, query and subrequest counts, cache results, provider code, job or message IDs, and stable error codes, but never credentials, authorization headers, private notes, secret-bearing URLs, backup contents, search text, biographies or future social bodies, or raw request and response bodies. Errors, security events, and Admin actions are retained at full sampling while successful high-volume traffic may be sampled.
 
-The Admin UI reports Worker and API health, database and Storage Budget use, Queue age, retries and DLQ, job outcomes, provider latency, rate limiting and circuit state, scheduler checkpoints, cache effectiveness, and statistics lag. Initial warnings trigger for any DLQ message, a normal Queue message older than ten minutes, a scheduler checkpoint more than fifteen minutes late, five-minute API error rate above two percent, effective Storage Budget or Postgres quota reaching seventy percent, repeated provider rate-limit or invalid-credential outcomes, and failed backup, restore, or reconciliation checks. Cloudflare or Supabase account-native alerts may reach Admins outside Tuv; Tuv adds no email, SMS, or push operations channel in V1. Future product analytics requires a separate decision, an event allowlist, and User-facing disclosure.
+The Admin UI reports Worker and API health, database and Storage Budget use, Queue age, retries and DLQ, job outcomes, provider latency, rate limiting and circuit state, scheduler checkpoints, cache effectiveness, and statistics lag. Initial warnings trigger for any DLQ message, a normal Queue message older than ten minutes, a scheduler checkpoint more than fifteen minutes late, five-minute API error rate above two percent, effective Storage Budget or Postgres quota reaching seventy percent, repeated provider rate-limit or invalid-credential outcomes, and failed backup, restore, or reconciliation checks. Cloudflare or Supabase account-native alerts may reach Admins outside Tuvu; Tuvu adds no email, SMS, or push operations channel in V1. Future product analytics requires a separate decision, an event allowlist, and User-facing disclosure.
 <!-- END SOURCE: docs/adr/0101-v1-observability-is-first-party-and-content-minimized.md -->
 
 <a id="adr-0102"></a>
@@ -3207,7 +3207,7 @@ The API, synchronization protocol, User Backup, Instance Backup, and normalized 
 <!-- BEGIN SOURCE: docs/adr/0104-domain-records-use-opaque-uuidv7-identifiers.md -->
 # Domain records use opaque UUIDv7 identifiers
 
-Tuv domain records use application-generated opaque UUIDv7 Domain IDs for offline creation and index locality, while Supabase Auth Identity IDs remain supplied by Supabase and namespace-qualified provider identifiers remain external identity evidence rather than primary keys. Android may generate Domain IDs only for permitted User-owned offline entities and Domain Mutations, and the server validates ownership, target kind, authorization, and uniqueness before accepting them. Shared Catalog Entries, Provider Observations, jobs, audit records, and Admin-governed entities receive server-generated UUIDv7 values. Creation commands use a separate stable mutation or idempotency identifier, relational uniqueness still enforces actual provider and domain invariants, and UUID equality alone never establishes that two media records are duplicates. Domain IDs encode no User, Media Type, deployment, or provider meaning.
+Tuvu domain records use application-generated opaque UUIDv7 Domain IDs for offline creation and index locality, while Supabase Auth Identity IDs remain supplied by Supabase and namespace-qualified provider identifiers remain external identity evidence rather than primary keys. Android may generate Domain IDs only for permitted User-owned offline entities and Domain Mutations, and the server validates ownership, target kind, authorization, and uniqueness before accepting them. Shared Catalog Entries, Provider Observations, jobs, audit records, and Admin-governed entities receive server-generated UUIDv7 values. Creation commands use a separate stable mutation or idempotency identifier, relational uniqueness still enforces actual provider and domain invariants, and UUID equality alone never establishes that two media records are duplicates. Domain IDs encode no User, Media Type, deployment, or provider meaning.
 <!-- END SOURCE: docs/adr/0104-domain-records-use-opaque-uuidv7-identifiers.md -->
 
 <a id="adr-0105"></a>
@@ -3399,7 +3399,7 @@ V1 does not classify, hide, blur, reveal, synchronize, or persist state for spoi
 <!-- BEGIN SOURCE: docs/adr/0119-v1-registration-requires-email-and-username.md -->
 # V1 registration requires email and Username
 
-Bootstrap-Token-protected V1 Owner setup requires email, Username, password, and matching password confirmation. Tuv initially infers a Username from the email local part, normalizes unsupported characters, suggests a short numeric suffix on collision, and lets the Owner edit it before submission. Usernames are case-insensitively unique, three through 32 characters, and contain letters, numbers, period, underscore, or hyphen. The Owner may sign in with either email or Username plus the same Supabase-verified password; narrowly scoped pre-auth resolution maps Username to Auth Identity and all failures use the same response and rate limits. Email is Private account data, absent from profile display. Changing email or Username requires password confirmation, and passwords allow 12 through 128 characters without arbitrary composition rules. Verification and password-recovery email use only the optional free best-effort policy in ADR-0122; mandatory offline Recovery Codes remain available.
+Bootstrap-Token-protected V1 Owner setup requires email, Username, password, and matching password confirmation. Tuvu initially infers a Username from the email local part, normalizes unsupported characters, suggests a short numeric suffix on collision, and lets the Owner edit it before submission. Usernames are case-insensitively unique, three through 32 characters, and contain letters, numbers, period, underscore, or hyphen. The Owner may sign in with either email or Username plus the same Supabase-verified password; narrowly scoped pre-auth resolution maps Username to Auth Identity and all failures use the same response and rate limits. Email is Private account data, absent from profile display. Changing email or Username requires password confirmation, and passwords allow 12 through 128 characters without arbitrary composition rules. Verification and password-recovery email use only the optional free best-effort policy in ADR-0122; mandatory offline Recovery Codes remain available.
 <!-- END SOURCE: docs/adr/0119-v1-registration-requires-email-and-username.md -->
 
 <a id="adr-0120"></a>
@@ -3435,14 +3435,14 @@ V1 permits exactly one User, the V1 Owner, who is also the sole Admin. Additiona
 <!-- BEGIN SOURCE: docs/adr/0122-v1-owner-bootstrap-and-recovery-have-no-paid-email-dependency.md -->
 # V1 Owner bootstrap and recovery have no paid email dependency
 
-First-run setup exists only while no V1 Owner exists, requires a high-entropy Cloudflare Bootstrap Token, collects the accepted email, editable inferred Username, password, and confirmation fields, and permanently disables the token after success. Setup generates ten single-use Recovery Codes, displays or downloads them once, stores only keyed hashes, and requires the Owner to acknowledge the kit. Using a code resets the password and revokes every Tuv Session and biometric or device confirmation credential; authenticated regeneration requires Sensitive Confirmation and invalidates all earlier codes. If password, email access, and codes are all lost, only a documented Supabase and Cloudflare control-plane break-glass runbook may recover the deployment, with no hidden application backdoor.
+First-run setup exists only while no V1 Owner exists, requires a high-entropy Cloudflare Bootstrap Token, collects the accepted email, editable inferred Username, password, and confirmation fields, and permanently disables the token after success. Setup generates ten single-use Recovery Codes, displays or downloads them once, stores only keyed hashes, and requires the Owner to acknowledge the kit. Using a code resets the password and revokes every Tuvu Session and biometric or device confirmation credential; authenticated regeneration requires Sensitive Confirmation and invalidates all earlier codes. If password, email access, and codes are all lost, only a documented Supabase and Cloudflare control-plane break-glass runbook may recover the deployment, with no hidden application backdoor.
 
-Supabase’s included default Auth email provider may send verification and password recovery only as a free, best-effort convenience. V1 configures no custom or paid SMTP, respects the current two-email-per-hour project limit, displays retry and verification state, does not block initial bootstrap on delivery, and enables email recovery only after successful verification. Development and CI use local Mailpit. Release checks revalidate Free-plan inclusion, and if the included service becomes unavailable or paid, Tuv disables email sending and continues with password plus Recovery Codes rather than incurring charges. Automated application email otherwise remains V2. This supersedes the V1 Invitation and Recovery Grant flows of ADR-0065 and ADR-0120 and the recovery portion of ADR-0119.
+Supabase’s included default Auth email provider may send verification and password recovery only as a free, best-effort convenience. V1 configures no custom or paid SMTP, respects the current two-email-per-hour project limit, displays retry and verification state, does not block initial bootstrap on delivery, and enables email recovery only after successful verification. Development and CI use local Mailpit. Release checks revalidate Free-plan inclusion, and if the included service becomes unavailable or paid, Tuvu disables email sending and continues with password plus Recovery Codes rather than incurring charges. Automated application email otherwise remains V2. This supersedes the V1 Invitation and Recovery Grant flows of ADR-0065 and ADR-0120 and the recovery portion of ADR-0119.
 
 Owner bootstrap marks the internal Supabase Auth credential confirmed so the
 accepted password can be used immediately without making setup depend on email
 delivery. This internal credential flag is not evidence that the Owner controls
-the address: Tuv keeps recovery-email verification separately in
+the address: Tuvu keeps recovery-email verification separately in
 `account_identifiers.email_verified_at`, leaves it unset at bootstrap, and must
 not enable email recovery until that application-owned verification succeeds.
 <!-- END SOURCE: docs/adr/0122-v1-owner-bootstrap-and-recovery-have-no-paid-email-dependency.md -->
@@ -3456,7 +3456,7 @@ not enable email recovery until that application-owned verification succeeds.
 <!-- BEGIN SOURCE: docs/adr/0123-erasing-the-v1-owner-unclaims-the-instance.md -->
 # Erasing the V1 Owner unclaims the Instance
 
-V1 labels sole-owner Account Erasure as Erase Owner Data and Unclaim Instance and requires Sensitive Confirmation, typed confirmation, and an impact summary while offering an optional fresh local Instance Backup. A resumable irreversible deletion removes Supabase Auth identity, profile, email and Username, library, Tracking State, Activity, statistics, Private Notes, Personal Tags, Favorites, Personal Lists, Personal and Instance Provider Credentials, Tuv Sessions, device confirmation credentials, Recovery Codes, User Backups, profile and personal assets, pending User jobs, and Notifications. Shared provider-derived Catalog data and accepted Admin Catalog Selections remain without personal attribution, and only minimum pseudonymous security audit evidence survives its Retention Window. The active session is revoked once the deletion plan is durably committed.
+V1 labels sole-owner Account Erasure as Erase Owner Data and Unclaim Instance and requires Sensitive Confirmation, typed confirmation, and an impact summary while offering an optional fresh local Instance Backup. A resumable irreversible deletion removes Supabase Auth identity, profile, email and Username, library, Tracking State, Activity, statistics, Private Notes, Personal Tags, Favorites, Personal Lists, Personal and Instance Provider Credentials, Tuvu Sessions, device confirmation credentials, Recovery Codes, User Backups, profile and personal assets, pending User jobs, and Notifications. Shared provider-derived Catalog data and accepted Admin Catalog Selections remain without personal attribution, and only minimum pseudonymous security audit evidence survives its Retention Window. The active session is revoked once the deletion plan is durably committed.
 
 The deployment then becomes an Unclaimed Instance where only health and Bootstrap-Token-protected setup routes operate and retained Catalog data is not exposed. Claiming again requires configuring a new deployment Bootstrap Token and completing Owner setup; the earlier token never reactivates. Deleting Postgres, D1, Storage, Worker, or other infrastructure remains an external teardown operation rather than an application button.
 <!-- END SOURCE: docs/adr/0123-erasing-the-v1-owner-unclaims-the-instance.md -->
@@ -3470,7 +3470,7 @@ The deployment then becomes an Unclaimed Instance where only health and Bootstra
 <!-- BEGIN SOURCE: docs/adr/0124-sole-owner-v1-retains-instance-and-personal-credential-scopes.md -->
 # Sole-owner V1 retains Instance and Personal Credential scopes
 
-Although the V1 Owner controls both, Tuv retains separately encrypted Instance and Personal Credentials per credentialed provider. Instance is the primary application scope, Personal is the Owner’s secondary Private scope, and Credential Mode remains Instance, Personal, or Automatic, where Automatic tries Instance first and retries Personal exactly once only after explicit rate limiting or invalidation. Provider Health and rate state remain separate by scope, and neither secret enters User or Instance Backup. When V2 admits Users, existing Personal Credentials remain Private and an explicit per-provider review is required before any existing Instance Credential becomes available to another User. This preserves the requested fallback and makes V2 additive rather than a credential migration.
+Although the V1 Owner controls both, Tuvu retains separately encrypted Instance and Personal Credentials per credentialed provider. Instance is the primary application scope, Personal is the Owner’s secondary Private scope, and Credential Mode remains Instance, Personal, or Automatic, where Automatic tries Instance first and retries Personal exactly once only after explicit rate limiting or invalidation. Provider Health and rate state remain separate by scope, and neither secret enters User or Instance Backup. When V2 admits Users, existing Personal Credentials remain Private and an explicit per-provider review is required before any existing Instance Credential becomes available to another User. This preserves the requested fallback and makes V2 additive rather than a credential migration.
 <!-- END SOURCE: docs/adr/0124-sole-owner-v1-retains-instance-and-personal-credential-scopes.md -->
 
 <a id="adr-0125"></a>
@@ -3494,7 +3494,7 @@ V1 presents User Backup as Owner Data Backup: a private Supabase-Storage archive
 <!-- BEGIN SOURCE: docs/adr/0126-v1-private-data-remains-owner-scoped-without-multi-user-workflows.md -->
 # V1 Private data remains Owner-scoped without multi-User workflows
 
-Every Private V1 table retains explicit `user_id`, foreign-key ownership, and owner-scoped RLS; the sole profile records V1 Owner and Admin state, and Tuv Sessions, Storage object paths, jobs, Domain Mutations, backups, and Notifications carry that identity. Shared Catalog storage remains separate, the API always derives identity from a verified Tuv Session instead of assuming a singleton row belongs to the caller, and application plus database invariants limit V1 to one active profile. V1 creates no Invitation, membership-request, Connection, Block, collaborator, role-assignment, suspension, or cross-User visibility-grant tables. V2 adds membership, roles, and social relationships and backfills the existing V1 Owner as initial Admin while extending existing `user_id = current_user` policies rather than rewriting Catalog, library, Tracking State, or Activity.
+Every Private V1 table retains explicit `user_id`, foreign-key ownership, and owner-scoped RLS; the sole profile records V1 Owner and Admin state, and Tuvu Sessions, Storage object paths, jobs, Domain Mutations, backups, and Notifications carry that identity. Shared Catalog storage remains separate, the API always derives identity from a verified Tuvu Session instead of assuming a singleton row belongs to the caller, and application plus database invariants limit V1 to one active profile. V1 creates no Invitation, membership-request, Connection, Block, collaborator, role-assignment, suspension, or cross-User visibility-grant tables. V2 adds membership, roles, and social relationships and backfills the existing V1 Owner as initial Admin while extending existing `user_id = current_user` policies rather than rewriting Catalog, library, Tracking State, or Activity.
 <!-- END SOURCE: docs/adr/0126-v1-private-data-remains-owner-scoped-without-multi-user-workflows.md -->
 
 <a id="adr-0127"></a>

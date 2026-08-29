@@ -41,6 +41,10 @@ import {
   LogOut,
   Trash2,
   AlertTriangle,
+  Activity,
+  ExternalLink,
+  Wifi,
+  Server,
   type LucideIcon,
 } from "lucide-react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
@@ -54,6 +58,7 @@ import { allMediaStatuses, dashboardKinds, formatStatusLabel, mediaConfigForType
 import { classifyMedia } from "@shared/media-classification";
 import { tvTimeExpectedCounts, type TvTimeImportItem, type TvTimeImportSummary } from "@shared/tv-time-import";
 import { providerNames, uiConstants } from "@shared/constants";
+import { PROVIDER_CATALOG, PROVIDER_CATEGORIES, type ProviderCategory } from "@shared/providers-config";
 import { queryCache, queryKeys } from "./api/query-cache";
 import {
   EmptyState,
@@ -4370,88 +4375,466 @@ function NavigationSettingsPanel({ csrfToken }: { csrfToken: string }) {
   );
 }
 
-type ProviderKey = keyof typeof providerNames;
-type ProviderCredentialStatus = { provider: string; label: string | null; status: string; configured: boolean; updatedAt: string };
+type ProviderInfo = {
+  id: string | null;
+  provider: string;
+  name: string;
+  category: ProviderCategory;
+  description: string;
+  keyless: boolean;
+  label: string | null;
+  status: "active" | "disabled" | "not_configured";
+  configured: boolean;
+  configurationSource?: "personal" | "app" | "keyless" | "disabled" | "none";
+  connectionStatus?: string | null;
+  lastTestedAt?: string | null;
+  configuredFields?: string[];
+  lastValidatedAt: string | null;
+  updatedAt: string | null;
+  fields: Array<{ key: string; label: string; placeholder: string; secure?: boolean }>;
+  attribution: string;
+  docUrl: string;
+  appFallback?: {
+    configured: boolean;
+    message: string;
+  };
+};
 
-const providerCredentialFields: Array<{ provider: ProviderKey; fields: Array<{ key: string; label: string; placeholder: string }> }> = [
-  { provider: "tmdb", fields: [{ key: "TMDB_API_KEY", label: "API key", placeholder: "TMDB v3 API key" }] },
-  { provider: "rawg", fields: [{ key: "RAWG_API_KEY", label: "API key", placeholder: "RAWG API key" }] },
-  { provider: "igdb", fields: [{ key: "TWITCH_IGDB_CLIENT_ID", label: "Client ID", placeholder: "Twitch client ID" }, { key: "TWITCH_IGDB_CLIENT_SECRET", label: "Client secret", placeholder: "Twitch client secret" }] },
-  { provider: "openlibrary", fields: [{ key: "OPEN_LIBRARY_CONTACT_EMAIL", label: "Contact email", placeholder: "you@example.com" }] },
-  { provider: "jikan", fields: [{ key: "MAL_JIKAN_API_ENDPOINT", label: "Endpoint", placeholder: "https://api.jikan.moe/v4/" }] },
-  { provider: "youtube", fields: [{ key: "YOUTUBE_API_KEY", label: "API key", placeholder: "Optional future key" }] },
-  { provider: "newsapi", fields: [{ key: "NEWSAPI_KEY", label: "API key", placeholder: "NewsAPI key" }] },
-];
+type PingResultPayload = {
+  ok: boolean;
+  status: string;
+  latencyMs: number;
+  message: string;
+};
 
 function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
-  const [statuses, setStatuses] = useState<ProviderCredentialStatus[]>([]);
-  const [activeProvider, setActiveProvider] = useState<ProviderKey>("tmdb");
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<ProviderCategory | "all">("all");
+  const [activeProviderCode, setActiveProviderCode] = useState<string>("tmdb");
   const [values, setValues] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState("Provider credentials are user-scoped. App-level fallback keys still work.");
+  const [message, setMessage] = useState("Provider credentials are user-scoped. App-level fallback keys remain active when personal keys are not set.");
+  const [pingState, setPingState] = useState<{ loading: boolean; result: PingResultPayload | null }>({ loading: false, result: null });
+  const [appPingState, setAppPingState] = useState<{ loading: boolean; result: PingResultPayload | null }>({ loading: false, result: null });
 
   const load = useCallback(async () => {
-    const data = await apiJson<{ providers: ProviderCredentialStatus[] }>("/api/settings/providers");
-    setStatuses(data.providers);
+    try {
+      const data = await apiJson<{ providers: ProviderInfo[] }>("/api/settings/providers");
+      setProviders(data.providers);
+    } catch {
+      // Fallback to static catalog if worker not reachable
+      setProviders(
+        PROVIDER_CATALOG.map((p) => ({
+          id: null,
+          provider: p.code,
+          name: p.name,
+          category: p.category,
+          description: p.description,
+          keyless: p.keyless,
+          label: null,
+          status: p.keyless ? "active" : p.defaultStatus === "disabled" ? "disabled" : "not_configured",
+          configured: p.keyless,
+          configurationSource: p.keyless ? "keyless" : "none",
+          connectionStatus: null,
+          lastTestedAt: null,
+          configuredFields: [],
+          lastValidatedAt: null,
+          updatedAt: null,
+          fields: p.fields,
+          attribution: p.attribution,
+          docUrl: p.docUrl,
+          appFallback: {
+            configured: p.keyless,
+            message: p.keyless ? "Keyless public API (always ready)" : "Server environment fallback",
+          },
+        }))
+      );
+    }
   }, []);
 
   useEffect(() => {
-    void load().catch(() => {});
+    void load();
   }, [load]);
 
-  const activeConfig = providerCredentialFields.find((item) => item.provider === activeProvider)!;
-  const statusFor = (provider: ProviderKey) => statuses.find((item) => item.provider === provider && item.status === "active");
+  const filteredProviders = useMemo(() => {
+    if (selectedCategory === "all") return providers;
+    return providers.filter((p) => p.category === selectedCategory);
+  }, [providers, selectedCategory]);
 
-  const save = async () => {
-    const secrets = Object.fromEntries(activeConfig.fields.map((field) => [field.key, values[field.key]?.trim()]).filter(([, value]) => value));
-    try {
-      await apiJson(`/api/settings/providers/${activeProvider}`, { method: "PUT", csrfToken, body: JSON.stringify({ label: "Default", secrets }) });
-      setValues({});
-      await load();
-      notify(`${providerNames[activeProvider]} connected.`, "success");
-      setMessage(`${providerNames[activeProvider]} saved for this account.`);
-    } catch (error) {
-      setMessage("Provider credentials could not be saved.");
+  const activeProvider = useMemo(() => {
+    return providers.find((p) => p.provider === activeProviderCode) || providers[0] || (PROVIDER_CATALOG[0] as unknown as ProviderInfo);
+  }, [providers, activeProviderCode]);
+
+  const recordConnectionStatus = (provider: string, status: string) => {
+    setProviders((current) => current.map((item) => item.provider === provider ? { ...item, connectionStatus: status } : item));
+  };
+  const activeProviderConnectionFailed = Boolean(activeProvider?.connectionStatus && !["healthy", "not_configured"].includes(activeProvider.connectionStatus));
+  const activeProviderHealthLabel = activeProvider?.connectionStatus === "healthy" ? "Live" : activeProviderConnectionFailed ? "Failing" : "Not tested";
+  const activeProviderHealthStyle = {
+    background: activeProvider?.connectionStatus === "healthy" ? "rgba(16, 185, 129, 0.15)" : activeProviderConnectionFailed ? "rgba(239, 68, 68, 0.15)" : "rgba(255, 255, 255, 0.08)",
+    color: activeProvider?.connectionStatus === "healthy" ? "var(--color-success, #10b981)" : activeProviderConnectionFailed ? "var(--color-danger, #ef4444)" : "var(--color-text-muted)",
+  };
+
+  const handleSelectCategory = (catId: ProviderCategory | "all") => {
+    setSelectedCategory(catId);
+    if (catId === "all") {
+      if (!providers.some((p) => p.provider === activeProviderCode)) {
+        setActiveProviderCode("tmdb");
+      }
+    } else {
+      const match = providers.find((p) => p.category === catId);
+      if (match) {
+        setActiveProviderCode(match.provider);
+      }
     }
   };
 
-  const disable = async (provider: ProviderKey) => {
+  // Reset ping state when active provider changes
+  useEffect(() => {
+    setPingState({ loading: false, result: null });
+    setAppPingState({ loading: false, result: null });
+    setValues({});
+  }, [activeProviderCode]);
+
+  const save = async () => {
+    if (!activeProvider) return;
+    const secrets = Object.fromEntries(
+      (activeProvider.fields || []).map((f) => [f.key, values[f.key]?.trim()]).filter(([, val]) => Boolean(val))
+    );
+    if (Object.keys(secrets).length === 0) {
+      notify("Please enter at least one credential value.", "error");
+      return;
+    }
     try {
-      await apiJson(`/api/settings/providers/${provider}`, { method: "DELETE", csrfToken });
+      await apiJson(`/api/settings/providers/${activeProvider.provider}`, {
+        method: "PUT",
+        csrfToken,
+        body: JSON.stringify({ label: "Personal", secrets }),
+      });
+      setValues({});
       await load();
-      notify(`${providerNames[provider]} disabled.`, "success");
-    } catch (error) {
-      setMessage("Provider could not be disabled.");
+      notify(`${activeProvider.name} credentials saved.`, "success");
+      setMessage(`${activeProvider.name} is now connected to your user account.`);
+    } catch {
+      setMessage("Failed to save provider credentials.");
+    }
+  };
+
+  const disable = async (code: string) => {
+    try {
+      await apiJson(`/api/settings/providers/${code}`, { method: "DELETE", csrfToken });
+      await load();
+      notify(`${activeProvider?.name || code} disabled.`, "success");
+      setMessage("Provider credentials disabled.");
+    } catch {
+      setMessage("Failed to disable provider.");
+    }
+  };
+
+  const runPing = async () => {
+    if (!activeProvider) return;
+    setPingState({ loading: true, result: null });
+    try {
+      const scope = activeProvider.configurationSource === "app" ? "app" : "user";
+      const res = await apiJson<{ ping: PingResultPayload }>(`/api/settings/providers/${activeProvider.provider}/ping?scope=${scope}`, {
+        method: "POST",
+        csrfToken,
+        body: JSON.stringify({ scope }),
+      });
+      setPingState({ loading: false, result: res.ping });
+      recordConnectionStatus(activeProvider.provider, res.ping.status);
+      if (res.ping.ok) {
+        notify(`${activeProvider.name} responded in ${res.ping.latencyMs} ms`, "success");
+      } else {
+        notify(`${activeProvider.name}: ${res.ping.message}`, "error");
+      }
+    } catch (err: any) {
+      const failure = {
+        loading: false,
+        result: {
+          ok: false,
+          status: "unavailable",
+          latencyMs: 0,
+          message: err?.message || "Connection probe failed.",
+        },
+      };
+      setPingState(failure);
+      recordConnectionStatus(activeProvider.provider, failure.result.status);
+    }
+  };
+
+  const runTestAppFallback = async () => {
+    if (!activeProvider) return;
+    setAppPingState({ loading: true, result: null });
+    try {
+      const res = await apiJson<{ ping: PingResultPayload }>(`/api/settings/providers/${activeProvider.provider}/ping?scope=app`, {
+        method: "POST",
+        csrfToken,
+        body: JSON.stringify({ scope: "app" }),
+      });
+      setAppPingState({ loading: false, result: res.ping });
+      recordConnectionStatus(activeProvider.provider, res.ping.status);
+      if (res.ping.ok) {
+        notify(`App fallback: ${res.ping.message} (${res.ping.latencyMs} ms)`, "success");
+      } else {
+        notify(`App fallback: ${res.ping.message}`, "error");
+      }
+    } catch (err: any) {
+      const failure = {
+        loading: false,
+        result: {
+          ok: false,
+          status: "unavailable",
+          latencyMs: 0,
+          message: err?.message || "App fallback probe failed.",
+        },
+      };
+      setAppPingState(failure);
+      recordConnectionStatus(activeProvider.provider, failure.result.status);
     }
   };
 
   return (
-    <SettingsPanel title="Providers" description="Connect personal provider credentials for search and hydration.">
+    <SettingsPanel title="Providers & APIs" description="Manage user-scoped credentials, keyless services, and live connectivity probes.">
+      {/* Category selector pills */}
+      <div className="provider-category-pills" role="tablist" aria-label="Provider Categories">
+        {PROVIDER_CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            type="button"
+            className={selectedCategory === cat.id ? "active" : ""}
+            onClick={() => handleSelectCategory(cat.id)}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+
       <div className="provider-settings-grid">
-        <div className="provider-list" role="tablist" aria-label="Metadata providers">
-          {providerCredentialFields.map(({ provider }) => {
-            const connected = Boolean(statusFor(provider));
+        {/* Provider master list */}
+        <div className="provider-list" role="tablist" aria-label="Provider catalog">
+          {filteredProviders.map((p) => {
+            const isConfigured = p.configurationSource === "personal" || p.configurationSource === "app";
+            const hasFailedConnection = Boolean(p.connectionStatus && !["healthy", "not_configured"].includes(p.connectionStatus));
+            const isKeyless = p.keyless;
+            const isDisabled = p.status === "disabled";
             return (
-              <button className={activeProvider === provider ? "active" : ""} key={provider} onClick={() => setActiveProvider(provider)}>
-                <span>{providerNames[provider]}</span>
-                <small>{connected ? "Connected" : "Fallback / not set"}</small>
+              <button
+                className={activeProviderCode === p.provider ? "active" : ""}
+                key={p.provider}
+                onClick={() => setActiveProviderCode(p.provider)}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.75rem 1rem", textAlign: "left" }}
+              >
+                <div>
+                  <div style={{ fontWeight: 650, color: "var(--color-text)" }}>{p.name}</div>
+                  <small style={{ color: "var(--color-text-muted)" }}>
+                    {p.configurationSource === "personal" ? "Personal key saved" : p.configurationSource === "app" ? "App fallback set" : isKeyless ? "Keyless / Ready" : isDisabled ? "Disabled" : "Not configured"}
+                  </small>
+                </div>
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    backgroundColor: hasFailedConnection ? "var(--color-danger, #ef4444)" : isConfigured ? "var(--color-success, #10b981)" : isKeyless ? "var(--color-accent, #3b82f6)" : isDisabled ? "var(--color-danger, #ef4444)" : "var(--color-text-subtle, #6b7280)",
+                    flexShrink: 0,
+                    marginLeft: "0.5rem",
+                  }}
+                  title={p.status}
+                />
               </button>
             );
           })}
         </div>
-        <form className="settings-form provider-form" onSubmit={(event) => { event.preventDefault(); void save(); }}>
-          <h3>{providerNames[activeProvider]}</h3>
-          {activeConfig.fields.map((field) => (
-            <label key={field.key}>
-              {field.label}
-              <input value={values[field.key] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} placeholder={field.placeholder} type={field.key.toLowerCase().includes("secret") || field.key.toLowerCase().includes("key") ? "password" : "text"} />
-            </label>
-          ))}
-          <div className="action-row">
-            <button className="primary-button">Save provider</button>
-            {statusFor(activeProvider) && <button className="secondary-button" type="button" onClick={() => void disable(activeProvider)}>Disable</button>}
-          </div>
-          <p className="form-message" role="status">{message}</p>
-        </form>
+
+        {/* Selected Provider Details & Credentials Form */}
+        {activeProvider && (
+          <form className="settings-form provider-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem", flexWrap: "wrap" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: 700 }}>{activeProvider.name}</h3>
+                <p style={{ margin: "0.25rem 0 0 0", fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
+                  {activeProvider.description}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: "0.35rem", flexShrink: 0 }}>
+              <span
+                style={{
+                  fontSize: "0.72rem",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  padding: "0.2rem 0.6rem",
+                  borderRadius: "999px",
+                  background: (activeProvider.configurationSource === "personal" || activeProvider.configurationSource === "app") ? "rgba(16, 185, 129, 0.15)" : activeProvider.keyless ? "rgba(59, 130, 246, 0.15)" : "rgba(255, 255, 255, 0.08)",
+                  color: (activeProvider.configurationSource === "personal" || activeProvider.configurationSource === "app") ? "var(--color-success, #10b981)" : activeProvider.keyless ? "var(--color-accent, #3b82f6)" : "var(--color-text-muted)",
+                  border: "1px solid currentColor",
+                }}
+              >
+                {activeProvider.keyless ? "Keyless API" : activeProvider.configurationSource === "personal" ? "Personal key saved" : activeProvider.configurationSource === "app" ? "App fallback set" : "Not configured"}
+              </span>
+              <span style={{ fontSize: "0.72rem", fontWeight: 600, textTransform: "uppercase", padding: "0.2rem 0.6rem", borderRadius: "999px", border: "1px solid currentColor", ...activeProviderHealthStyle }}>{activeProviderHealthLabel}</span>
+              </div>
+            </div>
+
+            {/* Keyless Info Banner */}
+            {activeProvider.keyless && (
+              <div style={{ padding: "0.75rem 1rem", borderRadius: "var(--radius-panel)", background: "rgba(59, 130, 246, 0.08)", border: "1px solid rgba(59, 130, 246, 0.2)", display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.85rem" }}>
+                <Wifi size={18} style={{ color: "var(--color-accent, #3b82f6)", flexShrink: 0 }} />
+                <span>This provider is keyless and available out of the box. You can test live connectivity below.</span>
+              </div>
+            )}
+
+            {/* App Fallback Status Row with Small Icon-Only Test Button */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.6rem 0.85rem", borderRadius: "var(--radius-panel)", background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--color-border)", fontSize: "0.82rem", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flex: 1, minWidth: 0 }}>
+                <Server size={15} style={{ color: activeProvider.appFallback?.configured ? "var(--color-success, #10b981)" : "var(--color-text-subtle)", flexShrink: 0 }} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <span style={{ fontWeight: 650, color: "var(--color-text)" }}>App Fallback</span>
+                    <span
+                      style={{
+                        fontSize: "0.68rem",
+                        fontWeight: 700,
+                        padding: "0.1rem 0.4rem",
+                        borderRadius: "999px",
+                        backgroundColor: activeProvider.appFallback?.configured ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                        color: activeProvider.appFallback?.configured ? "var(--color-success, #10b981)" : "var(--color-danger, #ef4444)",
+                      }}
+                    >
+                      {activeProvider.appFallback?.configured ? "Set" : "Not Set"}
+                    </span>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: "999px", ...activeProviderHealthStyle }}>{activeProviderHealthLabel}</span>
+                  </div>
+                  <div style={{ color: "var(--color-text-muted)", fontSize: "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {appPingState.result
+                      ? `${appPingState.result.message}${appPingState.result.latencyMs > 0 ? ` (${appPingState.result.latencyMs} ms)` : ""}`
+                      : activeProvider.appFallback?.message || (activeProvider.keyless ? "Keyless public API (always ready)" : "Server environment fallback")}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                title="Test App Fallback Connection"
+                disabled={appPingState.loading}
+                onClick={() => void runTestAppFallback()}
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "var(--radius-panel)",
+                  border: "1px solid var(--color-border)",
+                  background: appPingState.loading ? "rgba(255, 255, 255, 0.1)" : "rgba(255, 255, 255, 0.05)",
+                  cursor: "pointer",
+                  color: appPingState.result ? (appPingState.result.ok ? "var(--color-success, #10b981)" : "var(--color-danger, #ef4444)") : "var(--color-accent)",
+                  flexShrink: 0,
+                }}
+              >
+                {appPingState.loading ? (
+                  <Activity size={13} className="spin" />
+                ) : appPingState.result ? (
+                  appPingState.result.ok ? <Check size={13} /> : <X size={13} />
+                ) : (
+                  <Activity size={13} />
+                )}
+              </button>
+            </div>
+
+            {/* Credential Fields */}
+            {activeProvider.fields && activeProvider.fields.length > 0 && (
+              <div style={{ display: "grid", gap: "0.85rem", marginTop: "0.5rem" }}>
+                {activeProvider.fields.map((field) => {
+                  const hasSavedField = activeProvider.configuredFields?.includes(field.key) ?? false;
+                  const effectivePlaceholder = hasSavedField && !values[field.key]
+                    ? "•••••••••••••••• (Configured)"
+                    : field.placeholder;
+                  return (
+                    <label key={field.key}>
+                      <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>{field.label}</span>
+                      <input
+                        value={values[field.key] ?? ""}
+                        onChange={(e) => setValues((curr) => ({ ...curr, [field.key]: e.target.value }))}
+                        placeholder={effectivePlaceholder}
+                        type={field.secure || field.key.toLowerCase().includes("key") || field.key.toLowerCase().includes("secret") || field.key.toLowerCase().includes("token") ? "password" : "text"}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Live Connection Probe Card */}
+            {pingState.result && (
+              <div
+                style={{
+                  padding: "0.75rem 1rem",
+                  borderRadius: "var(--radius-panel)",
+                  background: pingState.result.ok ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
+                  border: `1px solid ${pingState.result.ok ? "rgba(16, 185, 129, 0.25)" : "rgba(239, 68, 68, 0.25)"}`,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: "0.85rem",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  <Activity size={16} style={{ color: pingState.result.ok ? "var(--color-success, #10b981)" : "var(--color-danger, #ef4444)" }} />
+                  <span>{pingState.result.message}</span>
+                </div>
+                {pingState.result.latencyMs > 0 && (
+                  <span style={{ fontWeight: 700, fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                    {pingState.result.latencyMs} ms
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="action-row" style={{ marginTop: "0.75rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={pingState.loading}
+                onClick={() => void runPing()}
+                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+              >
+                <Activity size={16} />
+                {pingState.loading ? "Testing..." : "Test Connection"}
+              </button>
+
+              {activeProvider.fields && activeProvider.fields.length > 0 && (
+                <button className="primary-button" type="submit">
+                  Save Credentials
+                </button>
+              )}
+
+              {activeProvider.status === "active" && !activeProvider.keyless && (
+                <button className="danger-button" type="button" onClick={() => void disable(activeProvider.provider)}>
+                  Disable
+                </button>
+              )}
+            </div>
+
+            {/* Mandatory Attribution & Documentation */}
+            <div style={{ marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.78rem", color: "var(--color-text-subtle)", flexWrap: "wrap", gap: "0.5rem" }}>
+              <span>{activeProvider.attribution}</span>
+              {activeProvider.docUrl && (
+                <a
+                  href={activeProvider.docUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.25rem", color: "var(--color-accent)", textDecoration: "none" }}
+                >
+                  Documentation <ExternalLink size={12} />
+                </a>
+              )}
+            </div>
+
+            <p className="form-message" role="status" style={{ margin: "0.25rem 0 0 0" }}>{message}</p>
+          </form>
+        )}
       </div>
     </SettingsPanel>
   );

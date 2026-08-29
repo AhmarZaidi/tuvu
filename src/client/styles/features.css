@@ -1040,6 +1040,34 @@
   color: #ffcf5c;
 }
 
+.provider-category-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+  padding: 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+}
+
+.provider-category-pills button {
+  min-height: 2rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.provider-category-pills button.active {
+  border-color: rgba(255, 207, 92, 0.4);
+  background: rgba(255, 207, 92, 0.14);
+  color: var(--color-accent);
+}
+
 .import-wizard,
 .import-review,
 .import-job-panel,

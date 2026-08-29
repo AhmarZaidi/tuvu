@@ -211,13 +211,39 @@ export type MeResponse = {
 };
 
 export type ProviderCredentialStatus = {
-  id: string;
+  id: string | null;
   provider: string;
+  name?: string;
+  category?: string;
+  description?: string;
+  keyless?: boolean;
   label: string | null;
   status: string;
   lastValidatedAt: string | null;
-  updatedAt: string;
+  updatedAt: string | null;
   configured: boolean;
+  configurationSource?: 'personal' | 'app' | 'keyless' | 'disabled' | 'none';
+  connectionStatus?: string | null;
+  lastTestedAt?: string | null;
+  configuredFields?: string[];
+  fields?: Array<{ key: string; label: string; placeholder: string; secure?: boolean }>;
+  attribution?: string;
+  docUrl?: string;
+  appFallback?: {
+    configured: boolean;
+    message: string;
+  };
+};
+
+export type ProviderPingResponse = {
+  ping: {
+    provider: string;
+    ok: boolean;
+    status: string;
+    latencyMs: number;
+    message: string;
+    scope?: string;
+  };
 };
 
 export type UserBackup = {
@@ -468,6 +494,13 @@ export const api = {
   async disableProvider(provider: string): Promise<any> {
     return apiRequest<any>(`/api/settings/providers/${provider}`, {
       method: 'DELETE',
+    });
+  },
+
+  async pingProvider(provider: string, scope: 'user' | 'app' = 'user'): Promise<ProviderPingResponse> {
+    return apiRequest<ProviderPingResponse>(`/api/settings/providers/${provider}/ping?scope=${scope}`, {
+      method: 'POST',
+      body: JSON.stringify({ scope }),
     });
   },
 

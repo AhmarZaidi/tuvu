@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -38,39 +39,259 @@ type SettingsTab =
   | 'storage'
   | 'connection';
 
-const PROVIDER_FIELDS: Record<string, { label: string; fields: Array<{ key: string; label: string; placeholder: string; secure?: boolean }> }> = {
-  tmdb: {
-    label: 'TMDB',
-    fields: [{ key: 'TMDB_API_KEY', label: 'API Key', placeholder: 'TMDB v3 API key', secure: true }],
-  },
-  rawg: {
-    label: 'RAWG',
-    fields: [{ key: 'RAWG_API_KEY', label: 'API Key', placeholder: 'RAWG Video Games API key', secure: true }],
-  },
-  igdb: {
-    label: 'IGDB / Twitch',
-    fields: [
-      { key: 'TWITCH_IGDB_CLIENT_ID', label: 'Client ID', placeholder: 'Twitch Client ID' },
-      { key: 'TWITCH_IGDB_CLIENT_SECRET', label: 'Client Secret', placeholder: 'Twitch Client Secret', secure: true },
-    ],
-  },
-  openlibrary: {
-    label: 'Open Library',
-    fields: [{ key: 'OPEN_LIBRARY_CONTACT_EMAIL', label: 'Contact Email', placeholder: 'your@email.com' }],
-  },
-  jikan: {
-    label: 'Jikan (MyAnimeList)',
-    fields: [{ key: 'MAL_JIKAN_API_ENDPOINT', label: 'API Endpoint', placeholder: 'https://api.jikan.moe/v4/' }],
-  },
-  youtube: {
-    label: 'YouTube',
-    fields: [{ key: 'YOUTUBE_API_KEY', label: 'API Key', placeholder: 'Optional YouTube API key', secure: true }],
-  },
-  newsapi: {
-    label: 'NewsAPI',
-    fields: [{ key: 'NEWSAPI_KEY', label: 'API Key', placeholder: 'NewsAPI Key', secure: true }],
-  },
+export type MobileProviderCatalogItem = {
+  code: string;
+  name: string;
+  category: 'audiovisual' | 'books' | 'games' | 'music' | 'news' | 'subtitles' | 'video';
+  description: string;
+  keyless: boolean;
+  fields: Array<{ key: string; label: string; placeholder: string; secure?: boolean }>;
+  attribution: string;
+  docUrl: string;
+  status?: string;
+  configured?: boolean;
+  configurationSource?: 'personal' | 'app' | 'keyless' | 'disabled' | 'none';
+  connectionStatus?: string | null;
+  configuredFields?: string[];
+  lastValidatedAt?: string | null;
+  appFallback?: {
+    configured: boolean;
+    message: string;
+  };
 };
+
+const PROVIDER_CATEGORIES = [
+  { id: 'all', label: 'All' },
+  { id: 'audiovisual', label: 'Movies & Shows' },
+  { id: 'books', label: 'Books' },
+  { id: 'games', label: 'Games' },
+  { id: 'music', label: 'Music' },
+  { id: 'news', label: 'News' },
+  { id: 'subtitles', label: 'Subtitles' },
+  { id: 'video', label: 'Video' },
+];
+
+const DEFAULT_PROVIDER_CATALOG: MobileProviderCatalogItem[] = [
+  // ── Audiovisual ──
+  {
+    code: 'tmdb',
+    name: 'TMDB',
+    category: 'audiovisual',
+    description: 'Primary metadata, posters, and credits for movies, shows, and anime.',
+    keyless: false,
+    fields: [{ key: 'TMDB_API_KEY', label: 'API Key / Read Token', placeholder: 'TMDB v3 API key or v4 token', secure: true }],
+    attribution: 'This product uses the TMDB API but is not endorsed or certified by TMDB.',
+    docUrl: 'https://developer.themoviedb.org/docs',
+  },
+  {
+    code: 'tvmaze',
+    name: 'TVmaze',
+    category: 'audiovisual',
+    description: 'Keyless broadcast schedules, air dates, runtimes, and exact IMDb/TVDB cross-lookups.',
+    keyless: true,
+    fields: [],
+    attribution: 'Television data provided by TVmaze under CC BY-SA.',
+    docUrl: 'https://www.tvmaze.com/api',
+  },
+  {
+    code: 'wikidata',
+    name: 'Wikidata',
+    category: 'audiovisual',
+    description: 'Keyless factual enrichment, cross-identifiers, and Wikimedia Commons media.',
+    keyless: true,
+    fields: [],
+    attribution: 'Structured data from Wikidata under CC0.',
+    docUrl: 'https://www.wikidata.org/wiki/Wikidata:Data_access',
+  },
+  {
+    code: 'thetvdb',
+    name: 'TheTVDB',
+    category: 'audiovisual',
+    description: 'Television series metadata, season artwork, and episode orders.',
+    keyless: false,
+    fields: [
+      { key: 'THETVDB_API_KEY', label: 'Project API Key', placeholder: 'TheTVDB v4 Project API key', secure: true },
+      { key: 'THETVDB_USER_PIN', label: 'Subscriber PIN', placeholder: 'Optional subscriber PIN', secure: true },
+    ],
+    attribution: 'Metadata provided by TheTVDB.com under project license.',
+    docUrl: 'https://thetvdb.com/api-information',
+  },
+  {
+    code: 'jikan',
+    name: 'Jikan (MAL)',
+    category: 'audiovisual',
+    description: 'Community anime and manga catalog indexing.',
+    keyless: true,
+    fields: [{ key: 'MAL_JIKAN_API_ENDPOINT', label: 'API Endpoint', placeholder: 'https://api.jikan.moe/v4/' }],
+    attribution: 'Unofficial MyAnimeList data via Jikan REST API.',
+    docUrl: 'https://docs.api.jikan.moe/',
+  },
+  {
+    code: 'anilist',
+    name: 'AniList',
+    category: 'audiovisual',
+    description: 'Community anime and manga GraphQL metadata and relations.',
+    keyless: true,
+    fields: [{ key: 'ANILIST_API_ENDPOINT', label: 'GraphQL Endpoint', placeholder: 'https://graphql.anilist.co' }],
+    attribution: 'Data provided by AniList GraphQL API.',
+    docUrl: 'https://docs.anilist.co/guide/graphql/',
+  },
+
+  // ── Books ──
+  {
+    code: 'googlebooks',
+    name: 'Google Books',
+    category: 'books',
+    description: 'Book editions, ISBNs, page counts, descriptions, preview, and access metadata.',
+    keyless: false,
+    fields: [{ key: 'GOOGLE_BOOKS_API_KEY', label: 'API Key', placeholder: 'Google Books API key', secure: true }],
+    attribution: 'Book information provided by Google Books.',
+    docUrl: 'https://developers.google.com/books/docs/v1/using',
+  },
+  {
+    code: 'openlibrary',
+    name: 'Open Library',
+    category: 'books',
+    description: 'Open, keyless book work/edition reconciliation by Internet Archive.',
+    keyless: true,
+    fields: [{ key: 'OPEN_LIBRARY_CONTACT_EMAIL', label: 'Contact Email', placeholder: 'your@email.com' }],
+    attribution: 'Book data from Open Library by Internet Archive under CC0 / ODC-BY.',
+    docUrl: 'https://openlibrary.org/developers/api',
+  },
+
+  // ── Games ──
+  {
+    code: 'igdb',
+    name: 'IGDB / Twitch',
+    category: 'games',
+    description: 'Primary video game database for releases, platforms, companies, and ratings.',
+    keyless: false,
+    fields: [
+      { key: 'TWITCH_IGDB_CLIENT_ID', label: 'Client ID', placeholder: 'Twitch Developer Client ID' },
+      { key: 'TWITCH_IGDB_CLIENT_SECRET', label: 'Client Secret', placeholder: 'Twitch Developer Client Secret', secure: true },
+    ],
+    attribution: 'Video game data powered by IGDB.com via Twitch.',
+    docUrl: 'https://api-docs.igdb.com/',
+  },
+  {
+    code: 'rawg',
+    name: 'RAWG Games',
+    category: 'games',
+    description: 'Game store links, screenshots, player ratings, and PC hardware requirements.',
+    keyless: false,
+    fields: [{ key: 'RAWG_API_KEY', label: 'API Key', placeholder: 'RAWG.io API key', secure: true }],
+    attribution: 'Game metadata powered by RAWG.io database.',
+    docUrl: 'https://rawg.io/apidocs',
+  },
+
+  // ── Music ──
+  {
+    code: 'musicbrainz',
+    name: 'MusicBrainz',
+    category: 'music',
+    description: 'Open music encyclopedia for artists, release groups, albums, and tracks.',
+    keyless: true,
+    fields: [{ key: 'MUSICBRAINZ_CONTACT_EMAIL', label: 'Contact Email', placeholder: 'your@email.com' }],
+    attribution: 'Music data from MusicBrainz open database under CC0.',
+    docUrl: 'https://musicbrainz.org/doc/MusicBrainz_API',
+  },
+  {
+    code: 'coverartarchive',
+    name: 'Cover Art Archive',
+    category: 'music',
+    description: 'High-resolution music album and single artwork linked to MusicBrainz MBIDs.',
+    keyless: true,
+    fields: [],
+    attribution: 'Cover art provided by Cover Art Archive (MusicBrainz & Internet Archive).',
+    docUrl: 'https://musicbrainz.org/doc/Cover_Art_Archive/API',
+  },
+  {
+    code: 'listenbrainz',
+    name: 'ListenBrainz',
+    category: 'music',
+    description: 'Listening history scrobbles, playlists, and open music recommendations.',
+    keyless: true,
+    fields: [{ key: 'LISTENBRAINZ_TOKEN', label: 'User Token', placeholder: 'Optional personal user token', secure: true }],
+    attribution: 'Listening data provided by ListenBrainz by MetaBrainz Foundation.',
+    docUrl: 'https://listenbrainz.readthedocs.io/',
+  },
+  {
+    code: 'theaudiodb',
+    name: 'TheAudioDB',
+    category: 'music',
+    description: 'Community music biographies, album discographies, and reviews.',
+    keyless: false,
+    fields: [{ key: 'THEAUDIODB_API_KEY', label: 'API Key', placeholder: "TheAudioDB API key (defaults to '2')", secure: true }],
+    attribution: 'Music biographies and artwork from TheAudioDB.com.',
+    docUrl: 'https://www.theaudiodb.com/api_guide.php',
+  },
+  {
+    code: 'lrclib',
+    name: 'LRCLIB Lyrics',
+    category: 'music',
+    description: 'Synchronized and plain-text song lyrics (client-cached, not stored).',
+    keyless: true,
+    fields: [],
+    attribution: 'Lyrics provided by LRCLIB open lyrics database.',
+    docUrl: 'https://lrclib.net/docs',
+  },
+
+  // ── News ──
+  {
+    code: 'gdelt',
+    name: 'GDELT Project',
+    category: 'news',
+    description: 'Keyless global news events, headlines, and article discovery in 65 languages.',
+    keyless: true,
+    fields: [],
+    attribution: 'News discovery via GDELT Project Doc 2.0 API.',
+    docUrl: 'https://blog.gdeltproject.org/',
+  },
+  {
+    code: 'guardian',
+    name: 'The Guardian',
+    category: 'news',
+    description: 'Editorial article discovery and archive search from The Guardian.',
+    keyless: false,
+    fields: [{ key: 'GUARDIAN_API_KEY', label: 'Developer API Key', placeholder: 'The Guardian API key', secure: true }],
+    attribution: 'Articles provided by Guardian News & Media Limited.',
+    docUrl: 'https://open-platform.theguardian.com/access/',
+  },
+  {
+    code: 'newsapi',
+    name: 'NewsAPI',
+    category: 'news',
+    description: 'Live breaking headlines and articles from 80,000+ publishers.',
+    keyless: false,
+    fields: [{ key: 'NEWSAPI_KEY', label: 'API Key', placeholder: 'NewsAPI.org key', secure: true }],
+    attribution: 'Powered by NewsAPI.org.',
+    docUrl: 'https://newsapi.org/',
+  },
+
+  // ── Subtitles ──
+  {
+    code: 'opensubtitles',
+    name: 'OpenSubtitles',
+    category: 'subtitles',
+    description: 'Subtitle availability and language metadata.',
+    keyless: false,
+    fields: [{ key: 'OPENSUBTITLES_API_KEY', label: 'API Key', placeholder: 'OpenSubtitles.com API key', secure: true }],
+    attribution: 'Subtitle availability metadata from OpenSubtitles.com.',
+    docUrl: 'https://ai.opensubtitles.com/docs',
+  },
+
+  // ── Video ──
+  {
+    code: 'youtube',
+    name: 'YouTube',
+    category: 'video',
+    description: 'Video trailers, clips, and channels.',
+    keyless: false,
+    fields: [{ key: 'YOUTUBE_API_KEY', label: 'API Key', placeholder: 'YouTube Data API key', secure: true }],
+    attribution: 'Video metadata powered by YouTube.',
+    docUrl: 'https://developers.google.com/youtube/v3',
+  },
+];
 
 const ALL_NAV_ITEMS = [
   { id: 'shows', label: 'Shows', icon: 'tv-outline' },
@@ -316,10 +537,21 @@ export default function TabSettingsScreen() {
   // ──────────────────────────────────────────────
   // 4. Providers Settings State
   // ──────────────────────────────────────────────
+  const providerScrollRef = useRef<ScrollView>(null);
   const [providerStatuses, setProviderStatuses] = useState<ProviderCredentialStatus[]>([]);
+  const [selectedProviderCategory, setSelectedProviderCategory] = useState<string>('all');
   const [activeProviderKey, setActiveProviderKey] = useState<string>('tmdb');
   const [providerSecrets, setProviderSecrets] = useState<Record<string, string>>({});
+  const [showSecretKeys, setShowSecretKeys] = useState<Record<string, boolean>>({});
   const [savingProvider, setSavingProvider] = useState(false);
+  const [pingLoading, setPingLoading] = useState(false);
+  const [pingResult, setPingResult] = useState<{ ok: boolean; status: string; latencyMs: number; message: string } | null>(null);
+  const [appPingLoading, setAppPingLoading] = useState(false);
+  const [appPingResult, setAppPingResult] = useState<{ ok: boolean; status: string; latencyMs: number; message: string } | null>(null);
+
+  const toggleShowSecret = (key: string) => {
+    setShowSecretKeys((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const loadProviders = useCallback(async () => {
     try {
@@ -332,16 +564,120 @@ export default function TabSettingsScreen() {
     void loadProviders();
   }, [loadProviders]);
 
-  const activeProviderStatus = providerStatuses.find((p) => p.provider === activeProviderKey && p.status === 'active');
-  const activeProviderConfig = PROVIDER_FIELDS[activeProviderKey] || PROVIDER_FIELDS['tmdb'];
+  useEffect(() => {
+    setPingResult(null);
+    setAppPingResult(null);
+    setProviderSecrets({});
+    setShowSecretKeys({});
+  }, [activeProviderKey]);
+
+  const allProviders = useMemo(() => {
+    const statusMap = new Map(providerStatuses.map((p) => [p.provider, p]));
+    return DEFAULT_PROVIDER_CATALOG.map((item) => {
+      const live = statusMap.get(item.code);
+      return {
+        ...item,
+        status: live?.status ?? (item.keyless ? 'active' : 'not_configured'),
+        configured: live?.configured ?? item.keyless,
+        configurationSource: live?.configurationSource ?? (item.keyless ? 'keyless' : 'none'),
+        connectionStatus: live?.connectionStatus ?? null,
+        configuredFields: live?.configuredFields ?? [],
+        lastValidatedAt: live?.lastValidatedAt ?? null,
+        appFallback: live?.appFallback ?? {
+          configured: item.keyless,
+          message: item.keyless ? 'Keyless public API (always ready)' : 'Server environment fallback',
+        },
+      };
+    });
+  }, [providerStatuses]);
+
+  const filteredMobileProviders = useMemo(() => {
+    if (selectedProviderCategory === 'all') return allProviders;
+    return allProviders.filter((p: MobileProviderCatalogItem) => p.category === selectedProviderCategory);
+  }, [allProviders, selectedProviderCategory]);
+
+  const activeProviderItem = useMemo(() => {
+    return allProviders.find((p: MobileProviderCatalogItem) => p.code === activeProviderKey) || allProviders[0] || DEFAULT_PROVIDER_CATALOG[0];
+  }, [allProviders, activeProviderKey]);
+
+  const activeProviderStatus = activeProviderItem.configurationSource === 'personal';
+  const activeProviderUsesAppFallback = activeProviderItem.configurationSource === 'app';
+  const activeProviderConnectionFailed = Boolean(activeProviderItem.connectionStatus && !['healthy', 'not_configured'].includes(activeProviderItem.connectionStatus));
+  const activeProviderHealthLabel = activeProviderItem.connectionStatus === 'healthy' ? 'Live' : activeProviderConnectionFailed ? 'Failing' : 'Not tested';
+  const activeProviderHealthColor = activeProviderItem.connectionStatus === 'healthy' ? '#5fe388' : activeProviderConnectionFailed ? '#ff6b6b' : colors.textMuted;
+  const activeProviderHealthBackground = activeProviderItem.connectionStatus === 'healthy' ? 'rgba(95, 227, 136, 0.14)' : activeProviderConnectionFailed ? 'rgba(255, 107, 107, 0.14)' : colors.inputBg;
+
+  const recordConnectionStatus = (provider: string, status: string) => {
+    setProviderStatuses((current) => current.map((item) => item.provider === provider ? { ...item, connectionStatus: status } : item));
+  };
+
+  const handleSelectProviderCategory = (catId: string) => {
+    setSelectedProviderCategory(catId);
+    if (catId === 'all') {
+      if (!allProviders.some((p) => p.code === activeProviderKey)) {
+        setActiveProviderKey('tmdb');
+      }
+    } else {
+      const match = allProviders.find((p) => p.category === catId);
+      if (match) {
+        setActiveProviderKey(match.code);
+      }
+    }
+    // Scroll specific API pills back to the beginning
+    setTimeout(() => {
+      providerScrollRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+    }, 50);
+  };
+
+  useEffect(() => {
+    providerScrollRef.current?.scrollTo({ x: 0, y: 0, animated: true });
+  }, [selectedProviderCategory]);
+
+  const handleTestAppFallback = async () => {
+    setAppPingLoading(true);
+    setAppPingResult(null);
+    try {
+      const res = await api.pingProvider(activeProviderKey, 'app');
+      setAppPingResult(res.ping);
+      recordConnectionStatus(activeProviderKey, res.ping.status);
+      if (res.ping.ok) {
+        showFeedback(`App fallback: ${res.ping.message} (${res.ping.latencyMs} ms)`);
+      } else {
+        showFeedback(`App fallback: ${res.ping.message}`, 'error');
+      }
+    } catch (e: any) {
+      const fail = {
+        ok: false,
+        status: 'unavailable',
+        latencyMs: 0,
+        message: e?.message || 'Failed to ping app fallback.',
+      };
+      setAppPingResult(fail);
+      recordConnectionStatus(activeProviderKey, fail.status);
+      showFeedback(fail.message, 'error');
+    } finally {
+      setAppPingLoading(false);
+    }
+  };
 
   const handleSaveProvider = async () => {
     setSavingProvider(true);
     try {
-      await api.updateProviderSettings(activeProviderKey, providerSecrets);
+      const cleanSecrets: Record<string, string> = {};
+      for (const [k, v] of Object.entries(providerSecrets)) {
+        if (v && v.trim()) {
+          cleanSecrets[k] = v.trim();
+        }
+      }
+      if (Object.keys(cleanSecrets).length === 0) {
+        showFeedback('Please enter at least one credential value.', 'error');
+        setSavingProvider(false);
+        return;
+      }
+      await api.updateProviderSettings(activeProviderKey, cleanSecrets);
       setProviderSecrets({});
       await loadProviders();
-      showFeedback(`${activeProviderConfig.label} saved successfully.`);
+      showFeedback(`${activeProviderItem.name} saved successfully.`);
     } catch (e: any) {
       showFeedback(e?.message || 'Failed to save provider credentials.', 'error');
     } finally {
@@ -354,11 +690,38 @@ export default function TabSettingsScreen() {
     try {
       await api.disableProvider(activeProviderKey);
       await loadProviders();
-      showFeedback(`${activeProviderConfig.label} disabled.`);
+      showFeedback(`${activeProviderItem.name} disabled.`);
     } catch (e: any) {
       showFeedback(e?.message || 'Failed to disable provider.', 'error');
     } finally {
       setSavingProvider(false);
+    }
+  };
+
+  const handleTestProviderConnection = async () => {
+    setPingLoading(true);
+    setPingResult(null);
+    try {
+      const res = await api.pingProvider(activeProviderKey, activeProviderUsesAppFallback ? 'app' : 'user');
+      setPingResult(res.ping);
+      recordConnectionStatus(activeProviderKey, res.ping.status);
+      if (res.ping.ok) {
+        showFeedback(`${activeProviderItem.name} connected (${res.ping.latencyMs} ms)`);
+      } else {
+        showFeedback(`${activeProviderItem.name}: ${res.ping.message}`, 'error');
+      }
+    } catch (e: any) {
+      const fail = {
+        ok: false,
+        status: 'unavailable',
+        latencyMs: 0,
+        message: e?.message || 'Connection probe failed.',
+      };
+      setPingResult(fail);
+      recordConnectionStatus(activeProviderKey, fail.status);
+      showFeedback('Connection probe failed.', 'error');
+    } finally {
+      setPingLoading(false);
     }
   };
 
@@ -904,81 +1267,416 @@ export default function TabSettingsScreen() {
           <View style={[styles.sectionCard, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.eyebrow, { color: colors.accent }]}>SETTINGS</Text>
-              <Text style={[styles.sectionTitle, { color: colors.textStrong }]}>Providers</Text>
-              <Text style={[styles.sectionDesc, { color: colors.textMuted }]}>Connect custom API keys for search and catalog hydration.</Text>
+              <Text style={[styles.sectionTitle, { color: colors.textStrong }]}>Providers & APIs</Text>
+              <Text style={[styles.sectionDesc, { color: colors.textMuted }]}>
+                Connect personal credentials or test keyless connectivity for media search and hydration.
+              </Text>
             </View>
 
-            {/* Provider Selector Pills */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.providerScroll}>
-              {Object.keys(PROVIDER_FIELDS).map((key) => {
-                const conf = PROVIDER_FIELDS[key];
-                const isSelected = activeProviderKey === key;
-                const isConn = Boolean(providerStatuses.find((p) => p.provider === key && p.status === 'active'));
+            {/* Category Selector Pills */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              {PROVIDER_CATEGORIES.map((cat) => {
+                const isSelected = selectedProviderCategory === cat.id;
                 return (
                   <Pressable
-                    key={key}
+                    key={cat.id}
                     style={[
-                      styles.providerPill,
+                      styles.providerCategoryPill,
                       { backgroundColor: colors.surface, borderColor: colors.border },
-                      isSelected && { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.2)', borderColor: colors.accent },
+                      isSelected && {
+                        backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.15)' : 'rgba(240, 168, 36, 0.22)',
+                        borderColor: colors.accent,
+                      },
                     ]}
-                    onPress={() => setActiveProviderKey(key)}
+                    onPress={() => handleSelectProviderCategory(cat.id)}
                   >
-                    <Text style={[styles.providerPillText, { color: colors.textMuted }, isSelected && { color: colors.textStrong, fontWeight: '800' }]}>
-                      {conf.label}
+                    <Text
+                      style={[
+                        styles.providerCategoryPillText,
+                        { color: colors.textMuted },
+                        isSelected && { color: colors.textStrong, fontWeight: '800' },
+                      ]}
+                    >
+                      {cat.label}
                     </Text>
-                    <View style={[styles.statusDot, isConn ? styles.statusDotGreen : styles.statusDotGray]} />
                   </Pressable>
                 );
               })}
             </ScrollView>
 
-            {/* Provider Form */}
+            {/* Provider Selector Pills for Active Category */}
+            <ScrollView
+              ref={providerScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.providerScroll}
+            >
+              {filteredMobileProviders.map((p: MobileProviderCatalogItem) => {
+                const isSelected = activeProviderKey === p.code;
+                const isConfigured = p.configurationSource === 'personal' || p.configurationSource === 'app';
+                const hasFailedConnection = Boolean(p.connectionStatus && !['healthy', 'not_configured'].includes(p.connectionStatus));
+                const isKeyless = p.keyless;
+                const isDisabled = p.status === 'disabled';
+                return (
+                  <Pressable
+                    key={p.code}
+                    style={[
+                      styles.providerServicePill,
+                      { backgroundColor: colors.surface, borderColor: colors.border },
+                      isSelected && {
+                        backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.2)',
+                        borderColor: colors.accent,
+                      },
+                    ]}
+                    onPress={() => setActiveProviderKey(p.code)}
+                  >
+                    <Text
+                      style={[
+                        styles.providerServicePillText,
+                        { color: colors.textMuted },
+                        isSelected && { color: colors.textStrong, fontWeight: '800' },
+                      ]}
+                    >
+                      {p.name}
+                    </Text>
+                    <View
+                      style={[
+                        styles.statusDot,
+                        {
+                          backgroundColor: hasFailedConnection
+                            ? '#ff6b6b'
+                            : isConfigured
+                            ? '#5fe388'
+                            : isKeyless
+                            ? '#3b82f6'
+                            : isDisabled
+                            ? '#ff6b6b'
+                            : '#6c706d',
+                        },
+                      ]}
+                    />
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {/* Provider Form Card */}
             <View style={[styles.providerForm, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.providerHeader}>
-                <Text style={[styles.providerTitle, { color: colors.textStrong }]}>{activeProviderConfig.label}</Text>
-                <View style={[styles.badge, activeProviderStatus ? styles.badgeGreen : styles.badgeGray]}>
-                  <Text style={[styles.badgeText, activeProviderStatus ? styles.badgeTextGreen : styles.badgeTextGray]}>
-                    {activeProviderStatus ? 'Connected' : 'Fallback / not set'}
+              {/* Header: Title, Status Badge, Description */}
+              <View style={{ marginBottom: 14 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <Text style={[styles.providerTitle, { color: colors.textStrong, flex: 1 }]} numberOfLines={1}>
+                    {activeProviderItem.name}
                   </Text>
+                  <View style={{ flexDirection: 'row', gap: 5, flexShrink: 0 }}>
+                    <View style={[styles.badge, activeProviderStatus || activeProviderUsesAppFallback ? styles.badgeGreen : activeProviderItem.keyless ? { backgroundColor: 'rgba(59, 130, 246, 0.15)' } : activeProviderItem.status === 'disabled' ? { backgroundColor: 'rgba(255, 107, 107, 0.15)' } : styles.badgeGray]}>
+                    <Text
+                      style={[
+                        styles.badgeText,
+                        activeProviderStatus
+                          ? styles.badgeTextGreen
+                          : activeProviderUsesAppFallback
+                          ? { color: '#5fe388' }
+                          : activeProviderItem.keyless
+                          ? { color: '#3b82f6' }
+                          : activeProviderItem.status === 'disabled'
+                          ? { color: '#ff6b6b' }
+                          : styles.badgeTextGray,
+                      ]}
+                    >
+                      {activeProviderStatus
+                        ? 'Personal key saved'
+                        : activeProviderUsesAppFallback
+                        ? 'App fallback set'
+                        : activeProviderItem.keyless
+                        ? 'Keyless API'
+                        : activeProviderItem.status === 'disabled'
+                        ? 'Disabled'
+                        : 'Not configured'}
+                    </Text>
+                    </View>
+                    <View style={[styles.badge, { backgroundColor: activeProviderHealthBackground }]}>
+                      <Text style={[styles.badgeText, { color: activeProviderHealthColor }]}>{activeProviderHealthLabel}</Text>
+                    </View>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4, lineHeight: 16 }}>
+                  {activeProviderItem.description}
+                </Text>
+              </View>
+
+              {/* Keyless Information Banner */}
+              {activeProviderItem.keyless && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                    borderColor: 'rgba(59, 130, 246, 0.25)',
+                    borderWidth: 1,
+                    borderRadius: 6,
+                    padding: 10,
+                    marginBottom: 12,
+                    gap: 8,
+                  }}
+                >
+                  <Ionicons name="wifi-outline" size={18} color="#3b82f6" />
+                  <Text style={{ flex: 1, fontSize: 11, color: colors.textMuted, lineHeight: 16 }}>
+                    This service operates keylessly without requiring personal credentials. You can test live connectivity below.
+                  </Text>
+                </View>
+              )}
+
+              {/* App-Based Fallback Status Row with Small Icon-Only Test Button */}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: colors.inputBg,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  borderRadius: 6,
+                  paddingHorizontal: 10,
+                  paddingVertical: 8,
+                  marginBottom: 12,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <Ionicons
+                    name={activeProviderItem.appFallback?.configured ? 'server-outline' : 'alert-circle-outline'}
+                    size={16}
+                    color={activeProviderItem.appFallback?.configured ? '#5fe388' : colors.textSubtle}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textStrong }}>
+                        App Fallback
+                      </Text>
+                      <View
+                        style={{
+                          backgroundColor: activeProviderItem.appFallback?.configured
+                            ? 'rgba(95, 227, 136, 0.14)'
+                            : 'rgba(255, 107, 107, 0.14)',
+                          paddingHorizontal: 5,
+                          paddingVertical: 1,
+                          borderRadius: 3,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 9,
+                            fontWeight: '800',
+                            color: activeProviderItem.appFallback?.configured ? '#5fe388' : '#ff6b6b',
+                          }}
+                        >
+                          {activeProviderItem.appFallback?.configured ? 'Set' : 'Not Set'}
+                        </Text>
+                      </View>
+                      <View style={{ backgroundColor: activeProviderHealthBackground, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3 }}>
+                        <Text style={{ fontSize: 9, fontWeight: '800', color: activeProviderHealthColor }}>{activeProviderHealthLabel}</Text>
+                      </View>
+                    </View>
+                    <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 1 }} numberOfLines={1}>
+                      {appPingResult
+                        ? `${appPingResult.message}${appPingResult.latencyMs > 0 ? ` (${appPingResult.latencyMs} ms)` : ''}`
+                        : activeProviderItem.appFallback?.message || 'Server environment fallback'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Small Test Button with ONLY an Icon */}
+                <Pressable
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 5,
+                    backgroundColor: appPingLoading ? 'rgba(255, 207, 92, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: 8,
+                  }}
+                  onPress={handleTestAppFallback}
+                  disabled={appPingLoading}
+                  hitSlop={6}
+                  accessibilityLabel="Test app fallback"
+                >
+                  {appPingLoading ? (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  ) : (
+                    <Ionicons
+                      name={appPingResult ? (appPingResult.ok ? 'checkmark' : 'close') : 'pulse-outline'}
+                      size={15}
+                      color={appPingResult ? (appPingResult.ok ? '#5fe388' : '#ff6b6b') : colors.accent}
+                    />
+                  )}
+                </Pressable>
+              </View>
+
+              {/* Credential Fields */}
+              {activeProviderItem.fields && activeProviderItem.fields.length > 0 && (
+                <View style={{ marginBottom: 12, gap: 10 }}>
+                  {activeProviderItem.fields.map((f: { key: string; label: string; placeholder: string; secure?: boolean }) => {
+                    const isSecure = f.secure && !showSecretKeys[f.key];
+                    const hasSavedField = activeProviderItem.configuredFields?.includes(f.key) ?? false;
+                    const effectivePlaceholder = hasSavedField && !providerSecrets[f.key]
+                      ? '•••••••••••••••• (Configured)'
+                      : f.placeholder;
+
+                    return (
+                      <View key={f.key}>
+                        <Text style={[styles.label, { color: colors.textStrong }]}>{f.label}</Text>
+                        <View style={{ position: 'relative', justifyContent: 'center' }}>
+                          <TextInput
+                            style={[
+                              styles.input,
+                              {
+                                backgroundColor: colors.inputBg,
+                                color: colors.text,
+                                borderColor: colors.border,
+                                paddingRight: f.secure ? 40 : 12,
+                              },
+                            ]}
+                            value={providerSecrets[f.key] || ''}
+                            onChangeText={(val) => setProviderSecrets((prev) => ({ ...prev, [f.key]: val }))}
+                            placeholder={effectivePlaceholder}
+                            placeholderTextColor={hasSavedField && !providerSecrets[f.key] ? colors.accent : colors.textSubtle}
+                            secureTextEntry={isSecure}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                          />
+                          {f.secure && (
+                            <Pressable
+                              onPress={() => toggleShowSecret(f.key)}
+                              style={{
+                                position: 'absolute',
+                                right: 10,
+                                height: 38,
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                paddingHorizontal: 4,
+                              }}
+                              hitSlop={8}
+                            >
+                              <Ionicons
+                                name={showSecretKeys[f.key] ? 'eye-off-outline' : 'eye-outline'}
+                                size={18}
+                                color={colors.textMuted}
+                              />
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Live Connection Test Result */}
+              {pingResult && (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    backgroundColor: pingResult.ok ? 'rgba(95, 227, 136, 0.1)' : 'rgba(255, 107, 107, 0.1)',
+                    borderColor: pingResult.ok ? 'rgba(95, 227, 136, 0.3)' : 'rgba(255, 107, 107, 0.3)',
+                    borderWidth: 1,
+                    borderRadius: 6,
+                    padding: 10,
+                    marginBottom: 12,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                    <Ionicons
+                      name={pingResult.ok ? 'checkmark-circle-outline' : 'alert-circle-outline'}
+                      size={18}
+                      color={pingResult.ok ? '#5fe388' : '#ff6b6b'}
+                    />
+                    <Text style={{ fontSize: 11, color: colors.textStrong, flex: 1 }}>{pingResult.message}</Text>
+                  </View>
+                  {pingResult.latencyMs > 0 && (
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textMuted }}>
+                      {pingResult.latencyMs} ms
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Action Buttons */}
+              <View style={{ gap: 8, marginTop: 4 }}>
+                {activeProviderItem.fields && activeProviderItem.fields.length > 0 && (
+                  <Pressable
+                    style={[
+                      styles.primaryButton,
+                      { backgroundColor: colors.accent, marginTop: 0, paddingVertical: 11 },
+                      savingProvider && { opacity: 0.7 },
+                    ]}
+                    onPress={handleSaveProvider}
+                    disabled={savingProvider}
+                  >
+                    {savingProvider ? (
+                      <ActivityIndicator size="small" color={colors.accentContrast} />
+                    ) : (
+                      <Text style={[styles.primaryButtonText, { color: colors.accentContrast }]}>Save Credentials</Text>
+                    )}
+                  </Pressable>
+                )}
+
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  <Pressable
+                    style={[
+                      styles.secondaryButton,
+                      {
+                        flex: 1,
+                        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                        paddingVertical: 10,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                      },
+                      pingLoading && { opacity: 0.7 },
+                    ]}
+                    onPress={handleTestProviderConnection}
+                    disabled={pingLoading}
+                  >
+                    {pingLoading ? (
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    ) : (
+                      <>
+                        <Ionicons name="pulse-outline" size={16} color={colors.accent} />
+                        <Text style={[styles.secondaryButtonText, { color: colors.textStrong }]}>Test Connection</Text>
+                      </>
+                    )}
+                  </Pressable>
+
+                  {activeProviderItem.status === 'active' && !activeProviderItem.keyless && (
+                    <Pressable
+                      style={[styles.disableButton, { paddingVertical: 10, paddingHorizontal: 16 }]}
+                      onPress={handleDisableProvider}
+                      disabled={savingProvider}
+                    >
+                      <Text style={styles.disableButtonText}>Disable</Text>
+                    </Pressable>
+                  )}
                 </View>
               </View>
 
-              {activeProviderConfig.fields.map((f) => (
-                <View key={f.key} style={styles.formGroup}>
-                  <Text style={[styles.label, { color: colors.textStrong }]}>{f.label}</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-                    value={providerSecrets[f.key] || ''}
-                    onChangeText={(val) => setProviderSecrets((prev) => ({ ...prev, [f.key]: val }))}
-                    placeholder={f.placeholder}
-                    placeholderTextColor={colors.textSubtle}
-                    secureTextEntry={f.secure}
-                    autoCapitalize="none"
-                  />
-                </View>
-              ))}
-
-              <View style={styles.buttonRow}>
-                <Pressable
-                  style={[styles.primaryButton, { flex: 1, backgroundColor: colors.accent }, savingProvider && { opacity: 0.7 }]}
-                  onPress={handleSaveProvider}
-                  disabled={savingProvider}
-                >
-                  {savingProvider ? (
-                    <ActivityIndicator size="small" color={colors.accentContrast} />
-                  ) : (
-                    <Text style={[styles.primaryButtonText, { color: colors.accentContrast }]}>Save Provider</Text>
-                  )}
-                </Pressable>
-
-                {activeProviderStatus && (
+              {/* Mandatory Attribution & Documentation */}
+              <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <Text style={{ fontSize: 10, color: colors.textSubtle, flex: 1 }}>{activeProviderItem.attribution}</Text>
+                {activeProviderItem.docUrl && (
                   <Pressable
-                    style={styles.disableButton}
-                    onPress={handleDisableProvider}
-                    disabled={savingProvider}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+                    onPress={() => Linking.openURL(activeProviderItem.docUrl)}
                   >
-                    <Text style={styles.disableButtonText}>Disable</Text>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.accent }}>Docs</Text>
+                    <Ionicons name="open-outline" size={11} color={colors.accent} />
                   </Pressable>
                 )}
               </View>
@@ -1577,6 +2275,33 @@ const styles = StyleSheet.create({
   providerPillText: {
     fontSize: 12,
     fontWeight: '800',
+  },
+  providerCategoryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginRight: 8,
+  },
+  providerCategoryPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  providerServicePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    marginRight: 8,
+    gap: 6,
+  },
+  providerServicePillText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   statusDot: {
     width: 6,

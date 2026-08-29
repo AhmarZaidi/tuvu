@@ -5,20 +5,34 @@ import { providerTtls } from "./provider-ttls";
 import { arrayNames, firstString, isProviderResult, numberValue, stringValue, yearFromDate } from "./normalizers";
 import { providerAttributions, type ProviderResult } from "./types";
 
-export async function openLibrarySearch(env: Env, query: string, limit: number) {
-  const email = await providerCredential(env, { provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
+export async function openLibraryPing(env: Env, userId?: string | null): Promise<{ ok: boolean; message: string }> {
+  const email = await providerCredential(env, { userId, provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
+  const url = `${externalApiEndpoints.openLibrary}/works/OL45883W.json`;
+  try {
+    const res = await fetch(url, openLibraryHeaders(email ?? undefined));
+    if (res.ok) {
+      return { ok: true, message: `Open Library reachable.${email ? " Polite User-Agent attached." : " (Keyless)"}` };
+    }
+    return { ok: false, message: `Open Library returned HTTP ${res.status}.` };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || "Failed to reach Open Library." };
+  }
+}
+
+export async function openLibrarySearch(env: Env, query: string, limit: number, userId?: string | null) {
+  const email = await providerCredential(env, { userId, provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
   const data = await cachedJson<{ docs?: unknown[] }>(env, "openlibrary", `search:${query.toLowerCase()}`, providerTtls.openLibrarySearch, () => fetch(`${externalApiEndpoints.openLibrary}/search.json?q=${encodeURIComponent(query)}&limit=${limit}`, openLibraryHeaders(email ?? undefined)));
   return (data?.docs ?? []).slice(0, limit).map(normalizeOpenLibrary).filter(isProviderResult);
 }
 
-export async function openLibrarySubject(env: Env, subject: string, limit: number) {
-  const email = await providerCredential(env, { provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
+export async function openLibrarySubject(env: Env, subject: string, limit: number, userId?: string | null) {
+  const email = await providerCredential(env, { userId, provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
   const data = await cachedJson<{ works?: unknown[] }>(env, "openlibrary", `subject:${subject.toLowerCase()}`, providerTtls.openLibrarySubject, () => fetch(`${externalApiEndpoints.openLibrary}/subjects/${encodeURIComponent(subject)}.json?limit=${limit}`, openLibraryHeaders(email ?? undefined)));
   return (data?.works ?? []).slice(0, limit).map(normalizeOpenLibrarySubject).filter(isProviderResult);
 }
 
-export async function openLibraryFetchDetails(env: Env, providerId: string) {
-  const email = await providerCredential(env, { provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
+export async function openLibraryFetchDetails(env: Env, providerId: string, userId?: string | null) {
+  const email = await providerCredential(env, { userId, provider: "openlibrary", key: "OPEN_LIBRARY_CONTACT_EMAIL" });
   const headers = openLibraryHeaders(email ?? undefined);
   const [workData, editionsData] = await Promise.all([
     cachedJson<any>(env, "openlibrary", `work:${providerId}`, providerTtls.openLibraryDetail, () => fetch(`${externalApiEndpoints.openLibrary}/works/${providerId}.json`, headers)),
@@ -42,7 +56,7 @@ export async function openLibraryFetchDetails(env: Env, providerId: string) {
 }
 
 function openLibraryHeaders(email?: string) {
-  return { headers: { "User-Agent": `Tuvu (${email || "local-dev@example.invalid"})` } };
+  return { headers: { "User-Agent": `Tuvu (${email || "contact@tuvu.app"})` } };
 }
 
 function normalizeOpenLibrary(item: unknown): ProviderResult | null {

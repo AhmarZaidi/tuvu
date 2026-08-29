@@ -15,7 +15,7 @@ const searchSchema = z.object({
 });
 
 const addProviderSchema = z.object({
-  provider: z.enum(["tmdb", "igdb", "openlibrary", "rawg", "jikan"]),
+  provider: z.string().min(1).max(50),
   providerId: z.string().min(1).max(200),
   type: mediaTypeSchema,
   title: z.string().trim().min(1).max(500),
@@ -33,7 +33,7 @@ export function createExploreRoutes() {
 
   router.get("/", requireAuth(), async (c) => {
     const auth = c.get("auth");
-    const rows = await providerExplore(c.env);
+    const rows = await providerExplore(c.env, auth.user.id);
     const filteredRows = c.env.DB ? await markAndFilterTracked(c.env.DB, auth.user.id, rows) : rows;
     return c.json(apiSuccess({ rows: filteredRows }));
   });
@@ -44,7 +44,7 @@ export function createExploreRoutes() {
     if (!parsedType.success) return apiError(c, 400, "validation_failed", "Invalid media type.", parsedType.error.flatten());
 
     const auth = c.get("auth");
-    const results = await providerTypeExplore(c.env, parsedType.data);
+    const results = await providerTypeExplore(c.env, parsedType.data, auth.user.id);
     const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, results)) : results;
     return c.json(apiSuccess({ results: marked }));
   });
@@ -58,7 +58,7 @@ export function createExploreRoutes() {
 
     const localResults = await Promise.all(types.map((type) => mediaRepo.searchMedia(query.data.q, type, 6)));
     const local = localResults.flat().map((media) => localProviderResult(media));
-    const remote = await providerSearch(c.env, query.data.q, types, 8);
+    const remote = await providerSearch(c.env, query.data.q, types, 8, auth.user.id);
     const combined = dedupeResults([...local, ...remote]);
     const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, combined)) : combined;
     return c.json(apiSuccess({ query: query.data.q, results: marked.slice(0, 40) }));

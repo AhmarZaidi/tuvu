@@ -4,20 +4,23 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  RefreshControl,
   ActivityIndicator,
   Pressable,
   useWindowDimensions,
+  RefreshControl,
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, DashboardResponse, DashboardEntry } from '../services/api';
+import { Ionicons } from '@expo/vector-icons';
+import { api, DashboardResponse, DashboardEntry, DashboardSection } from '../services/api';
 import { theme } from '../constants/theme';
 import { useAppTheme } from '../context/ThemeContext';
+import { useDashboardLayout } from '../context/DashboardLayoutContext';
 import { TopBar } from './TopBar';
 import { PageHeader } from './PageHeader';
 import { DashboardStats } from './DashboardStats';
 import { DashboardToolbar, SortMode } from './DashboardToolbar';
 import { SectionPills } from './SectionPills';
+import { SectionHeader } from './SectionHeader';
 import { MediaCard } from './MediaCard';
 import { CreateMediaModal } from './CreateMediaModal';
 import { GoldenGlow } from './GoldenGlow';
@@ -34,9 +37,16 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   const { width: windowWidth } = useWindowDimensions();
   const { colors } = useAppTheme();
 
+  // Synced layout mode and collapse state across all dashboard pages
+  const {
+    layoutMode,
+    toggleLayoutMode,
+    isSectionCollapsed,
+    toggleSectionCollapse,
+  } = useDashboardLayout();
+
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
   const [search, setSearch] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'compact'>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('updated');
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
@@ -69,7 +79,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     return sections.find((s) => s.id === activeSectionId) || sections[0];
   }, [sections, activeSectionId, data, title]);
 
-  // Filter & Sort entries
+  // Filter & Sort entries for single-section Grid Mode
   const displayedEntries = useMemo(() => {
     let list = [...(currentSection?.entries || [])];
 
@@ -91,6 +101,35 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     return list;
   }, [currentSection, search, sortMode]);
 
+  // Filter & Sort sections for Horizontal Carousels Mode
+  const carouselSections = useMemo(() => {
+    if (!data?.sections) return [];
+    const realSections = data.sections.filter((s) => s.id !== 'all');
+
+    return realSections
+      .map((sec) => {
+        let entries = [...(sec.entries || [])];
+        if (search.trim()) {
+          const q = search.trim().toLowerCase();
+          entries = entries.filter((e) => e.title?.toLowerCase().includes(q));
+        }
+        if (sortMode === 'title') {
+          entries.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+        } else if (sortMode === 'year') {
+          entries.sort((a, b) => (b.year || 0) - (a.year || 0));
+        } else if (sortMode === 'progress') {
+          entries.sort((a, b) => (b.progressEpisodes || 0) - (a.progressEpisodes || 0));
+        } else {
+          entries.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+        }
+        return {
+          ...sec,
+          entries,
+        };
+      })
+      .filter((sec) => sec.entries.length > 0);
+  }, [data?.sections, search, sortMode]);
+
   const cycleSort = () => {
     setSortMode((prev) => {
       if (prev === 'updated') return 'title';
@@ -111,8 +150,8 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     }
   };
 
-  // Calculate 2-column card width on mobile with proper margins
-  const cardWidth = Math.max(140, Math.floor((windowWidth - 32 - 12) / 2));
+  // Calculate 3-column card width on mobile with 16px screen padding and 8px gaps
+  const cardWidth = Math.max(96, Math.floor((windowWidth - 32 - 16) / 3));
 
   if (isLoading) {
     return (
@@ -145,96 +184,235 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     );
   }
 
+  const renderHeader = () => (
+    <>
+      {/* 2. Page Heading & + Add Media Action */}
+      <PageHeader
+        eyebrow="Library"
+        title={title}
+        actionLabel={`+ Add ${mediaType}`}
+        onAction={() => setCreateModalOpen(true)}
+      />
+
+      {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
+      {data && (
+        <DashboardStats
+          entries={data.entries}
+          kind={kind}
+          totalTracked={data.totalTracked}
+          statusCounts={data.statusCounts}
+        />
+      )}
+
+      {/* 4. Dashboard Toolbar (Sort button, Squared Search box, Layout Toggle) */}
+      <DashboardToolbar
+        search={search}
+        onSearchChange={setSearch}
+        layoutMode={layoutMode}
+        onToggleLayoutMode={toggleLayoutMode}
+        sortMode={sortMode}
+        onSelectSort={setSortMode}
+        onCycleSort={cycleSort}
+        placeholder={`Filter ${title.toLowerCase()}...`}
+      />
+
+      {/* 5. Section Tabs (Only shown in Grid Mode) */}
+      {layoutMode === 'grid' && sections.length > 0 && (
+        <SectionPills
+          sections={sections}
+          activeSectionId={activeSectionId}
+          onSelectSection={setActiveSectionId}
+        />
+      )}
+    </>
+  );
+
+  const renderEmptyState = () => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyTitle}>
+        {search.trim() ? 'No matching titles' : `Nothing in ${currentSection?.label ?? title} yet`}
+      </Text>
+      <Text style={styles.emptySubtitle}>
+        {search.trim()
+          ? 'Try a different title or clear the filter.'
+          : emptyMessage || `Add a ${mediaType} to fill this section.`}
+      </Text>
+      {!search.trim() && (
+        <Pressable style={styles.emptyAddButton} onPress={() => setCreateModalOpen(true)}>
+          <Text style={styles.emptyAddButtonText}>+ Add {mediaType}</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+
+  // Render a carousel section in Section View Mode
+  const renderSectionCarousel = (section: DashboardSection) => {
+    const hasMultipleRows = section.entries.length > 10;
+    const isCollapsed = isSectionCollapsed(section.id);
+    const isTwoRows = hasMultipleRows && !isCollapsed;
+
+    // Header Right Action: small collapse button
+    const collapseButton = (
+      <Pressable
+        style={[
+          styles.collapseButton,
+          !hasMultipleRows && styles.collapseButtonDisabled,
+          isCollapsed && styles.collapseButtonActive,
+        ]}
+        onPress={() => hasMultipleRows && toggleSectionCollapse(section.id)}
+        disabled={!hasMultipleRows}
+        hitSlop={6}
+        accessibilityLabel={
+          !hasMultipleRows
+            ? 'Single row'
+            : isCollapsed
+            ? 'Expand to 2 rows'
+            : 'Collapse to 1 row'
+        }
+      >
+        <Ionicons
+          name={isCollapsed ? 'expand-outline' : 'contract-outline'}
+          size={14}
+          color={
+            !hasMultipleRows
+              ? 'rgba(255, 255, 255, 0.2)'
+              : isCollapsed
+              ? theme.colors.accent
+              : 'rgba(255, 255, 255, 0.65)'
+          }
+        />
+      </Pressable>
+    );
+
+    // If 2 rows, chunk items into pairs [item1, item2] so both rows scroll together
+    if (isTwoRows) {
+      const columns: DashboardEntry[][] = [];
+      for (let i = 0; i < section.entries.length; i += 2) {
+        columns.push(section.entries.slice(i, i + 2));
+      }
+
+      return (
+        <View style={styles.carouselSection}>
+          <View style={styles.carouselHeaderWrap}>
+            <SectionHeader
+              title={section.label}
+              count={section.entries.length}
+              rightAction={collapseButton}
+            />
+          </View>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={columns}
+            keyExtractor={(_, idx) => `${section.id}:col:${idx}`}
+            renderItem={({ item: pair }) => (
+              <View style={{ width: cardWidth, marginRight: 8 }}>
+                <MediaCard
+                  item={pair[0]}
+                  width={cardWidth}
+                  onMarkNext={handleMarkNext}
+                />
+                {pair[1] && (
+                  <View style={{ marginTop: 10 }}>
+                    <MediaCard
+                      item={pair[1]}
+                      width={cardWidth}
+                      onMarkNext={handleMarkNext}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
+            contentContainerStyle={styles.horizontalList}
+          />
+        </View>
+      );
+    }
+
+    // Otherwise render standard single-row horizontal list
+    return (
+      <View style={styles.carouselSection}>
+        <View style={styles.carouselHeaderWrap}>
+          <SectionHeader
+            title={section.label}
+            count={section.entries.length}
+            rightAction={collapseButton}
+          />
+        </View>
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={section.entries}
+          keyExtractor={(entry) => `${section.id}:${entry.mediaId}`}
+          renderItem={({ item: entry }) => (
+            <View style={{ width: cardWidth, marginRight: 8 }}>
+              <MediaCard
+                item={entry}
+                width={cardWidth}
+                onMarkNext={handleMarkNext}
+              />
+            </View>
+          )}
+          contentContainerStyle={styles.horizontalList}
+        />
+      </View>
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <GoldenGlow />
       {/* 1. Mobile TopBar matching web .topbar */}
       <TopBar />
 
-      <FlatList
-        data={displayedEntries}
-        keyExtractor={(item) => item.mediaId}
-        key={viewMode}
-        numColumns={viewMode === 'grid' ? 2 : 1}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={colors.accent}
-            colors={[colors.accent]}
-          />
-        }
-        ListHeaderComponent={
-          <>
-            {/* 2. Page Heading & + Add Media Action */}
-            <PageHeader
-              eyebrow="Library"
-              title={title}
-              actionLabel={`+ Add ${mediaType}`}
-              onAction={() => setCreateModalOpen(true)}
+      {layoutMode === 'grid' ? (
+        <FlatList
+          key="dashboard-grid-3col"
+          data={displayedEntries}
+          keyExtractor={(item) => item.mediaId}
+          numColumns={3}
+          contentContainerStyle={styles.listContent}
+          columnWrapperStyle={styles.gridRow}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
             />
-
-            {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
-            {data && (
-              <DashboardStats
-                entries={data.entries}
-                kind={kind}
-                totalTracked={data.totalTracked}
-                statusCounts={data.statusCounts}
+          }
+          ListHeaderComponent={renderHeader}
+          renderItem={({ item }) => (
+            <View style={styles.gridItem}>
+              <MediaCard
+                item={item}
+                width={cardWidth}
+                onMarkNext={handleMarkNext}
               />
-            )}
-
-            {/* 4. Dashboard Toolbar (Sort button, Search pill, View toggle) */}
-            <DashboardToolbar
-              search={search}
-              onSearchChange={setSearch}
-              viewMode={viewMode}
-              onToggleViewMode={() => setViewMode((prev) => (prev === 'grid' ? 'compact' : 'grid'))}
-              sortMode={sortMode}
-              onSelectSort={setSortMode}
-              onCycleSort={cycleSort}
-              placeholder={`Filter ${title.toLowerCase()}...`}
+            </View>
+          )}
+          ListEmptyComponent={renderEmptyState}
+        />
+      ) : (
+        <FlatList
+          key="dashboard-sections-carousel"
+          data={carouselSections}
+          keyExtractor={(item) => item.id}
+          numColumns={1}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={refetch}
+              tintColor={colors.accent}
+              colors={[colors.accent]}
             />
-
-            {/* 5. Section Tabs (Watch Next, Continue Watching, Away, etc.) */}
-            {sections.length > 0 && (
-              <SectionPills
-                sections={sections}
-                activeSectionId={activeSectionId}
-                onSelectSection={setActiveSectionId}
-              />
-            )}
-          </>
-        }
-        renderItem={({ item }) => (
-          <View style={viewMode === 'grid' ? styles.gridItem : styles.compactItem}>
-            <MediaCard
-              item={item}
-              width={viewMode === 'grid' ? cardWidth : undefined}
-              variant={viewMode}
-              onMarkNext={handleMarkNext}
-            />
-          </View>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyTitle}>
-              {search.trim() ? 'No matching titles' : `Nothing in ${currentSection?.label ?? title} yet`}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {search.trim()
-                ? 'Try a different title or clear the filter.'
-                : emptyMessage || `Add a ${mediaType} to fill this section.`}
-            </Text>
-            {!search.trim() && (
-              <Pressable style={styles.emptyAddButton} onPress={() => setCreateModalOpen(true)}>
-                <Text style={styles.emptyAddButtonText}>+ Add {mediaType}</Text>
-              </Pressable>
-            )}
-          </View>
-        }
-      />
+          }
+          ListHeaderComponent={renderHeader}
+          renderItem={({ item: section }) => renderSectionCarousel(section)}
+          ListEmptyComponent={renderEmptyState}
+        />
+      )}
 
       {/* Add Media Modal */}
       <CreateMediaModal
@@ -256,15 +434,41 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.background,
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: 32,
+  },
+  gridRow: {
+    paddingHorizontal: theme.spacing.md,
+    gap: 8,
   },
   gridItem: {
-    flex: 1 / 2,
-    alignItems: 'center',
-    paddingHorizontal: 6,
+    width: 'auto',
   },
-  compactItem: {
-    width: '100%',
+  carouselSection: {
+    marginBottom: 20,
+  },
+  carouselHeaderWrap: {
+    paddingHorizontal: theme.spacing.md,
+  },
+  collapseButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collapseButtonActive: {
+    backgroundColor: 'rgba(240, 168, 36, 0.12)',
+    borderColor: 'rgba(240, 168, 36, 0.35)',
+  },
+  collapseButtonDisabled: {
+    opacity: 0.32,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: 'transparent',
+  },
+  horizontalList: {
     paddingHorizontal: theme.spacing.md,
   },
   centerContainer: {

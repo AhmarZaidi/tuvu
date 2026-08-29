@@ -20,16 +20,20 @@ export function SearchProvider({ children }: { children: React.ReactNode }) {
   const searchInputRef = useRef<TextInput | null>(null);
 
   const focusSearchInput = useCallback(() => {
-    if (!pathname || !pathname.includes('explore')) {
-      router.push('/explore' as any);
-    }
-    setTimeout(() => {
-      searchInputRef.current?.blur();
-      setTimeout(() => {
-        searchInputRef.current?.focus();
-      }, 50);
-    }, 50);
-  }, [pathname, router]);
+    router.navigate('/explore' as any);
+
+    const triggerFocus = () => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    };
+
+    triggerFocus();
+    requestAnimationFrame(triggerFocus);
+    setTimeout(triggerFocus, 100);
+    setTimeout(triggerFocus, 250);
+    setTimeout(triggerFocus, 450);
+  }, [router]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery('');

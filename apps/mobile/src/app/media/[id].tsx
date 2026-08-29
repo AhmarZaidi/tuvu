@@ -17,6 +17,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { TrackingPanel } from '../../components/TrackingPanel';
 import { SeasonAccordion } from '../../components/SeasonAccordion';
 import { GoldenGlow } from '../../components/GoldenGlow';
+import { PosterPlaceholder } from '../../components/PosterPlaceholder';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 export default function MediaDetailsScreen() {
@@ -143,8 +144,8 @@ export default function MediaDetailsScreen() {
               contentFit="cover"
             />
           ) : (
-            <View style={styles.posterPlaceholder}>
-              <Ionicons name="film-outline" size={32} color={theme.colors.textSubtle} />
+            <View style={styles.poster}>
+              <PosterPlaceholder title={media.title} type={media.type} />
             </View>
           )}
 

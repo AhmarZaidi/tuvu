@@ -22,6 +22,7 @@ import { MediaCard } from '../../components/MediaCard';
 import { SectionHeader } from '../../components/SectionHeader';
 import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
+import { PosterPlaceholder } from '../../components/PosterPlaceholder';
 
 const MEDIA_TYPES = [
   { key: '', label: 'All Media', icon: 'sparkles' as const },
@@ -186,9 +187,7 @@ export default function ExploreScreen() {
           {poster ? (
             <Image source={{ uri: poster }} style={styles.posterImg} contentFit="cover" />
           ) : (
-            <View style={styles.placeholder}>
-              <Text style={styles.placeholderText} numberOfLines={2}>{item.title}</Text>
-            </View>
+            <PosterPlaceholder title={item.title} type={item.type} />
           )}
 
           {/* Media Type Badge (Top-Left) */}

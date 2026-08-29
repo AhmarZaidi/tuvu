@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../context/ThemeContext';
+import { theme } from '../constants/theme';
 
 interface PageHeaderProps {
   eyebrow?: string;
@@ -50,7 +51,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    paddingHorizontal: theme.spacing.md,
     paddingTop: 14,
     paddingBottom: 10,
   },

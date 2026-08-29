@@ -3,9 +3,11 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-nati
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
 import { DashboardEntry } from '../services/api';
 import { StatusBadge, StatusTone } from './StatusBadge';
+import { PosterPlaceholder } from './PosterPlaceholder';
 
 interface MediaCardProps {
   item: DashboardEntry;
@@ -84,9 +86,7 @@ export function MediaCard({
                 </View>
               </>
             ) : (
-              <View style={styles.compactPlaceholder}>
-                <Text style={styles.compactPlaceholderText} numberOfLines={2}>{item.title}</Text>
-              </View>
+              <PosterPlaceholder type={item.type} iconSize={16} showTitle={false} />
             )}
           </View>
 
@@ -144,9 +144,7 @@ export function MediaCard({
             )}
           </>
         ) : (
-          <View style={styles.placeholderContainer}>
-            <Text style={styles.placeholderText} numberOfLines={3}>{item.title}</Text>
-          </View>
+          <PosterPlaceholder title={item.title} type={item.type} />
         )}
 
         {/* Top-Left Overlay: Status Chip */}
@@ -164,7 +162,11 @@ export function MediaCard({
         )}
 
         {/* Bottom Gradient Overlay: Title and Year Chip */}
-        <View style={styles.bottomOverlay}>
+        <LinearGradient
+          colors={['transparent', 'rgba(0, 0, 0, 0.45)', 'rgba(0, 0, 0, 0.88)']}
+          locations={[0, 0.35, 1]}
+          style={styles.bottomOverlay}
+        >
           <Text style={styles.overlayTitle} numberOfLines={2}>
             {item.title}
           </Text>
@@ -173,7 +175,7 @@ export function MediaCard({
               <Text style={styles.yearChipText}>{displayYear}</Text>
             </View>
           ) : null}
-        </View>
+        </LinearGradient>
       </Pressable>
 
       {/* Button below card: Mark next episode watched */}
@@ -187,8 +189,8 @@ export function MediaCard({
             <ActivityIndicator size="small" color={theme.colors.accent} />
           ) : (
             <>
-              <Ionicons name="checkmark" size={13} color={theme.colors.accent} />
-              <Text style={styles.quickWatchText}>Mark {nextLabel} watched</Text>
+              <Ionicons name="checkmark" size={12} color={theme.colors.accent} />
+              <Text style={styles.quickWatchText} numberOfLines={1}>Mark {nextLabel}</Text>
             </>
           )}
         </Pressable>
@@ -241,26 +243,26 @@ const styles = StyleSheet.create({
   },
   topLeftOverlay: {
     position: 'absolute',
-    top: 6,
-    left: 6,
+    top: 5,
+    left: 5,
     zIndex: 10,
   },
   topRightOverlay: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 5,
+    right: 5,
     zIndex: 10,
   },
   episodeChip: {
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
     borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(16, 17, 18, 0.82)',
+    backgroundColor: 'rgba(16, 17, 18, 0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 207, 92, 0.3)',
+    borderColor: 'rgba(255, 207, 92, 0.35)',
   },
   episodeChipText: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '900',
     color: theme.colors.accent,
   },
@@ -269,9 +271,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.82)',
+    paddingTop: 22,
+    paddingBottom: 6,
+    paddingHorizontal: 6,
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
@@ -281,22 +283,26 @@ const styles = StyleSheet.create({
   overlayTitle: {
     flex: 1,
     color: '#fff8e8',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '900',
-    lineHeight: 15,
+    lineHeight: 14,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   yearChip: {
     paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: 'rgba(16, 17, 18, 0.8)',
+    paddingVertical: 1.5,
+    borderRadius: 5,
+    backgroundColor: 'rgba(16, 17, 18, 0.78)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    flexShrink: 0,
   },
   yearChipText: {
-    color: '#aeb1ac',
-    fontSize: 10,
-    fontWeight: '900',
+    color: '#cbd5e1',
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   quickWatchButton: {
     flexDirection: 'row',
@@ -306,14 +312,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 207, 92, 0.25)',
     borderRadius: theme.borderRadius.sm,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginTop: 6,
-    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
+    marginTop: 5,
+    gap: 3,
   },
   quickWatchText: {
     color: theme.colors.accent,
-    fontSize: 11,
+    fontSize: 9.5,
     fontWeight: '800',
   },
   // Compact styles

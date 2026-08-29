@@ -82,11 +82,10 @@ export default function TabsLayout() {
             tabPress: () => {
               const now = Date.now();
               const diff = now - lastExplorePressRef.current;
-              if (diff > 40 && diff < 550) {
+              lastExplorePressRef.current = now;
+              if (diff > 50 && diff < 750) {
                 lastExplorePressRef.current = 0;
                 focusSearchInput();
-              } else {
-                lastExplorePressRef.current = now;
               }
             },
           } : {})}

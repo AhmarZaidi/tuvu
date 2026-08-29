@@ -5,17 +5,21 @@ import { theme } from '../constants/theme';
 interface SectionHeaderProps {
   title: string;
   count?: number;
+  rightAction?: React.ReactNode;
 }
 
-export function SectionHeader({ title, count }: SectionHeaderProps) {
+export function SectionHeader({ title, count, rightAction }: SectionHeaderProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
-      {typeof count === 'number' && (
-        <View style={styles.countBadge}>
-          <Text style={styles.countText}>{count}</Text>
-        </View>
-      )}
+      <View style={styles.leftGroup}>
+        <Text style={styles.title}>{title}</Text>
+        {typeof count === 'number' && (
+          <View style={styles.countBadge}>
+            <Text style={styles.countText}>{count}</Text>
+          </View>
+        )}
+      </View>
+      {rightAction ? <View style={styles.rightGroup}>{rightAction}</View> : null}
     </View>
   );
 }
@@ -24,8 +28,17 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 10,
+  },
+  leftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+  },
+  rightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   title: {
     fontSize: 16,

@@ -14,6 +14,7 @@ import { theme } from '../constants/theme';
 import { useAppTheme } from '../context/ThemeContext';
 import { api, ExploreResult } from '../services/api';
 import { BottomSheet } from './BottomSheet';
+import { PosterPlaceholder } from './PosterPlaceholder';
 
 interface CreateMediaModalProps {
   open: boolean;
@@ -126,7 +127,7 @@ export function CreateMediaModal({
                     {poster ? (
                       <Image source={{ uri: poster }} style={styles.thumbImg} contentFit="cover" />
                     ) : (
-                      <Ionicons name="film-outline" size={18} color={colors.textSubtle} />
+                      <PosterPlaceholder type={item.type} iconSize={16} showTitle={false} />
                     )}
                   </View>
                   <View style={styles.resultMeta}>

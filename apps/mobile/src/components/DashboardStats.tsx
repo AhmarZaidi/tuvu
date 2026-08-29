@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppTheme } from '../context/ThemeContext';
+import { theme } from '../constants/theme';
 import { DashboardEntry } from '../services/api';
 
 interface DashboardStatsProps {
@@ -87,7 +88,7 @@ export function DashboardStats({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    paddingHorizontal: 14,
+    paddingHorizontal: theme.spacing.md,
     gap: 6,
     marginBottom: 12,
   },

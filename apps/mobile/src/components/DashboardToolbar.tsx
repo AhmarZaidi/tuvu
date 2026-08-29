@@ -4,12 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 
 export type SortMode = 'updated' | 'title' | 'year' | 'progress';
+export type DashboardLayoutMode = 'grid' | 'sections';
 
 interface DashboardToolbarProps {
   search: string;
   onSearchChange: (text: string) => void;
-  viewMode: 'grid' | 'compact';
-  onToggleViewMode: () => void;
+  layoutMode: DashboardLayoutMode;
+  onToggleLayoutMode: () => void;
   sortMode: SortMode;
   onSelectSort?: (mode: SortMode) => void;
   onCycleSort?: () => void;
@@ -32,8 +33,8 @@ const sortOptions: SortOption[] = [
 export function DashboardToolbar({
   search,
   onSearchChange,
-  viewMode,
-  onToggleViewMode,
+  layoutMode,
+  onToggleLayoutMode,
   sortMode,
   onSelectSort,
   onCycleSort,
@@ -75,7 +76,7 @@ export function DashboardToolbar({
       {/* 1. Sort Menu Button (Square with gold active icon) */}
       <View ref={buttonRef} collapsable={false}>
         <Pressable
-          style={[styles.sortButton, dropdownVisible && styles.sortButtonActive]}
+          style={[styles.squareButton, dropdownVisible && styles.squareButtonActive]}
           onPress={handleOpenMenu}
           accessibilityLabel={`Sort: ${activeOption.label}`}
         >
@@ -124,7 +125,7 @@ export function DashboardToolbar({
         </Pressable>
       </Modal>
 
-      {/* 2. In-Dashboard Search Pill */}
+      {/* 2. In-Dashboard Search Pill (Squared off to match buttons) */}
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={15} color={theme.colors.textSubtle} style={styles.searchIcon} />
         <TextInput
@@ -142,29 +143,18 @@ export function DashboardToolbar({
         )}
       </View>
 
-      {/* 3. View Mode Toggle (Grid vs List) */}
-      <View style={styles.viewToggleGroup}>
-        <Pressable
-          style={[styles.viewToggleButton, viewMode === 'grid' && styles.viewToggleActive]}
-          onPress={() => viewMode !== 'grid' && onToggleViewMode()}
-        >
-          <Ionicons
-            name="grid"
-            size={16}
-            color={viewMode === 'grid' ? theme.colors.accent : theme.colors.textSubtle}
-          />
-        </Pressable>
-        <Pressable
-          style={[styles.viewToggleButton, viewMode === 'compact' && styles.viewToggleActive]}
-          onPress={() => viewMode !== 'compact' && onToggleViewMode()}
-        >
-          <Ionicons
-            name="list"
-            size={16}
-            color={viewMode === 'compact' ? theme.colors.accent : theme.colors.textSubtle}
-          />
-        </Pressable>
-      </View>
+      {/* 3. Main View Mode Toggle: Grid with Top Chips vs Horizontal Section Carousels */}
+      <Pressable
+        style={[styles.squareButton, layoutMode === 'sections' && styles.squareButtonActive]}
+        onPress={onToggleLayoutMode}
+        accessibilityLabel={layoutMode === 'grid' ? 'Switch to section carousels' : 'Switch to grid'}
+      >
+        <Ionicons
+          name={layoutMode === 'grid' ? 'albums-outline' : 'grid-outline'}
+          size={17}
+          color={layoutMode === 'sections' ? theme.colors.accent : theme.colors.textSubtle}
+        />
+      </Pressable>
     </View>
   );
 }
@@ -175,10 +165,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 12,
     zIndex: 10,
   },
-  sortButton: {
+  squareButton: {
     width: 38,
     height: 38,
     borderRadius: theme.borderRadius.sm,
@@ -188,7 +178,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sortButtonActive: {
+  squareButtonActive: {
     backgroundColor: 'rgba(240, 168, 36, 0.12)',
     borderColor: 'rgba(240, 168, 36, 0.35)',
   },
@@ -239,7 +229,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.055)',
-    borderRadius: theme.borderRadius.pill,
+    borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 12,
@@ -253,22 +243,5 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 13,
     height: '100%',
-  },
-  viewToggleGroup: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: theme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    overflow: 'hidden',
-  },
-  viewToggleButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewToggleActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.09)',
   },
 });

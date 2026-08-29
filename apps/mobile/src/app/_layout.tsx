@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 import { SnackbarProvider } from '../context/SnackbarContext';
 import { SearchProvider } from '../context/SearchContext';
+import { DashboardLayoutProvider } from '../context/DashboardLayoutContext';
 import { BackButton } from '../components/BackButton';
 
 const queryClient = new QueryClient({
@@ -93,7 +94,9 @@ export default function RootLayout() {
         <ThemeProvider>
           <SnackbarProvider>
             <SearchProvider>
-              <RootNavigation />
+              <DashboardLayoutProvider>
+                <RootNavigation />
+              </DashboardLayoutProvider>
             </SearchProvider>
           </SnackbarProvider>
         </ThemeProvider>

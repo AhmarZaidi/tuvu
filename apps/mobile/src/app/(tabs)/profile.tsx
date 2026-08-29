@@ -413,10 +413,11 @@ const styles = StyleSheet.create({
   toolsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    justifyContent: 'space-between',
+    rowGap: 10,
   },
   toolButton: {
-    width: '48%',
+    width: '48.5%',
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
@@ -463,10 +464,11 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'space-between',
+    rowGap: 8,
   },
   statCard: {
-    width: '31%',
+    width: '31.6%',
     borderRadius: 6,
     borderWidth: 1,
     paddingVertical: 12,

@@ -147,69 +147,62 @@ export default function TabSettingsScreen() {
 
   // Media picker BottomSheet state
   const [activePickerKind, setActivePickerKind] = useState<'avatar' | 'banner'>('avatar');
-  const [showMediaPickerSheet, setShowMediaPickerSheet] = useState(false);
-  const [showMediaUrlSheet, setShowMediaUrlSheet] = useState(false);
-  const [mediaInputUrl, setMediaInputUrl] = useState('');
-  const [savingMediaUrl, setSavingMediaUrl] = useState(false);
+  const [showMediaActionSheet, setShowMediaActionSheet] = useState(false);
 
-  const handlePickMedia = (kind: 'avatar' | 'banner') => {
+  const handleMediaPress = (kind: 'avatar' | 'banner') => {
     setActivePickerKind(kind);
-    setShowMediaPickerSheet(true);
+    const hasImage = kind === 'avatar' ? Boolean(meData?.profile?.avatarUrl) : Boolean(meData?.profile?.bannerUrl);
+    if (!hasImage) {
+      // If no image is added, directly open Android's gallery selector
+      openImagePicker(kind);
+    } else {
+      // If image already exists, open bottom sheet with Replace & Remove options
+      setShowMediaActionSheet(true);
+    }
   };
 
-  const handleChooseFromLibrary = async () => {
-    setShowMediaPickerSheet(false);
+  const openImagePicker = async (kind: 'avatar' | 'banner') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       showFeedback('Media library access is needed to select an image.');
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: activePickerKind === 'avatar' ? [1, 1] : [16, 7],
-      quality: 0.85,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.85,
+      });
 
-    if (!result.canceled && result.assets && result.assets[0]?.uri) {
-      try {
-        await api.uploadProfileMedia(activePickerKind, result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        const asset = result.assets[0];
+        await api.uploadProfileMedia(kind, asset.uri, asset.mimeType, asset.fileName ?? undefined);
         await refetchMe();
         queryClient.invalidateQueries({ queryKey: ['me'] });
-        showFeedback(`${activePickerKind.charAt(0).toUpperCase() + activePickerKind.slice(1)} uploaded successfully.`);
-      } catch (e: any) {
-        showFeedback(e?.message || 'Could not upload image.');
+        showFeedback(`${kind.charAt(0).toUpperCase() + kind.slice(1)} uploaded successfully.`);
       }
+    } catch (e: any) {
+      showFeedback(e?.message || 'Could not upload image.');
     }
   };
 
-  const handleOpenMediaUrl = () => {
-    setShowMediaPickerSheet(false);
-    setMediaInputUrl(activePickerKind === 'avatar' ? meData?.profile?.avatarUrl || '' : meData?.profile?.bannerUrl || '');
-    setShowMediaUrlSheet(true);
+  const handleReplaceMedia = () => {
+    setShowMediaActionSheet(false);
+    setTimeout(() => {
+      openImagePicker(activePickerKind);
+    }, 250);
   };
 
-  const handleSaveMediaUrl = async () => {
-    if (!mediaInputUrl.trim()) {
-      showFeedback('Please enter a valid image URL.');
-      return;
-    }
-    setSavingMediaUrl(true);
+  const handleRemoveMedia = async () => {
+    setShowMediaActionSheet(false);
     try {
-      if (activePickerKind === 'avatar') {
-        await api.updateProfile({ avatarUrl: mediaInputUrl.trim() });
-      } else {
-        await api.updateProfile({ bannerUrl: mediaInputUrl.trim() });
-      }
-      setShowMediaUrlSheet(false);
+      await api.removeProfileMedia(activePickerKind);
       await refetchMe();
       queryClient.invalidateQueries({ queryKey: ['me'] });
-      showFeedback(`${activePickerKind.charAt(0).toUpperCase() + activePickerKind.slice(1)} URL saved.`);
+      showFeedback(`${activePickerKind.charAt(0).toUpperCase() + activePickerKind.slice(1)} removed.`);
     } catch (e: any) {
-      showFeedback(e?.message || 'Could not save image URL.');
-    } finally {
-      setSavingMediaUrl(false);
+      showFeedback(e?.message || `Could not remove ${activePickerKind}.`);
     }
   };
 
@@ -570,17 +563,21 @@ export default function TabSettingsScreen() {
             <View style={styles.mediaButtonRow}>
               <Pressable
                 style={[styles.mediaActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                onPress={() => handlePickMedia('avatar')}
+                onPress={() => handleMediaPress('avatar')}
               >
                 <Ionicons name="camera-outline" size={16} color={colors.accent} />
-                <Text style={[styles.mediaActionText, { color: colors.textStrong }]}>Change Avatar</Text>
+                <Text style={[styles.mediaActionText, { color: colors.textStrong }]}>
+                  {meData?.profile?.avatarUrl ? 'Manage Avatar' : 'Add Avatar'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.mediaActionBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
-                onPress={() => handlePickMedia('banner')}
+                onPress={() => handleMediaPress('banner')}
               >
                 <Ionicons name="image-outline" size={16} color={colors.accent} />
-                <Text style={[styles.mediaActionText, { color: colors.textStrong }]}>Change Banner</Text>
+                <Text style={[styles.mediaActionText, { color: colors.textStrong }]}>
+                  {meData?.profile?.bannerUrl ? 'Manage Banner' : 'Add Banner'}
+                </Text>
               </Pressable>
             </View>
 
@@ -1174,98 +1171,49 @@ export default function TabSettingsScreen() {
       </BottomSheet>
 
       {/* ────────────────────────────────────────────── */}
-      {/* 2. Media Picker BottomSheet (Avatar / Banner)  */}
+      {/* 2. Media Action BottomSheet (Replace / Remove) */}
       {/* ────────────────────────────────────────────── */}
       <BottomSheet
-        visible={showMediaPickerSheet}
-        onClose={() => setShowMediaPickerSheet(false)}
-        title={`Change ${activePickerKind === 'avatar' ? 'Avatar' : 'Banner'}`}
-        subtitle="Select image from device storage or enter direct link"
-        icon="image-outline"
+        visible={showMediaActionSheet}
+        onClose={() => setShowMediaActionSheet(false)}
+        title={activePickerKind === 'avatar' ? 'Profile Avatar' : 'Profile Banner'}
+        subtitle={`Manage your profile ${activePickerKind}`}
+        icon={activePickerKind === 'avatar' ? 'person-circle-outline' : 'image-outline'}
       >
         <Pressable
           style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
-          onPress={handleChooseFromLibrary}
+          onPress={handleReplaceMedia}
         >
           <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
             <Ionicons name="images-outline" size={20} color={colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Choose from Library</Text>
-            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Select an image from device gallery</Text>
+            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Replace image</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Choose a new photo from gallery</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
         </Pressable>
 
         <Pressable
-          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
-          onPress={handleOpenMediaUrl}
+          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 92, 92, 0.08)' : 'rgba(255, 92, 92, 0.06)', borderColor: 'rgba(255, 92, 92, 0.25)' }]}
+          onPress={handleRemoveMedia}
         >
-          <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
-            <Ionicons name="link-outline" size={20} color={colors.accent} />
+          <View style={[styles.sheetIconBox, { backgroundColor: 'rgba(255, 92, 92, 0.15)' }]}>
+            <Ionicons name="trash-outline" size={20} color="#ff5c5c" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Enter Direct Image URL</Text>
-            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Provide HTTPS web image URL</Text>
+            <Text style={[styles.sheetActionTitle, { color: '#ff5c5c' }]}>Remove image</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Delete current {activePickerKind}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
+          <Ionicons name="chevron-forward" size={16} color="#ff5c5c" />
         </Pressable>
 
         <Pressable
           style={[styles.sheetCancelBtn, { borderColor: colors.border }]}
-          onPress={() => setShowMediaPickerSheet(false)}
+          onPress={() => setShowMediaActionSheet(false)}
         >
           <Text style={[styles.sheetCancelText, { color: colors.textMuted }]}>Cancel</Text>
         </Pressable>
-      </BottomSheet>
-
-      {/* ────────────────────────────────────────────── */}
-      {/* 3. Media Direct URL BottomSheet                */}
-      {/* ────────────────────────────────────────────── */}
-      <BottomSheet
-        visible={showMediaUrlSheet}
-        onClose={() => setShowMediaUrlSheet(false)}
-        title={`Set ${activePickerKind === 'avatar' ? 'Avatar' : 'Banner'} URL`}
-        subtitle="Enter direct image link (HTTPS)"
-        icon="link-outline"
-      >
-        <TextInput
-          style={[
-            styles.input,
-            {
-              color: colors.text,
-              backgroundColor: colors.inputBg,
-              borderColor: colors.border,
-            },
-          ]}
-          value={mediaInputUrl}
-          onChangeText={setMediaInputUrl}
-          placeholder="https://example.com/image.jpg"
-          placeholderTextColor={colors.textSubtle}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <View style={styles.sheetBtnRow}>
-          <Pressable
-            style={[styles.sheetSecondaryBtn, { borderColor: colors.border }]}
-            onPress={() => setShowMediaUrlSheet(false)}
-            disabled={savingMediaUrl}
-          >
-            <Text style={[styles.sheetSecondaryText, { color: colors.textMuted }]}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.sheetPrimaryBtn, { backgroundColor: colors.accent }]}
-            onPress={handleSaveMediaUrl}
-            disabled={savingMediaUrl}
-          >
-            {savingMediaUrl ? (
-              <ActivityIndicator size="small" color={colors.accentContrast} />
-            ) : (
-              <Text style={[styles.sheetPrimaryText, { color: colors.accentContrast }]}>Save URL</Text>
-            )}
-          </Pressable>
-        </View>
       </BottomSheet>
     </View>
   );

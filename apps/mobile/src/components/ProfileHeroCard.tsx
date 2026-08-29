@@ -27,12 +27,9 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
   const { colors, isDark } = useAppTheme();
   const [uploadingKind, setUploadingKind] = useState<'avatar' | 'banner' | null>(null);
 
-  // BottomSheet states
-  const [showPickerSheet, setShowPickerSheet] = useState(false);
+  // BottomSheet state
+  const [showActionSheet, setShowActionSheet] = useState(false);
   const [activeMediaKind, setActiveMediaKind] = useState<'avatar' | 'banner'>('avatar');
-  const [showUrlSheet, setShowUrlSheet] = useState(false);
-  const [inputUrl, setInputUrl] = useState('');
-  const [savingUrl, setSavingUrl] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -52,69 +49,72 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
     return name.slice(0, 2).toUpperCase();
   };
 
-  const handleOpenPickerSheet = (kind: 'avatar' | 'banner') => {
+  const handleMediaPress = (kind: 'avatar' | 'banner') => {
     setActiveMediaKind(kind);
-    setShowPickerSheet(true);
+    const hasImage = kind === 'avatar' ? Boolean(meData?.profile?.avatarUrl) : Boolean(meData?.profile?.bannerUrl);
+    if (!hasImage) {
+      // If no image is added, directly open Android's image/gallery selector
+      openImagePicker(kind);
+    } else {
+      // If image already exists, open bottom sheet with Replace & Remove options
+      setShowActionSheet(true);
+    }
   };
 
-  const handleChooseFromLibrary = async () => {
-    setShowPickerSheet(false);
+  const openImagePicker = async (kind: 'avatar' | 'banner') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       showToast('Media library permission is required to choose photos.');
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: activeMediaKind === 'avatar' ? [1, 1] : [16, 7],
-      quality: 0.85,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.85,
+      });
 
-    if (!result.canceled && result.assets && result.assets[0]?.uri) {
-      await uploadImage(activeMediaKind, result.assets[0].uri);
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        const asset = result.assets[0];
+        await uploadImage(kind, asset.uri, asset.mimeType, asset.fileName ?? undefined);
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Could not open image picker.');
     }
   };
 
-  const handleOpenUrlInput = () => {
-    setShowPickerSheet(false);
-    setInputUrl(activeMediaKind === 'avatar' ? meData?.profile?.avatarUrl || '' : meData?.profile?.bannerUrl || '');
-    setShowUrlSheet(true);
+  const handleReplaceImage = () => {
+    setShowActionSheet(false);
+    setTimeout(() => {
+      openImagePicker(activeMediaKind);
+    }, 250);
   };
 
-  const uploadImage = async (kind: 'avatar' | 'banner', uri: string) => {
+  const handleRemoveImage = async () => {
+    setShowActionSheet(false);
+    setUploadingKind(activeMediaKind);
+    try {
+      await api.removeProfileMedia(activeMediaKind);
+      if (onRefresh) onRefresh();
+      showToast(`${activeMediaKind === 'avatar' ? 'Avatar' : 'Banner'} removed.`);
+    } catch (e: any) {
+      showToast(e?.message || `Could not remove ${activeMediaKind}.`);
+    } finally {
+      setUploadingKind(null);
+    }
+  };
+
+  const uploadImage = async (kind: 'avatar' | 'banner', uri: string, mimeType?: string, fileName?: string) => {
     setUploadingKind(kind);
     try {
-      await api.uploadProfileMedia(kind, uri);
+      await api.uploadProfileMedia(kind, uri, mimeType, fileName);
       if (onRefresh) onRefresh();
       showToast(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image updated.`);
     } catch (e: any) {
       showToast(e?.message || 'Could not upload image.');
     } finally {
       setUploadingKind(null);
-    }
-  };
-
-  const handleSaveUrl = async () => {
-    if (!inputUrl.trim()) {
-      showToast('Please enter a valid image URL.');
-      return;
-    }
-    setSavingUrl(true);
-    try {
-      if (activeMediaKind === 'avatar') {
-        await api.updateProfile({ avatarUrl: inputUrl.trim() });
-      } else {
-        await api.updateProfile({ bannerUrl: inputUrl.trim() });
-      }
-      setShowUrlSheet(false);
-      if (onRefresh) onRefresh();
-      showToast(`${activeMediaKind.charAt(0).toUpperCase() + activeMediaKind.slice(1)} URL saved.`);
-    } catch (e: any) {
-      showToast(e?.message || 'Could not save image URL.');
-    } finally {
-      setSavingUrl(false);
     }
   };
 
@@ -155,7 +155,7 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
         {editable && (
           <Pressable
             style={styles.bannerCameraBtn}
-            onPress={() => handleOpenPickerSheet('banner')}
+            onPress={() => handleMediaPress('banner')}
             disabled={uploadingKind !== null}
             hitSlop={8}
           >
@@ -183,7 +183,7 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
           {editable && (
             <Pressable
               style={styles.avatarCameraBtn}
-              onPress={() => handleOpenPickerSheet('avatar')}
+              onPress={() => handleMediaPress('avatar')}
               disabled={uploadingKind !== null}
               hitSlop={6}
             >
@@ -208,99 +208,49 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
       </View>
 
       {/* ────────────────────────────────────────────── */}
-      {/* 1. Media Option Bottom Sheet (Replaces Alert)  */}
+      {/* Media Action Bottom Sheet (Replace / Remove)   */}
       {/* ────────────────────────────────────────────── */}
       <BottomSheet
-        visible={showPickerSheet}
-        onClose={() => setShowPickerSheet(false)}
-        title={`Change ${activeMediaKind === 'avatar' ? 'Avatar' : 'Banner'}`}
-        subtitle="Choose how you want to update your profile photo"
-        icon="image-outline"
+        visible={showActionSheet}
+        onClose={() => setShowActionSheet(false)}
+        title={activeMediaKind === 'avatar' ? 'Profile Avatar' : 'Profile Banner'}
+        subtitle={`Manage your profile ${activeMediaKind}`}
+        icon={activeMediaKind === 'avatar' ? 'person-circle-outline' : 'image-outline'}
       >
         <Pressable
           style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
-          onPress={handleChooseFromLibrary}
+          onPress={handleReplaceImage}
         >
           <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
             <Ionicons name="images-outline" size={20} color={colors.accent} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Choose from Library</Text>
-            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Select an existing image from your device storage</Text>
+            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Replace image</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Choose a new photo from gallery</Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
         </Pressable>
 
         <Pressable
-          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
-          onPress={handleOpenUrlInput}
+          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 92, 92, 0.08)' : 'rgba(255, 92, 92, 0.06)', borderColor: 'rgba(255, 92, 92, 0.25)' }]}
+          onPress={handleRemoveImage}
         >
-          <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
-            <Ionicons name="link-outline" size={20} color={colors.accent} />
+          <View style={[styles.sheetIconBox, { backgroundColor: 'rgba(255, 92, 92, 0.15)' }]}>
+            <Ionicons name="trash-outline" size={20} color="#ff5c5c" />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Enter Image URL</Text>
-            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Provide an HTTPS web link directly</Text>
+            <Text style={[styles.sheetActionTitle, { color: '#ff5c5c' }]}>Remove image</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Delete current {activeMediaKind}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
+          <Ionicons name="chevron-forward" size={16} color="#ff5c5c" />
         </Pressable>
 
         <Pressable
           style={[styles.sheetCancelBtn, { borderColor: colors.border }]}
-          onPress={() => setShowPickerSheet(false)}
+          onPress={() => setShowActionSheet(false)}
         >
           <Text style={[styles.sheetCancelText, { color: colors.textMuted }]}>Cancel</Text>
         </Pressable>
-      </BottomSheet>
-
-      {/* ────────────────────────────────────────────── */}
-      {/* 2. Image URL Input Bottom Sheet (Replaces Modal) */}
-      {/* ────────────────────────────────────────────── */}
-      <BottomSheet
-        visible={showUrlSheet}
-        onClose={() => setShowUrlSheet(false)}
-        title={`Set ${activeMediaKind === 'avatar' ? 'Avatar' : 'Banner'} URL`}
-        subtitle="Enter a direct image link (HTTPS) for your profile."
-        icon="link-outline"
-      >
-        <TextInput
-          style={[
-            styles.urlInput,
-            {
-              color: colors.text,
-              backgroundColor: colors.inputBg,
-              borderColor: colors.border,
-            },
-          ]}
-          value={inputUrl}
-          onChangeText={setInputUrl}
-          placeholder="https://example.com/image.jpg"
-          placeholderTextColor={colors.textSubtle}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-
-        <View style={styles.sheetBtnRow}>
-          <Pressable
-            style={[styles.sheetSecondaryBtn, { borderColor: colors.border }]}
-            onPress={() => setShowUrlSheet(false)}
-            disabled={savingUrl}
-          >
-            <Text style={[styles.sheetSecondaryText, { color: colors.textMuted }]}>Cancel</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.sheetPrimaryBtn, { backgroundColor: colors.accent }]}
-            onPress={handleSaveUrl}
-            disabled={savingUrl}
-          >
-            {savingUrl ? (
-              <ActivityIndicator size="small" color={colors.accentContrast} />
-            ) : (
-              <Text style={[styles.sheetPrimaryText, { color: colors.accentContrast }]}>Save URL</Text>
-            )}
-          </Pressable>
-        </View>
       </BottomSheet>
     </View>
   );

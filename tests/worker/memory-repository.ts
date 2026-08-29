@@ -176,6 +176,22 @@ export class MemoryAuthRepository implements AuthRepository {
     this.profiles.set(userId, nextProfile);
     return nextProfile;
   }
+
+  async detachUpload(userId: string, kind: "avatar" | "banner", now: string) {
+    const profile = this.profiles.get(userId);
+    if (!profile) {
+      throw new Error("Profile not found.");
+    }
+
+    const nextProfile: ProfileRecord = {
+      ...profile,
+      avatarUploadId: kind === "avatar" ? null : profile.avatarUploadId,
+      bannerUploadId: kind === "banner" ? null : profile.bannerUploadId,
+      updatedAt: now,
+    };
+    this.profiles.set(userId, nextProfile);
+    return nextProfile;
+  }
 }
 
 export function testEnv(): Env {

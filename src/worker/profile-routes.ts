@@ -124,6 +124,18 @@ export function createProfileRoutes(dependencies: ProfileRouteDependencies = {})
     return c.json(apiSuccess({ upload, profile: await publicProfileWithUploads(repository, profile) }));
   });
 
+  routes.delete("/uploads/profile/:kind", requireAuth(), requireCsrf(), async (c) => {
+    const kind = c.req.param("kind");
+    if (kind !== "avatar" && kind !== "banner") {
+      return apiError(c, 400, "validation_failed", "Kind must be avatar or banner.");
+    }
+    const auth = c.get("auth");
+    const repository = c.get("repository");
+    const now = new Date().toISOString();
+    const profile = await repository.detachUpload(auth.user.id, kind, now);
+    return c.json(apiSuccess({ profile: await publicProfileWithUploads(repository, profile) }));
+  });
+
   routes.delete("/me", requireAuth(), requireCsrf(), async (c) => {
     const auth = c.get("auth");
     if (!c.env.DB) {

@@ -362,16 +362,26 @@ export const api = {
     });
   },
 
-  async uploadProfileMedia(kind: 'avatar' | 'banner', uri: string): Promise<any> {
+  async uploadProfileMedia(kind: 'avatar' | 'banner', uri: string, mimeType?: string, fileName?: string): Promise<any> {
     const base = config.getApiBase();
     const url = `${base}/api/uploads/profile`;
+
+    const cleanUri = uri.split('?')[0];
+    const ext = cleanUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const detectedType = mimeType || (
+      ext === 'png' ? 'image/png' :
+      ext === 'webp' ? 'image/webp' :
+      ext === 'gif' ? 'image/gif' :
+      'image/jpeg'
+    );
+    const safeName = fileName || `${kind}.${ext === 'jpeg' ? 'jpg' : ext}`;
 
     const form = new FormData();
     form.append('kind', kind);
     form.append('file', {
       uri,
-      name: `${kind}.jpg`,
-      type: 'image/jpeg',
+      name: safeName,
+      type: detectedType,
     } as any);
 
     const headers: Record<string, string> = {
@@ -382,24 +392,43 @@ export const api = {
       headers['x-csrf-token'] = cachedCsrfToken;
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: form,
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      for (const [k, v] of Object.entries(headers)) {
+        xhr.setRequestHeader(k, v);
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const json = JSON.parse(xhr.responseText);
+            resolve(json?.data ?? json);
+          } catch {
+            resolve(xhr.responseText);
+          }
+        } else {
+          let msg = `Upload failed (${xhr.status})`;
+          try {
+            const j = JSON.parse(xhr.responseText);
+            if (j?.error?.message) msg = j.error.message;
+          } catch {}
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => {
+        reject(new Error('Upload network request failed.'));
+      };
+      xhr.ontimeout = () => {
+        reject(new Error('Upload request timed out.'));
+      };
+      xhr.send(form);
     });
+  },
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => '');
-      let msg = `Upload failed (${response.status})`;
-      try {
-        const j = JSON.parse(errText);
-        if (j?.error?.message) msg = j.error.message;
-      } catch {}
-      throw new Error(msg);
-    }
-
-    const json = await response.json();
-    return json?.data ?? json;
+  async removeProfileMedia(kind: 'avatar' | 'banner'): Promise<any> {
+    return apiRequest<any>(`/api/uploads/profile/${kind}`, {
+      method: 'DELETE',
+    });
   },
 
   async deleteAccount(): Promise<any> {

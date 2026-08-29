@@ -226,6 +226,7 @@ export type ProviderCredentialStatus = {
   connectionStatus?: string | null;
   lastTestedAt?: string | null;
   configuredFields?: string[];
+  hasSavedPersonalCredentials?: boolean;
   fields?: Array<{ key: string; label: string; placeholder: string; secure?: boolean }>;
   attribution?: string;
   docUrl?: string;

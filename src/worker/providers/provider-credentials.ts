@@ -45,6 +45,10 @@ export function configuredProviderCredentialKeys(secretsJson?: string | null): s
   }
 }
 
+export function activeProviderCredentialKeys(status?: string | null, secretsJson?: string | null): string[] {
+  return status === "active" ? configuredProviderCredentialKeys(secretsJson) : [];
+}
+
 /** Produces a secret-free description of the credentials the Worker will use. */
 export function providerConfigurationSource(options: {
   keyless: boolean;

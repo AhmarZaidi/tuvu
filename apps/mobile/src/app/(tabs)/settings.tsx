@@ -53,6 +53,7 @@ export type MobileProviderCatalogItem = {
   configurationSource?: 'personal' | 'app' | 'keyless' | 'disabled' | 'none';
   connectionStatus?: string | null;
   configuredFields?: string[];
+  hasSavedPersonalCredentials?: boolean;
   lastValidatedAt?: string | null;
   appFallback?: {
     configured: boolean;
@@ -582,6 +583,7 @@ export default function TabSettingsScreen() {
         configurationSource: live?.configurationSource ?? (item.keyless ? 'keyless' : 'none'),
         connectionStatus: live?.connectionStatus ?? null,
         configuredFields: live?.configuredFields ?? [],
+        hasSavedPersonalCredentials: live?.hasSavedPersonalCredentials ?? false,
         lastValidatedAt: live?.lastValidatedAt ?? null,
         appFallback: live?.appFallback ?? {
           configured: item.keyless,
@@ -685,12 +687,12 @@ export default function TabSettingsScreen() {
     }
   };
 
-  const handleDisableProvider = async () => {
+  const handleRemoveProviderCredentials = async () => {
     setSavingProvider(true);
     try {
       await api.disableProvider(activeProviderKey);
       await loadProviders();
-      showFeedback(`${activeProviderItem.name} disabled.`);
+      showFeedback(`${activeProviderItem.name} saved credentials removed.`);
     } catch (e: any) {
       showFeedback(e?.message || 'Failed to disable provider.', 'error');
     } finally {
@@ -1655,13 +1657,13 @@ export default function TabSettingsScreen() {
                     )}
                   </Pressable>
 
-                  {activeProviderItem.status === 'active' && !activeProviderItem.keyless && (
+                  {activeProviderItem.fields && activeProviderItem.fields.length > 0 && (
                     <Pressable
-                      style={[styles.disableButton, { paddingVertical: 10, paddingHorizontal: 16 }]}
-                      onPress={handleDisableProvider}
-                      disabled={savingProvider}
+                      style={[styles.disableButton, { paddingVertical: 10, paddingHorizontal: 16 }, !activeProviderItem.hasSavedPersonalCredentials && { opacity: 0.45 }]}
+                      onPress={handleRemoveProviderCredentials}
+                      disabled={savingProvider || !activeProviderItem.hasSavedPersonalCredentials}
                     >
-                      <Text style={styles.disableButtonText}>Disable</Text>
+                      <Text style={styles.disableButtonText}>Remove Credentials</Text>
                     </Pressable>
                   )}
                 </View>

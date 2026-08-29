@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { configuredProviderCredentialKeys, hasAppFallback, hasRequiredProviderCredentials, providerConfigurationSource, recordProviderValidation } from "@worker/providers/provider-credentials";
+import { activeProviderCredentialKeys, configuredProviderCredentialKeys, hasAppFallback, hasRequiredProviderCredentials, providerConfigurationSource, recordProviderValidation } from "@worker/providers/provider-credentials";
 import { pingProvider } from "@worker/providers/ping";
 
 describe("provider credential configuration", () => {
@@ -31,6 +31,10 @@ describe("provider credential configuration", () => {
 
   it("only exposes the names of configured credential fields", () => {
     expect(configuredProviderCredentialKeys(JSON.stringify({ TMDB_API_KEY: "saved-key", UNUSED: "" }))).toEqual(["TMDB_API_KEY"]);
+  });
+
+  it("does not expose disabled personal credentials as configured fields", () => {
+    expect(activeProviderCredentialKeys("disabled", JSON.stringify({ TMDB_API_KEY: "saved-key" }))).toEqual([]);
   });
 
   it("records a failed personal-credential probe without disabling the credential", async () => {

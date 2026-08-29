@@ -6,7 +6,7 @@ import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
 import { PROVIDER_CATALOG, getProviderCatalogItem } from "@shared/providers-config";
 import { pingProvider } from "./providers/ping";
-import { configuredProviderCredentialKeys, hasAppFallback, hasRequiredProviderCredentials, providerConfigurationSource } from "./providers/provider-credentials";
+import { activeProviderCredentialKeys, configuredProviderCredentialKeys, hasAppFallback, hasRequiredProviderCredentials, providerConfigurationSource } from "./providers/provider-credentials";
 
 const providerCodeSchema = z.string().trim().refine((val) => getProviderCatalogItem(val) !== undefined, "Unknown provider.");
 const providerCredentialSchema = z.object({
@@ -80,7 +80,9 @@ export function createSettingsRoutes() {
         status,
         configured: isConfigured,
         configurationSource,
-        configuredFields: configuredProviderCredentialKeys(userRow?.encrypted_secret_json),
+        // Disabled credentials remain removable but must never appear configured.
+        configuredFields: activeProviderCredentialKeys(userRow?.status, userRow?.encrypted_secret_json),
+        hasSavedPersonalCredentials: Boolean(userRow && configuredProviderCredentialKeys(userRow.encrypted_secret_json).length),
         lastValidatedAt: userRow?.last_validated_at ?? null,
         lastTestedAt: userRow?.last_tested_at ?? null,
         connectionStatus: userRow?.last_test_status ?? null,
@@ -135,11 +137,10 @@ export function createSettingsRoutes() {
     const providerParsed = providerCodeSchema.safeParse(c.req.param("provider"));
     if (!providerParsed.success) return apiError(c, 400, "validation_failed", "Unknown provider.");
     const auth = c.get("auth");
-    const now = new Date().toISOString();
-    await c.env.DB.prepare("UPDATE user_provider_credentials SET status = 'disabled', updated_at = ? WHERE user_id = ? AND provider = ?")
-      .bind(now, auth.user.id, providerParsed.data)
+    await c.env.DB.prepare("DELETE FROM user_provider_credentials WHERE user_id = ? AND provider = ?")
+      .bind(auth.user.id, providerParsed.data)
       .run();
-    return c.json(apiSuccess({ provider: providerParsed.data, status: "disabled", updatedAt: now }));
+    return c.json(apiSuccess({ provider: providerParsed.data, status: "not_configured" }));
   });
 
   router.get("/navigation", requireAuth(), async (c) => {

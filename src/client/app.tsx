@@ -4389,6 +4389,7 @@ type ProviderInfo = {
   connectionStatus?: string | null;
   lastTestedAt?: string | null;
   configuredFields?: string[];
+  hasSavedPersonalCredentials?: boolean;
   lastValidatedAt: string | null;
   updatedAt: string | null;
   fields: Array<{ key: string; label: string; placeholder: string; secure?: boolean }>;
@@ -4437,6 +4438,7 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
           connectionStatus: null,
           lastTestedAt: null,
           configuredFields: [],
+          hasSavedPersonalCredentials: false,
           lastValidatedAt: null,
           updatedAt: null,
           fields: p.fields,
@@ -4523,8 +4525,8 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
     try {
       await apiJson(`/api/settings/providers/${code}`, { method: "DELETE", csrfToken });
       await load();
-      notify(`${activeProvider?.name || code} disabled.`, "success");
-      setMessage("Provider credentials disabled.");
+      notify(`${activeProvider?.name || code} saved credentials removed.`, "success");
+      setMessage("Provider credentials removed.");
     } catch {
       setMessage("Failed to disable provider.");
     }
@@ -4810,9 +4812,9 @@ function ProviderCredentialsPanel({ csrfToken }: { csrfToken: string }) {
                 </button>
               )}
 
-              {activeProvider.status === "active" && !activeProvider.keyless && (
-                <button className="danger-button" type="button" onClick={() => void disable(activeProvider.provider)}>
-                  Disable
+              {activeProvider.fields && activeProvider.fields.length > 0 && (
+                <button className="danger-button" type="button" onClick={() => void disable(activeProvider.provider)} disabled={!activeProvider.hasSavedPersonalCredentials}>
+                  Remove Credentials
                 </button>
               )}
             </div>

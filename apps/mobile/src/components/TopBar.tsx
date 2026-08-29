@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,19 +20,23 @@ export function TopBar({ onSearchPress }: TopBarProps) {
       style={[
         styles.topbar,
         {
-          paddingTop: Math.max(insets.top + 4, 14),
+          paddingTop: Math.max(insets.top + 10, 22),
           backgroundColor: colors.isDark ? colors.background : colors.backgroundPanel,
           borderBottomColor: colors.border,
         },
       ]}
     >
-      {/* Brand Icon Only (compact mode matching web client) */}
+      {/* Official App Icon */}
       <Pressable
-        style={[styles.brandIconOnly, { backgroundColor: colors.accent, shadowColor: colors.accent }]}
+        style={styles.brandIconOnly}
         onPress={() => router.push('/' as any)}
         hitSlop={6}
       >
-        <Ionicons name="tv" size={18} color={colors.accentContrast} />
+        <Image
+          source={require('../../assets/app-icon.png')}
+          style={styles.brandAppIcon}
+          contentFit="cover"
+        />
       </Pressable>
 
       {/* Search Pill Input */}
@@ -74,20 +79,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingBottom: 10,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     gap: 10,
   },
   brandIconOnly: {
     width: 36,
     height: 36,
-    borderRadius: 10,
+    borderRadius: 9,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 2,
+  },
+  brandAppIcon: {
+    width: '100%',
+    height: '100%',
   },
   searchPill: {
     flex: 1,

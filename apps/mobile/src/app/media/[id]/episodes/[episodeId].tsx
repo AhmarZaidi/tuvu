@@ -14,11 +14,13 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../../../services/api';
 import { theme } from '../../../../constants/theme';
+import { useSubpageBack } from '../../../../hooks/useSubpageBack';
 
 export default function EpisodeDetailsScreen() {
   const { id: mediaId, episodeId } = useLocalSearchParams<{ id: string; episodeId: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  useSubpageBack(mediaId ? `/media/${mediaId}` : '/(tabs)');
 
   const {
     data,

@@ -16,9 +16,12 @@ import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { ProfileHeroCard } from '../../components/ProfileHeroCard';
 import { BottomSheet } from '../../components/BottomSheet';
+import { BackButton } from '../../components/BackButton';
+import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  useSubpageBack('/(tabs)', true);
   const queryClient = useQueryClient();
   const { colors, isDark } = useAppTheme();
 
@@ -79,9 +82,13 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {/* Page Heading matching web */}
         <View style={styles.headingSection}>
-          <Text style={[styles.eyebrow, { color: colors.accent }]}>PROFILE</Text>
-          <Text style={[styles.pageTitle, { color: colors.textStrong }]}>Your profile</Text>
-          <Text style={[styles.pageDesc, { color: colors.textMuted }]}>Stats, recent activity, favorites, and tools gather here.</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <BackButton fallbackRoute="/(tabs)" forceFallback={true} />
+            <View>
+              <Text style={[styles.eyebrow, { color: colors.accent }]}>PROFILE</Text>
+              <Text style={[styles.pageTitle, { color: colors.textStrong }]}>Your profile</Text>
+            </View>
+          </View>
         </View>
 
         {/* Profile Hero Card with exact yellow-to-blue gradient banner and camera buttons */}

@@ -17,11 +17,13 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { TrackingPanel } from '../../components/TrackingPanel';
 import { SeasonAccordion } from '../../components/SeasonAccordion';
 import { GoldenGlow } from '../../components/GoldenGlow';
+import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 export default function MediaDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  useSubpageBack('/(tabs)');
 
   const {
     data,

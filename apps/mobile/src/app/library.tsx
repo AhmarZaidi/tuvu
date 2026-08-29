@@ -16,6 +16,7 @@ import { useAppTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
 import { MediaCard } from '../components/MediaCard';
 import { GoldenGlow } from '../components/GoldenGlow';
+import { useSubpageBack } from '../hooks/useSubpageBack';
 
 const MEDIA_TYPES = [
   { key: 'all', label: 'All Media' },
@@ -36,6 +37,7 @@ const STATUS_FILTERS = [
 ];
 
 export default function AllLibraryScreen() {
+  useSubpageBack('/(tabs)');
   const { colors } = useAppTheme();
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');

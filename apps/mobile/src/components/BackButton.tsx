@@ -6,20 +6,24 @@ import { useAppTheme } from '../context/ThemeContext';
 
 interface BackButtonProps {
   onPress?: () => void;
+  fallbackRoute?: string;
+  forceFallback?: boolean;
   style?: any;
 }
 
-export function BackButton({ onPress, style }: BackButtonProps) {
+export function BackButton({ onPress, fallbackRoute = '/(tabs)', forceFallback = false, style }: BackButtonProps) {
   const router = useRouter();
   const { colors } = useAppTheme();
 
   const handlePress = () => {
     if (onPress) {
       onPress();
+    } else if (forceFallback) {
+      router.replace(fallbackRoute as any);
     } else if (router.canGoBack()) {
       router.back();
     } else {
-      router.replace('/(tabs)' as any);
+      router.replace(fallbackRoute as any);
     }
   };
 

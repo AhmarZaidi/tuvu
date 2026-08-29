@@ -10,9 +10,11 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../constants/theme';
+import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 export default function ImportScreen() {
   const router = useRouter();
+  useSubpageBack('/(tabs)/settings');
   const [importing, setImporting] = useState(false);
   const [imported, setImported] = useState(false);
 

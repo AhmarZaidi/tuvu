@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -36,53 +36,77 @@ export function BottomSheet({
 }: BottomSheetProps) {
   const { colors, isDark } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const [isRendered, setIsRendered] = useState(visible);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const isClosingRef = useRef(false);
+
+  const startOpenAnimation = useCallback(() => {
+    isClosingRef.current = false;
+    translateY.setValue(SCREEN_HEIGHT);
+    backdropOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        damping: 26,
+        stiffness: 280,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [backdropOpacity, translateY]);
+
+  const startCloseAnimation = useCallback((onComplete?: () => void) => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: SCREEN_HEIGHT,
+        duration: 220,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsRendered(false);
+      isClosingRef.current = false;
+      if (onComplete) onComplete();
+    });
+  }, [backdropOpacity, translateY]);
 
   useEffect(() => {
     if (visible) {
-      Animated.parallel([
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.spring(translateY, {
-          toValue: 0,
-          damping: 25,
-          stiffness: 250,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(backdropOpacity, {
-          toValue: 0,
-          duration: 180,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateY, {
-          toValue: SCREEN_HEIGHT,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      setIsRendered(true);
+      startOpenAnimation();
+    } else if (isRendered && !isClosingRef.current) {
+      startCloseAnimation();
     }
-  }, [visible]);
+  }, [visible, isRendered, startOpenAnimation, startCloseAnimation]);
 
-  if (!visible) return null;
+  const handleBackdropOrClose = () => {
+    startCloseAnimation(onClose);
+  };
+
+  if (!isRendered) return null;
 
   return (
     <Modal
       transparent
-      visible={visible}
+      visible={isRendered}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleBackdropOrClose}
       statusBarTranslucent
     >
       <View style={styles.overlay}>
         {/* Animated backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={handleBackdropOrClose}>
           <Animated.View
             style={[
               styles.backdrop,
@@ -130,7 +154,7 @@ export function BottomSheet({
 
               <Pressable
                 style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }]}
-                onPress={onClose}
+                onPress={handleBackdropOrClose}
                 hitSlop={8}
               >
                 <Ionicons name="close" size={18} color={colors.textMuted} />

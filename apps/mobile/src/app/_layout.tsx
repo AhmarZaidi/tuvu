@@ -44,18 +44,26 @@ function RootNavigation() {
           name="media/[id]"
           options={{
             title: 'Media Details',
+            headerLeft: () => <BackButton fallbackRoute="/(tabs)" style={{ marginRight: 10 }} />,
           }}
         />
         <Stack.Screen
           name="media/[id]/episodes/[episodeId]"
-          options={{
+          options={({ route }: any) => ({
             title: 'Episode Details',
-          }}
+            headerLeft: () => (
+              <BackButton
+                fallbackRoute={route?.params?.id ? `/media/${route.params.id}` : '/(tabs)'}
+                style={{ marginRight: 10 }}
+              />
+            ),
+          })}
         />
         <Stack.Screen
           name="library"
           options={{
             title: 'All Library',
+            headerLeft: () => <BackButton fallbackRoute="/(tabs)" style={{ marginRight: 10 }} />,
           }}
         />
         <Stack.Screen
@@ -68,6 +76,7 @@ function RootNavigation() {
           name="settings/import"
           options={{
             title: 'TV Time Import',
+            headerLeft: () => <BackButton fallbackRoute="/(tabs)/settings" style={{ marginRight: 10 }} />,
           }}
         />
       </Stack>

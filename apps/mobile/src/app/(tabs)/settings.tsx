@@ -28,6 +28,7 @@ import { TopBar } from '../../components/TopBar';
 import { BackButton } from '../../components/BackButton';
 import { ProfileHeroCard } from '../../components/ProfileHeroCard';
 import { BottomSheet } from '../../components/BottomSheet';
+import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 type SettingsTab =
   | 'account'
@@ -91,6 +92,7 @@ function formatBytes(bytes: number) {
 
 export default function TabSettingsScreen() {
   const router = useRouter();
+  useSubpageBack('/(tabs)/profile', true);
   const queryClient = useQueryClient();
   const { colors, mode, setMode, isDark, theme } = useAppTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('account');
@@ -444,7 +446,7 @@ export default function TabSettingsScreen() {
 
       {/* Subpage Back Button Header */}
       <View style={styles.subpageHeader}>
-        <BackButton />
+        <BackButton fallbackRoute="/(tabs)/profile" forceFallback={true} />
         <Text style={[styles.subpageHeaderTitle, { color: colors.textStrong }]}>Settings</Text>
       </View>
 

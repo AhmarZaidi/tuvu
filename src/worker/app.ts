@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import type { HealthResponse } from "@shared/api";
 import { createAuthRoutes } from "./auth-routes";
 import { apiError } from "./http";
@@ -26,6 +27,16 @@ export type AppDependencies = {
 
 export function createApp(dependencies: AppDependencies = {}) {
   const app = new Hono<{ Bindings: Env; Variables: AppVariables & { mediaRepository: MediaRepository } }>();
+
+  app.use(
+    "/api/*",
+    cors({
+      origin: (origin) => origin || "*",
+      allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization", "Cookie"],
+      credentials: true,
+    })
+  );
 
   app.use("/api/*", async (c, next) => {
     // Auth repository
@@ -79,7 +90,8 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.onError((error, c) => {
     console.error(error);
     if (c.req.path.startsWith("/api/")) {
-      return apiError(c, 500, "server_error", "Unexpected API error.");
+      const isDev = (c.env as any)?.ENVIRONMENT === "development";
+      return apiError(c, 500, "server_error", isDev ? error.message : "Unexpected API error.", isDev ? { stack: error.stack } : undefined);
     }
 
     return c.text("Unexpected server error.", 500);

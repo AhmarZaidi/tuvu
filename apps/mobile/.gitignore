@@ -1,0 +1,22 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.expo-export-smoke/
+coverage/
+expo-env.d.ts
+
+# Generated native project directories
+/ios
+/android
+
+# Machine-specific Android SDK config
+local.properties
+
+# Build outputs
+/builds/
+*.apk
+*.aab
+
+# App-specific runtime directories
+.tuvu-runtime/

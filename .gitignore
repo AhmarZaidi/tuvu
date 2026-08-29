@@ -7,15 +7,29 @@ coverage/
 playwright-report/
 test-results/
 
+# Environment files
 .env
 .env.*
 .dev.vars
 !.env.example
 !.dev.vars.example
 
+# Local development & logs
+.local/
 *.local
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Expo & Android
+.expo/
+.expo-export-smoke/
+builds/
+*.apk
+*.aab
+android/
+ios/
+local.properties
+

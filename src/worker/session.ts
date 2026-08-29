@@ -56,28 +56,52 @@ export function clearSessionCookie(c: Context) {
 }
 
 export async function readAuthContext(c: Context, repository: AuthRepository, now = new Date()): Promise<AuthContext | null> {
-  const token = getCookie(c, SESSION_COOKIE);
-  if (!token) {
-    return null;
+  const authHeader = c.req.header("authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+  const token = bearerToken || c.req.header("x-tuvu-session") || getCookie(c, SESSION_COOKIE);
+
+  if (token && token !== "dev") {
+    const session = await repository.findSessionByTokenHash(await sha256Hex(token), now.toISOString());
+    if (session) {
+      const [user, profile] = await Promise.all([
+        repository.findUserById(session.userId),
+        repository.findProfileByUserId(session.userId),
+      ]);
+      if (user && profile) {
+        await repository.touchSession(session.id, now.toISOString());
+        return { session, user, profile };
+      }
+    }
   }
 
-  const session = await repository.findSessionByTokenHash(await sha256Hex(token), now.toISOString());
-  if (!session) {
-    return null;
+  // Development mode fallback:
+  // When running locally in development and no session is provided,
+  // resolve the sole local owner (usr_local_test) so mobile clients
+  // and local dev tools immediately load the owner's library and dashboards.
+  if ((c.env as any)?.ENVIRONMENT === "development") {
+    const localUser = await repository.findUserById("usr_local_test");
+    if (localUser) {
+      const profile = await repository.findProfileByUserId(localUser.id);
+      if (profile) {
+        return {
+          session: {
+            id: "ses_dev_local",
+            userId: localUser.id,
+            tokenHash: "dev",
+            csrfToken: "dev_csrf_token",
+            expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            createdAt: now.toISOString(),
+            lastSeenAt: now.toISOString(),
+            userAgent: c.req.header("user-agent") ?? "development",
+          },
+          user: localUser,
+          profile,
+        };
+      }
+    }
   }
 
-  const [user, profile] = await Promise.all([
-    repository.findUserById(session.userId),
-    repository.findProfileByUserId(session.userId),
-  ]);
-
-  if (!user || !profile) {
-    return null;
-  }
-
-  await repository.touchSession(session.id, now.toISOString());
-
-  return { session, user, profile };
+  return null;
 }
 
 export function requireAuth(): MiddlewareHandler<{ Variables: AppVariables }> {

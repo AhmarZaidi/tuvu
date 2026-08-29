@@ -153,19 +153,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Session Status Card matching web EmptyState with ShieldCheck */}
-        <View style={[styles.sessionCard, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}>
-          <View style={styles.shieldIcon}>
-            <Ionicons name="shield-checkmark" size={22} color="#5fe388" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.sessionTitle, { color: colors.textStrong }]}>Session active</Text>
-            <Text style={[styles.sessionDesc, { color: colors.textMuted }]}>
-              Profile visibility is {visibility} (single-user local session).
-            </Text>
-          </View>
-        </View>
-
         {/* Library Overview Stats Grid matching web .stats-grid */}
         <View style={[styles.sectionCard, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}>
           <Text style={[styles.sectionTitle, { color: colors.textStrong }]}>Library Overview</Text>
@@ -199,6 +186,19 @@ export default function ProfileScreen() {
               </View>
             </View>
           )}
+        </View>
+
+        {/* Session Status Card matching web EmptyState with ShieldCheck */}
+        <View style={[styles.sessionCard, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}>
+          <View style={styles.shieldIcon}>
+            <Ionicons name="shield-checkmark" size={22} color="#5fe388" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.sessionTitle, { color: colors.textStrong }]}>Session active</Text>
+            <Text style={[styles.sessionDesc, { color: colors.textMuted }]}>
+              Profile visibility is {visibility} (single-user local session).
+            </Text>
+          </View>
         </View>
 
         {/* Session Management / Logout Danger Row - Logout button moved to the RIGHT */}

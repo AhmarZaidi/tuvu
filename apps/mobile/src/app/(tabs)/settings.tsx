@@ -27,6 +27,7 @@ import { GoldenGlow } from '../../components/GoldenGlow';
 import { TopBar } from '../../components/TopBar';
 import { BackButton } from '../../components/BackButton';
 import { ProfileHeroCard } from '../../components/ProfileHeroCard';
+import { BottomSheet } from '../../components/BottomSheet';
 
 type SettingsTab =
   | 'account'
@@ -142,58 +143,87 @@ export default function TabSettingsScreen() {
     }
   };
 
-  const handlePickMedia = async (kind: 'avatar' | 'banner') => {
-    Alert.alert(
-      `Change ${kind.charAt(0).toUpperCase() + kind.slice(1)}`,
-      'Choose how you want to set your image:',
-      [
-        {
-          text: 'Choose from Library',
-          onPress: async () => {
-            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-            if (status !== 'granted') {
-              Alert.alert('Permission Denied', 'Media library access is needed to select an image.');
-              return;
-            }
+  // Media picker BottomSheet state
+  const [activePickerKind, setActivePickerKind] = useState<'avatar' | 'banner'>('avatar');
+  const [showMediaPickerSheet, setShowMediaPickerSheet] = useState(false);
+  const [showMediaUrlSheet, setShowMediaUrlSheet] = useState(false);
+  const [mediaInputUrl, setMediaInputUrl] = useState('');
+  const [savingMediaUrl, setSavingMediaUrl] = useState(false);
 
-            const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: kind === 'avatar' ? [1, 1] : [16, 7],
-              quality: 0.85,
-            });
+  const handlePickMedia = (kind: 'avatar' | 'banner') => {
+    setActivePickerKind(kind);
+    setShowMediaPickerSheet(true);
+  };
 
-            if (!result.canceled && result.assets && result.assets[0]?.uri) {
-              try {
-                await api.uploadProfileMedia(kind, result.assets[0].uri);
-                await refetchMe();
-                queryClient.invalidateQueries({ queryKey: ['me'] });
-                showFeedback(`${kind.charAt(0).toUpperCase() + kind.slice(1)} uploaded successfully.`);
-              } catch (e: any) {
-                Alert.alert('Upload Failed', e?.message || 'Could not upload image.');
-              }
-            }
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+  const handleChooseFromLibrary = async () => {
+    setShowMediaPickerSheet(false);
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      showFeedback('Media library access is needed to select an image.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: activePickerKind === 'avatar' ? [1, 1] : [16, 7],
+      quality: 0.85,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]?.uri) {
+      try {
+        await api.uploadProfileMedia(activePickerKind, result.assets[0].uri);
+        await refetchMe();
+        queryClient.invalidateQueries({ queryKey: ['me'] });
+        showFeedback(`${activePickerKind.charAt(0).toUpperCase() + activePickerKind.slice(1)} uploaded successfully.`);
+      } catch (e: any) {
+        showFeedback(e?.message || 'Could not upload image.');
+      }
+    }
+  };
+
+  const handleOpenMediaUrl = () => {
+    setShowMediaPickerSheet(false);
+    setMediaInputUrl(activePickerKind === 'avatar' ? meData?.profile?.avatarUrl || '' : meData?.profile?.bannerUrl || '');
+    setShowMediaUrlSheet(true);
+  };
+
+  const handleSaveMediaUrl = async () => {
+    if (!mediaInputUrl.trim()) {
+      showFeedback('Please enter a valid image URL.');
+      return;
+    }
+    setSavingMediaUrl(true);
+    try {
+      if (activePickerKind === 'avatar') {
+        await api.updateProfile({ avatarUrl: mediaInputUrl.trim() });
+      } else {
+        await api.updateProfile({ bannerUrl: mediaInputUrl.trim() });
+      }
+      setShowMediaUrlSheet(false);
+      await refetchMe();
+      queryClient.invalidateQueries({ queryKey: ['me'] });
+      showFeedback(`${activePickerKind.charAt(0).toUpperCase() + activePickerKind.slice(1)} URL saved.`);
+    } catch (e: any) {
+      showFeedback(e?.message || 'Could not save image URL.');
+    } finally {
+      setSavingMediaUrl(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== meData?.user?.username) {
-      Alert.alert('Username mismatch', 'Please type your exact username to confirm deletion.');
+      showFeedback('Please type your exact username to confirm deletion.');
       return;
     }
     setIsDeletingAccount(true);
     try {
       await api.deleteAccount();
       setShowDeleteModal(false);
-      Alert.alert('Account Deleted', 'Your account and tracking data have been permanently removed.');
       queryClient.clear();
       router.replace('/' as any);
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to delete account.');
+      showFeedback(e?.message || 'Failed to delete account.');
     } finally {
       setIsDeletingAccount(false);
     }
@@ -1091,54 +1121,150 @@ export default function TabSettingsScreen() {
         )}
       </ScrollView>
 
-      {/* Delete Account Confirmation Modal */}
-      <Modal visible={showDeleteModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.isDark ? '#171819' : colors.card, borderColor: colors.border }]}>
-            <View style={styles.modalHeader}>
-              <Ionicons name="trash-bin-outline" size={24} color="#ff6b6b" />
-              <Text style={[styles.modalTitle, { color: colors.textStrong }]}>Delete Account</Text>
-            </View>
-            <Text style={[styles.modalMessage, { color: colors.textMuted }]}>
-              This action is permanent and cannot be undone. All your tracked shows, movies, anime, and notes will be deleted.
-            </Text>
-            <Text style={[styles.modalSubMessage, { color: colors.textMuted }]}>
-              Type <Text style={{ fontWeight: '900', color: colors.accent }}>{meData?.user?.username}</Text> to confirm:
-            </Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
-              value={deleteConfirmText}
-              onChangeText={setDeleteConfirmText}
-              placeholder={meData?.user?.username}
-              placeholderTextColor={colors.textSubtle}
-              autoCapitalize="none"
-            />
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalCancelButton, { backgroundColor: colors.surface }]}
-                onPress={() => setShowDeleteModal(false)}
-                disabled={isDeletingAccount}
-              >
-                <Text style={[styles.modalCancelText, { color: colors.textMuted }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.modalConfirmButton,
-                  deleteConfirmText !== meData?.user?.username && { opacity: 0.5 },
-                ]}
-                onPress={handleDeleteAccount}
-                disabled={deleteConfirmText !== meData?.user?.username || isDeletingAccount}
-              >
-                {isDeletingAccount ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.modalConfirmText}>Delete Permanently</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
+      {/* ────────────────────────────────────────────── */}
+      {/* 1. Delete Account Confirmation BottomSheet     */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        title="Delete Account"
+        subtitle="Permanently delete account and all library data"
+        icon="trash-bin-outline"
+        iconColor="#ff6b6b"
+      >
+        <Text style={[styles.deleteSheetDesc, { color: colors.textMuted }]}>
+          This action is permanent and cannot be undone. All your tracked shows, movies, anime, and notes will be deleted.
+        </Text>
+        <Text style={[styles.deleteSheetSub, { color: colors.textMuted }]}>
+          Type <Text style={{ fontWeight: '900', color: colors.accent }}>{meData?.user?.username}</Text> to confirm:
+        </Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: colors.inputBg, color: colors.text, borderColor: colors.border }]}
+          value={deleteConfirmText}
+          onChangeText={setDeleteConfirmText}
+          placeholder={meData?.user?.username}
+          placeholderTextColor={colors.textSubtle}
+          autoCapitalize="none"
+        />
+        <View style={styles.sheetBtnRow}>
+          <Pressable
+            style={[styles.sheetSecondaryBtn, { borderColor: colors.border }]}
+            onPress={() => setShowDeleteModal(false)}
+            disabled={isDeletingAccount}
+          >
+            <Text style={[styles.sheetSecondaryText, { color: colors.textMuted }]}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.sheetDangerBtn,
+              deleteConfirmText !== meData?.user?.username && { opacity: 0.5 },
+            ]}
+            onPress={handleDeleteAccount}
+            disabled={deleteConfirmText !== meData?.user?.username || isDeletingAccount}
+          >
+            {isDeletingAccount ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.sheetDangerText}>Delete Permanently</Text>
+            )}
+          </Pressable>
         </View>
-      </Modal>
+      </BottomSheet>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 2. Media Picker BottomSheet (Avatar / Banner)  */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showMediaPickerSheet}
+        onClose={() => setShowMediaPickerSheet(false)}
+        title={`Change ${activePickerKind === 'avatar' ? 'Avatar' : 'Banner'}`}
+        subtitle="Select image from device storage or enter direct link"
+        icon="image-outline"
+      >
+        <Pressable
+          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
+          onPress={handleChooseFromLibrary}
+        >
+          <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
+            <Ionicons name="images-outline" size={20} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Choose from Library</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Select an image from device gallery</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
+        </Pressable>
+
+        <Pressable
+          style={[styles.sheetActionItem, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border }]}
+          onPress={handleOpenMediaUrl}
+        >
+          <View style={[styles.sheetIconBox, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.12)' : 'rgba(240, 168, 36, 0.18)' }]}>
+            <Ionicons name="link-outline" size={20} color={colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.sheetActionTitle, { color: colors.textStrong }]}>Enter Direct Image URL</Text>
+            <Text style={[styles.sheetActionSubtitle, { color: colors.textMuted }]}>Provide HTTPS web image URL</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
+        </Pressable>
+
+        <Pressable
+          style={[styles.sheetCancelBtn, { borderColor: colors.border }]}
+          onPress={() => setShowMediaPickerSheet(false)}
+        >
+          <Text style={[styles.sheetCancelText, { color: colors.textMuted }]}>Cancel</Text>
+        </Pressable>
+      </BottomSheet>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 3. Media Direct URL BottomSheet                */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showMediaUrlSheet}
+        onClose={() => setShowMediaUrlSheet(false)}
+        title={`Set ${activePickerKind === 'avatar' ? 'Avatar' : 'Banner'} URL`}
+        subtitle="Enter direct image link (HTTPS)"
+        icon="link-outline"
+      >
+        <TextInput
+          style={[
+            styles.input,
+            {
+              color: colors.text,
+              backgroundColor: colors.inputBg,
+              borderColor: colors.border,
+            },
+          ]}
+          value={mediaInputUrl}
+          onChangeText={setMediaInputUrl}
+          placeholder="https://example.com/image.jpg"
+          placeholderTextColor={colors.textSubtle}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+
+        <View style={styles.sheetBtnRow}>
+          <Pressable
+            style={[styles.sheetSecondaryBtn, { borderColor: colors.border }]}
+            onPress={() => setShowMediaUrlSheet(false)}
+            disabled={savingMediaUrl}
+          >
+            <Text style={[styles.sheetSecondaryText, { color: colors.textMuted }]}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.sheetPrimaryBtn, { backgroundColor: colors.accent }]}
+            onPress={handleSaveMediaUrl}
+            disabled={savingMediaUrl}
+          >
+            {savingMediaUrl ? (
+              <ActivityIndicator size="small" color={colors.accentContrast} />
+            ) : (
+              <Text style={[styles.sheetPrimaryText, { color: colors.accentContrast }]}>Save URL</Text>
+            )}
+          </Pressable>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -1674,5 +1800,83 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 13,
     fontWeight: '800',
+  },
+  deleteSheetDesc: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  deleteSheetSub: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  sheetBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 6,
+  },
+  sheetSecondaryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  sheetSecondaryText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sheetPrimaryBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 6,
+  },
+  sheetPrimaryText: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sheetDangerBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 6,
+    backgroundColor: '#ff6b6b',
+  },
+  sheetDangerText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  sheetActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    gap: 12,
+  },
+  sheetIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetActionTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  sheetActionSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  sheetCancelBtn: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  sheetCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
 });

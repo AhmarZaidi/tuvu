@@ -6,8 +6,6 @@ import {
   ScrollView,
   Pressable,
   ActivityIndicator,
-  Modal,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,13 +15,25 @@ import { useAppTheme } from '../../context/ThemeContext';
 import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { ProfileHeroCard } from '../../components/ProfileHeroCard';
+import { BottomSheet } from '../../components/BottomSheet';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { colors, isDark } = useAppTheme();
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  // BottomSheet states
+  const [showNotificationsSheet, setShowNotificationsSheet] = useState(false);
+  const [showMergeMediaSheet, setShowMergeMediaSheet] = useState(false);
+  const [showMessagesSheet, setShowMessagesSheet] = useState(false);
+  const [showLogoutSheet, setShowLogoutSheet] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
 
   // Fetch Session / User info
   const { data: meData, refetch: refetchMe } = useQuery<MeResponse>({
@@ -41,11 +51,11 @@ export default function ProfileScreen() {
     setLoggingOut(true);
     try {
       await api.logout();
-      setShowLogoutModal(false);
+      setShowLogoutSheet(false);
       queryClient.clear();
-      Alert.alert('Logged Out', 'You have been logged out of this session.');
+      showToast('You have been logged out of this session.');
     } catch (e: any) {
-      Alert.alert('Logout Error', e?.message || 'Could not log out.');
+      showToast(e?.message || 'Could not log out.');
     } finally {
       setLoggingOut(false);
     }
@@ -57,6 +67,14 @@ export default function ProfileScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <GoldenGlow />
       <TopBar />
+
+      {/* Floating toast notification */}
+      {toastMessage && (
+        <View style={[styles.floatingToast, { backgroundColor: isDark ? '#1d1911' : '#fff7e0', borderColor: colors.accent }]}>
+          <Ionicons name="checkmark-circle" size={16} color={colors.accent} />
+          <Text style={[styles.floatingToastText, { color: colors.textStrong }]}>{toastMessage}</Text>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Page Heading matching web */}
@@ -75,9 +93,9 @@ export default function ProfileScreen() {
           <View style={styles.toolsGrid}>
             <Pressable
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
-              onPress={() => Alert.alert('Notifications', 'You are caught up! No unread notifications.')}
+              onPress={() => setShowNotificationsSheet(true)}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="notifications-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>Notifications</Text>
@@ -87,7 +105,7 @@ export default function ProfileScreen() {
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
               onPress={() => router.push('/(tabs)/settings' as any)}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="settings-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>Settings</Text>
@@ -97,7 +115,7 @@ export default function ProfileScreen() {
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
               onPress={() => router.push('/library')}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="library-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>All Library</Text>
@@ -107,7 +125,7 @@ export default function ProfileScreen() {
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
               onPress={() => router.push('/settings/import' as any)}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>TV Time Import</Text>
@@ -115,9 +133,9 @@ export default function ProfileScreen() {
 
             <Pressable
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
-              onPress={() => Alert.alert('Merge Media', 'Merge media utility allows combining custom imports with canonical TMDB/RAWG entries.')}
+              onPress={() => setShowMergeMediaSheet(true)}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="git-merge-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>Merge Media</Text>
@@ -125,9 +143,9 @@ export default function ProfileScreen() {
 
             <Pressable
               style={[styles.toolButton, { backgroundColor: colors.surfaceGlass, borderColor: colors.border }]}
-              onPress={() => Alert.alert('Messages', 'No direct messages in local single-user mode.')}
+              onPress={() => setShowMessagesSheet(true)}
             >
-              <View style={[styles.toolIconWrap, { backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
+              <View style={[styles.toolIconWrap, { backgroundColor: isDark ? 'rgba(255, 207, 92, 0.1)' : 'rgba(240, 168, 36, 0.18)' }]}>
                 <Ionicons name="mail-outline" size={20} color={colors.accent} />
               </View>
               <Text style={[styles.toolLabel, { color: colors.textStrong }]}>Messages</Text>
@@ -183,7 +201,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Session Management / Logout Danger Row */}
+        {/* Session Management / Logout Danger Row - Logout button moved to the RIGHT */}
         <View style={styles.dangerCard}>
           <View style={styles.dangerHeader}>
             <View style={styles.dangerIconWrap}>
@@ -196,7 +214,7 @@ export default function ProfileScreen() {
           </View>
           <Pressable
             style={styles.logoutButton}
-            onPress={() => setShowLogoutModal(true)}
+            onPress={() => setShowLogoutSheet(true)}
           >
             <Text style={styles.logoutButtonText}>Log out</Text>
           </Pressable>
@@ -209,40 +227,124 @@ export default function ProfileScreen() {
         </View>
       </ScrollView>
 
-      {/* Logout Confirmation Modal */}
-      <Modal visible={showLogoutModal} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.isDark ? '#171819' : colors.card, borderColor: colors.border }]}>
-            <View style={styles.modalHeader}>
-              <Ionicons name="alert-circle-outline" size={26} color="#ff6b6b" />
-              <Text style={[styles.modalTitle, { color: colors.textStrong }]}>Confirm Logout</Text>
-            </View>
-            <Text style={[styles.modalMessage, { color: colors.textMuted }]}>
-              Are you sure you want to end your current session? You can sign back in at any time.
-            </Text>
-            <View style={styles.modalActions}>
-              <Pressable
-                style={[styles.modalCancelButton, { backgroundColor: colors.surface }]}
-                onPress={() => setShowLogoutModal(false)}
-                disabled={loggingOut}
-              >
-                <Text style={[styles.modalCancelText, { color: colors.textMuted }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalConfirmButton}
-                onPress={handleLogout}
-                disabled={loggingOut}
-              >
-                {loggingOut ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.modalConfirmText}>Log out</Text>
-                )}
-              </Pressable>
-            </View>
+      {/* ────────────────────────────────────────────── */}
+      {/* 1. Notifications Bottom Sheet                  */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showNotificationsSheet}
+        onClose={() => setShowNotificationsSheet(false)}
+        title="Notifications"
+        subtitle="Recent activity and update alerts"
+        icon="notifications-outline"
+      >
+        <View style={[styles.emptySheetCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)', borderColor: colors.border }]}>
+          <View style={styles.emptyIconBox}>
+            <Ionicons name="checkmark-done" size={24} color="#5fe388" />
           </View>
+          <Text style={[styles.emptySheetTitle, { color: colors.textStrong }]}>You're all caught up!</Text>
+          <Text style={[styles.emptySheetDesc, { color: colors.textMuted }]}>
+            No unread notifications at this time. Tracking updates and backup events will show up here.
+          </Text>
         </View>
-      </Modal>
+
+        <Pressable
+          style={[styles.sheetDoneBtn, { backgroundColor: colors.accent }]}
+          onPress={() => setShowNotificationsSheet(false)}
+        >
+          <Text style={[styles.sheetDoneText, { color: colors.accentContrast }]}>Done</Text>
+        </Pressable>
+      </BottomSheet>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 2. Merge Media Utility Bottom Sheet             */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showMergeMediaSheet}
+        onClose={() => setShowMergeMediaSheet(false)}
+        title="Merge Media Utility"
+        subtitle="Combine custom imports with canonical entries"
+        icon="git-merge-outline"
+      >
+        <View style={[styles.emptySheetCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)', borderColor: colors.border }]}>
+          <Text style={[styles.emptySheetTitle, { color: colors.textStrong }]}>Reconcile Duplicate Media</Text>
+          <Text style={[styles.emptySheetDesc, { color: colors.textMuted }]}>
+            Merge media allows alias resolution between local TV Time import entries and verified TMDB, RAWG, or OpenLibrary entries without losing watch history.
+          </Text>
+        </View>
+
+        <Pressable
+          style={[styles.sheetDoneBtn, { backgroundColor: colors.accent }]}
+          onPress={() => setShowMergeMediaSheet(false)}
+        >
+          <Text style={[styles.sheetDoneText, { color: colors.accentContrast }]}>Close</Text>
+        </Pressable>
+      </BottomSheet>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 3. Messages Bottom Sheet                       */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showMessagesSheet}
+        onClose={() => setShowMessagesSheet(false)}
+        title="Direct Messages"
+        subtitle="Social and messaging features"
+        icon="mail-outline"
+      >
+        <View style={[styles.emptySheetCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)', borderColor: colors.border }]}>
+          <View style={styles.emptyIconBox}>
+            <Ionicons name="chatbubbles-outline" size={24} color={colors.accent} />
+          </View>
+          <Text style={[styles.emptySheetTitle, { color: colors.textStrong }]}>Local Single-User Session</Text>
+          <Text style={[styles.emptySheetDesc, { color: colors.textMuted }]}>
+            Direct messages and connection requests are unavailable in local single-user mode.
+          </Text>
+        </View>
+
+        <Pressable
+          style={[styles.sheetDoneBtn, { backgroundColor: colors.accent }]}
+          onPress={() => setShowMessagesSheet(false)}
+        >
+          <Text style={[styles.sheetDoneText, { color: colors.accentContrast }]}>Close</Text>
+        </Pressable>
+      </BottomSheet>
+
+      {/* ────────────────────────────────────────────── */}
+      {/* 4. Logout Confirmation Bottom Sheet            */}
+      {/* ────────────────────────────────────────────── */}
+      <BottomSheet
+        visible={showLogoutSheet}
+        onClose={() => setShowLogoutSheet(false)}
+        title="Confirm Logout"
+        subtitle="Are you sure you want to end your current session?"
+        icon="log-out-outline"
+        iconColor="#ff6b6b"
+      >
+        <Text style={[styles.logoutSheetText, { color: colors.textMuted }]}>
+          You can sign back in at any time. Your locally tracked media and notes remain safely stored in the database.
+        </Text>
+
+        <View style={styles.sheetBtnRow}>
+          <Pressable
+            style={[styles.sheetSecondaryBtn, { borderColor: colors.border }]}
+            onPress={() => setShowLogoutSheet(false)}
+            disabled={loggingOut}
+          >
+            <Text style={[styles.sheetSecondaryText, { color: colors.textMuted }]}>Cancel</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.sheetDangerBtn}
+            onPress={handleLogout}
+            disabled={loggingOut}
+          >
+            {loggingOut ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.sheetDangerText}>Log out</Text>
+            )}
+          </Pressable>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -250,6 +352,23 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  floatingToast: {
+    position: 'absolute',
+    top: 100,
+    left: 16,
+    right: 16,
+    borderWidth: 1,
+    borderRadius: 6,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 100,
+  },
+  floatingToastText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   content: {
     padding: 14,
@@ -386,7 +505,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   logoutButton: {
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end', // Moved to the RIGHT side
     backgroundColor: 'rgba(255, 107, 107, 0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255, 107, 107, 0.35)',
@@ -411,56 +530,69 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  emptySheetCard: {
+    padding: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 8,
+  },
+  emptyIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(95, 227, 136, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
+    marginBottom: 4,
   },
-  modalContent: {
-    width: '100%',
-    maxWidth: 340,
+  emptySheetTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  emptySheetDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  sheetDoneBtn: {
     borderRadius: 8,
-    borderWidth: 1,
-    padding: 20,
-    gap: 14,
-  },
-  modalHeader: {
-    flexDirection: 'row',
+    paddingVertical: 11,
     alignItems: 'center',
-    gap: 10,
+    marginTop: 4,
   },
-  modalTitle: {
-    fontSize: 17,
+  sheetDoneText: {
+    fontSize: 14,
     fontWeight: '800',
   },
-  modalMessage: {
+  logoutSheetText: {
     fontSize: 13,
     lineHeight: 19,
+    marginBottom: 8,
   },
-  modalActions: {
+  sheetBtnRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
-    marginTop: 6,
   },
-  modalCancelButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  sheetSecondaryBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderRadius: 6,
+    borderWidth: 1,
   },
-  modalCancelText: {
+  sheetSecondaryText: {
     fontSize: 13,
     fontWeight: '700',
   },
-  modalConfirmButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  sheetDangerBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 6,
     backgroundColor: '#ff6b6b',
   },
-  modalConfirmText: {
+  sheetDangerText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: '800',

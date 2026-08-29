@@ -29,6 +29,7 @@ export default function RootLayout() {
               fontWeight: '800',
               fontSize: 18,
             },
+            headerBackTitle: 'Back',
             contentStyle: {
               backgroundColor: theme.colors.background,
             },
@@ -39,7 +40,30 @@ export default function RootLayout() {
             name="media/[id]"
             options={{
               title: 'Media Details',
-              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
+            name="media/[id]/episodes/[episodeId]"
+            options={{
+              title: 'Episode Details',
+            }}
+          />
+          <Stack.Screen
+            name="library"
+            options={{
+              title: 'All Library',
+            }}
+          />
+          <Stack.Screen
+            name="settings/index"
+            options={{
+              title: 'Settings',
+            }}
+          />
+          <Stack.Screen
+            name="settings/import"
+            options={{
+              title: 'TV Time Import',
             }}
           />
         </Stack>

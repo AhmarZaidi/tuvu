@@ -18,7 +18,7 @@ export default function TabsLayout() {
           paddingTop: 6,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '700',
         },
         headerStyle: {
@@ -29,7 +29,7 @@ export default function TabsLayout() {
         headerTintColor: theme.colors.textStrong,
         headerTitleStyle: {
           fontWeight: '800',
-          fontSize: 19,
+          fontSize: 18,
           color: theme.colors.textStrong,
         },
       }}
@@ -39,16 +39,7 @@ export default function TabsLayout() {
         options={{
           title: 'Shows',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'tv' : 'tv-outline'} size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="movies"
-        options={{
-          title: 'Movies',
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'film' : 'film-outline'} size={size} color={color} />
+            <Ionicons name={focused ? 'tv' : 'tv-outline'} size={size - 2} color={color} />
           ),
         }}
       />
@@ -57,7 +48,34 @@ export default function TabsLayout() {
         options={{
           title: 'Anime',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'sparkles' : 'sparkles-outline'} size={size} color={color} />
+            <Ionicons name={focused ? 'flame' : 'flame-outline'} size={size - 2} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="movies"
+        options={{
+          title: 'Movies',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'film' : 'film-outline'} size={size - 2} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="books"
+        options={{
+          title: 'Books',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'book' : 'book-outline'} size={size - 2} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="games"
+        options={{
+          title: 'Games',
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'game-controller' : 'game-controller-outline'} size={size - 2} color={color} />
           ),
         }}
       />
@@ -66,7 +84,7 @@ export default function TabsLayout() {
         options={{
           title: 'Explore',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'compass' : 'compass-outline'} size={size} color={color} />
+            <Ionicons name={focused ? 'compass' : 'compass-outline'} size={size - 2} color={color} />
           ),
         }}
       />
@@ -75,7 +93,7 @@ export default function TabsLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'person' : 'person-outline'} size={size} color={color} />
+            <Ionicons name={focused ? 'person' : 'person-outline'} size={size - 2} color={color} />
           ),
         }}
       />

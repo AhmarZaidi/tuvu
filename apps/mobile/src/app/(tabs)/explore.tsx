@@ -9,25 +9,30 @@ import {
   Pressable,
   ActivityIndicator,
 } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { api, DashboardEntry } from '../../services/api';
+import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
+import { api, DashboardEntry, ExploreResult } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { MediaCard } from '../../components/MediaCard';
 import { SectionHeader } from '../../components/SectionHeader';
 
 const MEDIA_TYPES = [
-  { key: '', label: 'All' },
+  { key: '', label: 'All Media' },
   { key: 'show', label: 'Shows' },
-  { key: 'movie', label: 'Movies' },
   { key: 'anime', label: 'Anime' },
-  { key: 'game', label: 'Games' },
+  { key: 'movie', label: 'Movies' },
   { key: 'book', label: 'Books' },
+  { key: 'game', label: 'Games' },
 ];
 
 export default function ExploreScreen() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState('');
+  const [addingId, setAddingId] = useState<string | null>(null);
 
   const isSearching = query.trim().length > 1;
 
@@ -49,15 +54,28 @@ export default function ExploreScreen() {
     enabled: !isSearching,
   });
 
+  const handleAdd = async (item: DashboardEntry) => {
+    setAddingId(item.mediaId);
+    try {
+      await api.addToLibrary(item.mediaId, 'watching');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+    } catch (e) {
+      console.error('Failed to add to library', e);
+    } finally {
+      setAddingId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      {/* Search Input Bar matching web */}
+      {/* Search Input Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={18} color={theme.colors.textSubtle} style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search shows, movies, anime, games..."
+            placeholder="Search shows, anime, movies, books, games..."
             placeholderTextColor={theme.colors.textSubtle}
             value={query}
             onChangeText={setQuery}
@@ -108,7 +126,7 @@ export default function ExploreScreen() {
         isSearchLoading ? (
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color={theme.colors.accent} />
-            <Text style={styles.loadingText}>Searching...</Text>
+            <Text style={styles.loadingText}>Searching media...</Text>
           </View>
         ) : (
           <FlatList
@@ -118,13 +136,13 @@ export default function ExploreScreen() {
             contentContainerStyle={styles.gridContainer}
             renderItem={({ item }) => (
               <View style={styles.gridItem}>
-                <MediaCard item={item} width={105} />
+                <MediaCard item={item} width={108} />
               </View>
             )}
             ListEmptyComponent={
               <View style={styles.centerContainer}>
                 <Text style={styles.emptyTitle}>No results found</Text>
-                <Text style={styles.emptySubtitle}>Try searching with a different term.</Text>
+                <Text style={styles.emptySubtitle}>Try searching with a different title or keyword.</Text>
               </View>
             }
           />
@@ -133,26 +151,51 @@ export default function ExploreScreen() {
         isExploreLoading ? (
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color={theme.colors.accent} />
-            <Text style={styles.loadingText}>Loading discovery...</Text>
+            <Text style={styles.loadingText}>Loading discovery rows...</Text>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.exploreScroll}>
-            {exploreData?.sections?.map((section: any) => (
-              <View key={section.id || section.key} style={styles.section}>
-                <SectionHeader title={section.label || section.title} count={section.entries?.length || section.items?.length} />
-                <FlatList
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  data={section.entries || section.items || []}
-                  keyExtractor={(item: DashboardEntry) => item.mediaId}
-                  renderItem={({ item }) => <MediaCard item={item} />}
-                  contentContainerStyle={styles.horizontalList}
-                />
-              </View>
-            )) || (
+            {exploreData?.rows && exploreData.rows.length > 0 ? (
+              exploreData.rows.map((row) => (
+                <View key={row.id} style={styles.section}>
+                  <SectionHeader title={row.title} count={row.results?.length} />
+                  <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={row.results || []}
+                    keyExtractor={(result) => `${result.provider}:${result.providerId}`}
+                    renderItem={({ item }) => {
+                      const poster = item.posterPath
+                        ? (item.posterPath.startsWith('http') ? item.posterPath : `https://image.tmdb.org/t/p/w342${item.posterPath}`)
+                        : null;
+
+                      return (
+                        <View style={styles.exploreCard}>
+                          <View style={styles.explorePoster}>
+                            {poster ? (
+                              <Image source={{ uri: poster }} style={styles.posterImg} contentFit="cover" />
+                            ) : (
+                              <View style={styles.placeholder}>
+                                <Text style={styles.placeholderText} numberOfLines={2}>{item.title}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.exploreTitle} numberOfLines={1}>{item.title}</Text>
+                          {item.year && <Text style={styles.exploreYear}>{item.year}</Text>}
+                        </View>
+                      );
+                    }}
+                    contentContainerStyle={styles.horizontalList}
+                  />
+                </View>
+              ))
+            ) : (
               <View style={styles.centerContainer}>
-                <Text style={styles.emptyTitle}>Explore</Text>
-                <Text style={styles.emptySubtitle}>Type above to search through thousands of titles.</Text>
+                <Ionicons name="compass-outline" size={48} color={theme.colors.textSubtle} style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>Discover New Media</Text>
+                <Text style={styles.emptySubtitle}>
+                  Type in the search bar above to search across millions of TV shows, movies, anime, books, and games.
+                </Text>
               </View>
             )}
           </ScrollView>
@@ -205,7 +248,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -222,11 +265,11 @@ const styles = StyleSheet.create({
     color: theme.colors.accentContrast,
   },
   gridContainer: {
-    padding: theme.spacing.sm,
+    padding: theme.spacing.md,
   },
   gridItem: {
     flex: 1 / 3,
-    marginBottom: theme.spacing.md,
+    marginBottom: 12,
     alignItems: 'center',
   },
   exploreScroll: {
@@ -239,11 +282,52 @@ const styles = StyleSheet.create({
   horizontalList: {
     paddingRight: theme.spacing.md,
   },
+  exploreCard: {
+    width: 120,
+    marginRight: 12,
+  },
+  explorePoster: {
+    width: '100%',
+    aspectRatio: 2 / 3,
+    borderRadius: theme.borderRadius.sm,
+    overflow: 'hidden',
+    backgroundColor: '#1c1d1e',
+    borderWidth: 1,
+    borderColor: theme.colors.cardBorder,
+  },
+  posterImg: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 6,
+  },
+  placeholderText: {
+    color: theme.colors.textStrong,
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  exploreTitle: {
+    color: theme.colors.textStrong,
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 6,
+  },
+  exploreYear: {
+    color: theme.colors.textSubtle,
+    fontSize: 11,
+    marginTop: 2,
+  },
   centerContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: theme.spacing.xl,
+    padding: 32,
+    marginTop: 32,
   },
   loadingText: {
     color: theme.colors.textMuted,
@@ -252,7 +336,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     color: theme.colors.textStrong,
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
     marginBottom: 6,
   },
@@ -260,5 +344,6 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontSize: 13,
     textAlign: 'center',
+    lineHeight: 19,
   },
 });

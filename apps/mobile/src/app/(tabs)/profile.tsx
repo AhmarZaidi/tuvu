@@ -1,70 +1,41 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TextInput,
   Pressable,
   ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
-import { config, getDefaultApiBase } from '../../constants/config';
 import { theme } from '../../constants/theme';
 
 export default function ProfileScreen() {
-  const [serverUrl, setServerUrl] = useState(config.getApiBase());
-  const [pingStatus, setPingStatus] = useState<string | null>(null);
-  const [isPinging, setIsPinging] = useState(false);
+  const router = useRouter();
 
   const { data: statsData, isLoading: isStatsLoading } = useQuery({
     queryKey: ['profileStats'],
     queryFn: () => api.getProfileStats(),
   });
 
-  const handleTestConnection = async () => {
-    config.setApiBase(serverUrl);
-    setIsPinging(true);
-    setPingStatus(null);
-    try {
-      const start = Date.now();
-      const res = await api.checkHealth();
-      const elapsed = Date.now() - start;
-      if (res.ok) {
-        setPingStatus(`✓ Connected to ${res.service} (${elapsed}ms)`);
-      } else {
-        setPingStatus(`⚠️ Server responded: ${JSON.stringify(res)}`);
-      }
-    } catch (e: any) {
-      setPingStatus(`❌ Connection failed: ${e.message}`);
-    } finally {
-      setIsPinging(false);
-    }
-  };
-
-  const setPreset = (url: string) => {
-    setServerUrl(url);
-    config.setApiBase(url);
-  };
-
-  const autoDetected = getDefaultApiBase();
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* User Header Card */}
+      {/* Profile Hero Card matching web */}
       <View style={styles.userCard}>
         <View style={styles.avatar}>
-          <Ionicons name="person" size={32} color={theme.colors.accent} />
+          <Ionicons name="person" size={28} color={theme.colors.accent} />
         </View>
         <View style={styles.userInfo}>
           <Text style={styles.userName}>Tuvu User</Text>
-          <Text style={styles.userRole}>Owner / Local Admin</Text>
+          <Text style={styles.userHandle}>@tuvu_owner</Text>
+          <Text style={styles.userRole}>Single-User Local Session • Active</Text>
         </View>
       </View>
 
-      {/* Stats Section matching web .stats-grid */}
+      {/* Library Stats Grid matching web .stats-grid */}
       <View style={styles.sectionCard}>
         <Text style={styles.sectionTitle}>Library Overview</Text>
         {isStatsLoading ? (
@@ -72,94 +43,75 @@ export default function ProfileScreen() {
         ) : (
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{statsData?.stats?.showsCount ?? '-'}</Text>
+              <Text style={styles.statValue}>{statsData?.stats?.showsCount ?? 0}</Text>
               <Text style={styles.statLabel}>Shows</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{statsData?.stats?.moviesCount ?? '-'}</Text>
+              <Text style={styles.statValue}>{statsData?.stats?.moviesCount ?? 0}</Text>
               <Text style={styles.statLabel}>Movies</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{statsData?.stats?.animeCount ?? '-'}</Text>
+              <Text style={styles.statValue}>{statsData?.stats?.animeCount ?? 0}</Text>
               <Text style={styles.statLabel}>Anime</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{statsData?.stats?.episodesWatched ?? '-'}</Text>
+              <Text style={styles.statValue}>{statsData?.stats?.booksCount ?? 0}</Text>
+              <Text style={styles.statLabel}>Books</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{statsData?.stats?.gamesCount ?? 0}</Text>
+              <Text style={styles.statLabel}>Games</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{statsData?.stats?.episodesWatched ?? 0}</Text>
               <Text style={styles.statLabel}>Episodes</Text>
             </View>
           </View>
         )}
       </View>
 
-      {/* Backend Server Configuration */}
+      {/* Profile Tools & Navigation */}
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Backend Server Connection</Text>
-        <Text style={styles.sectionDesc}>
-          Tuvu connects to your local worker server. The address below was auto-detected from your network.
-        </Text>
+        <Text style={styles.sectionTitle}>Tools & Navigation</Text>
 
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            value={serverUrl}
-            onChangeText={setServerUrl}
-            placeholder="http://192.168.1.X:8787"
-            placeholderTextColor={theme.colors.textSubtle}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-
-        {/* Quick Presets */}
-        <View style={styles.presetRow}>
-          <Pressable
-            style={styles.presetButton}
-            onPress={() => setPreset(autoDetected)}
-          >
-            <Text style={styles.presetText}>Auto-detected</Text>
-          </Pressable>
-          <Pressable
-            style={styles.presetButton}
-            onPress={() => setPreset('http://10.0.2.2:8787')}
-          >
-            <Text style={styles.presetText}>Emulator (10.0.2.2)</Text>
-          </Pressable>
-          <Pressable
-            style={styles.presetButton}
-            onPress={() => setPreset('http://127.0.0.1:8787')}
-          >
-            <Text style={styles.presetText}>USB / 127.0.0.1</Text>
-          </Pressable>
-        </View>
-
-        {/* Test Connection Button */}
-        <Pressable
-          style={[styles.testButton, isPinging && { opacity: 0.7 }]}
-          onPress={handleTestConnection}
-          disabled={isPinging}
-        >
-          {isPinging ? (
-            <ActivityIndicator size="small" color={theme.colors.accentContrast} />
-          ) : (
-            <Text style={styles.testButtonText}>Test Connection</Text>
-          )}
+        <Pressable style={styles.actionRow} onPress={() => router.push('/library')}>
+          <View style={styles.actionIconWrap}>
+            <Ionicons name="library-outline" size={20} color={theme.colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>All Library</Text>
+            <Text style={styles.actionDesc}>Filter across your entire library collection</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
         </Pressable>
 
-        {/* Ping Result */}
-        {pingStatus && (
-          <View style={[
-            styles.statusBanner,
-            pingStatus.startsWith('✓') ? styles.statusSuccess : styles.statusError,
-          ]}>
-            <Text style={styles.statusText}>{pingStatus}</Text>
+        <Pressable style={styles.actionRow} onPress={() => router.push('/settings' as any)}>
+          <View style={styles.actionIconWrap}>
+            <Ionicons name="settings-outline" size={20} color={theme.colors.accent} />
           </View>
-        )}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>Settings</Text>
+            <Text style={styles.actionDesc}>Account, Appearance, Server, and Providers</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
+        </Pressable>
+
+        <Pressable style={styles.actionRow} onPress={() => router.push('/settings/import' as any)}>
+          <View style={styles.actionIconWrap}>
+            <Ionicons name="cloud-upload-outline" size={20} color={theme.colors.accent} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.actionTitle}>TV Time Import</Text>
+            <Text style={styles.actionDesc}>Import backup zip archives and watch logs</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSubtle} />
+        </Pressable>
       </View>
 
-      {/* App Info */}
+      {/* App Info Footer */}
       <View style={styles.infoFooter}>
-        <Text style={styles.infoText}>Tuvu Mobile v1.0.0 (Expo SDK 57 / React Native 0.86)</Text>
-        <Text style={styles.infoSubtext}>Designed with Tuvu Signature Obsidian & Gold Theme</Text>
+        <Text style={styles.infoText}>Tuvu Mobile v1.0.0 (Expo SDK 57)</Text>
+        <Text style={styles.infoSubtext}>Obsidian & Warm Gold Design System</Text>
       </View>
     </ScrollView>
   );
@@ -186,11 +138,13 @@ const styles = StyleSheet.create({
   avatar: {
     width: 52,
     height: 52,
-    borderRadius: theme.borderRadius.pill,
+    borderRadius: 26,
     backgroundColor: 'rgba(255, 207, 92, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: theme.spacing.md,
+    marginRight: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.3)',
   },
   userInfo: {
     flex: 1,
@@ -200,10 +154,16 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: theme.colors.textStrong,
   },
-  userRole: {
+  userHandle: {
     fontSize: 12,
-    color: theme.colors.textMuted,
-    marginTop: 2,
+    color: theme.colors.accent,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  userRole: {
+    fontSize: 11,
+    color: theme.colors.textSubtle,
+    marginTop: 3,
     fontWeight: '600',
   },
   sectionCard: {
@@ -217,21 +177,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: theme.colors.textStrong,
-    marginBottom: 6,
-  },
-  sectionDesc: {
-    fontSize: 13,
-    color: theme.colors.textMuted,
-    marginBottom: theme.spacing.md,
-    lineHeight: 18,
+    marginBottom: 10,
   },
   statsGrid: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingVertical: 4,
   },
   statCard: {
-    flex: 1,
+    flex: 1 / 3 - 6,
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.06)',
@@ -250,74 +204,35 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: '600',
   },
-  inputContainer: {
-    backgroundColor: '#101112',
-    borderRadius: theme.borderRadius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 12,
-    marginBottom: theme.spacing.sm,
-  },
-  input: {
-    color: theme.colors.text,
-    fontSize: 14,
-    height: 42,
-  },
-  presetRow: {
+  actionRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: theme.spacing.md,
-  },
-  presetButton: {
-    flex: 1,
-    paddingVertical: 7,
-    paddingHorizontal: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    borderRadius: theme.borderRadius.sm,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    gap: 12,
   },
-  presetText: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-    fontWeight: '700',
-  },
-  testButton: {
-    backgroundColor: theme.colors.accent,
+  actionIconWrap: {
+    width: 38,
+    height: 38,
     borderRadius: theme.borderRadius.sm,
-    height: 42,
+    backgroundColor: 'rgba(255, 255, 255, 0.055)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  testButtonText: {
-    color: theme.colors.accentContrast,
+  actionTitle: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: theme.colors.textStrong,
   },
-  statusBanner: {
-    marginTop: theme.spacing.sm,
-    padding: 10,
-    borderRadius: theme.borderRadius.sm,
-  },
-  statusSuccess: {
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    borderWidth: 1,
-  },
-  statusError: {
-    backgroundColor: 'rgba(255, 107, 107, 0.15)',
-    borderColor: 'rgba(255, 107, 107, 0.3)',
-    borderWidth: 1,
-  },
-  statusText: {
+  actionDesc: {
     fontSize: 12,
-    color: theme.colors.text,
-    fontWeight: '600',
+    color: theme.colors.textMuted,
+    marginTop: 2,
   },
   infoFooter: {
     alignItems: 'center',
-    paddingVertical: theme.spacing.lg,
+    paddingVertical: 16,
   },
   infoText: {
     fontSize: 12,

@@ -143,6 +143,12 @@ export type ExploreResult = {
   userStatus?: string;
 };
 
+let cachedCsrfToken: string | null = null;
+
+export function setCsrfToken(token: string | null) {
+  cachedCsrfToken = token;
+}
+
 async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const base = config.getApiBase();
   const url = `${base}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
@@ -151,15 +157,21 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
   const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'x-tuvu-client': 'mobile',
+      ...(options.headers as Record<string, string> || {}),
+    };
+
+    if (cachedCsrfToken) {
+      headers['x-csrf-token'] = cachedCsrfToken;
+    }
+
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'x-tuvu-client': 'mobile',
-        ...options.headers,
-      },
+      headers,
     });
 
     clearTimeout(timeoutId);
@@ -189,6 +201,44 @@ async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promi
     throw err;
   }
 }
+
+export type MeResponse = {
+  user: { id: string; username: string; displayName: string; email: string | null; role: string };
+  profile: { bio: string; visibility: string; avatarUrl: string | null; bannerUrl: string | null };
+  appearance?: { theme?: 'light' | 'dark' | 'system' };
+  libraryVersion: number;
+  csrfToken: string;
+};
+
+export type ProviderCredentialStatus = {
+  id: string;
+  provider: string;
+  label: string | null;
+  status: string;
+  lastValidatedAt: string | null;
+  updatedAt: string;
+  configured: boolean;
+};
+
+export type UserBackup = {
+  id: string;
+  label: string | null;
+  status: string;
+  byteSize: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type StorageStats = {
+  libraryItems: number;
+  userUploads: number;
+  userUploadBytes: number;
+  globalMediaItems: number;
+  backups: number;
+  backupBytes: number;
+  databaseBytes: number | null;
+  supabaseBytes: number | null;
+};
 
 export const api = {
   async checkHealth(): Promise<HealthStatus> {
@@ -288,5 +338,125 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ items, showLabelsMobile }),
     });
+  },
+
+  async getMe(): Promise<MeResponse> {
+    const res = await apiRequest<MeResponse>('/api/me');
+    if (res?.csrfToken) {
+      cachedCsrfToken = res.csrfToken;
+    }
+    return res;
+  },
+
+  async updateProfile(payload: {
+    displayName?: string;
+    username?: string;
+    bio?: string;
+    visibility?: string;
+    avatarUrl?: string;
+    bannerUrl?: string;
+  }): Promise<any> {
+    return apiRequest<any>('/api/me/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async uploadProfileMedia(kind: 'avatar' | 'banner', uri: string): Promise<any> {
+    const base = config.getApiBase();
+    const url = `${base}/api/uploads/profile`;
+
+    const form = new FormData();
+    form.append('kind', kind);
+    form.append('file', {
+      uri,
+      name: `${kind}.jpg`,
+      type: 'image/jpeg',
+    } as any);
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'x-tuvu-client': 'mobile',
+    };
+    if (cachedCsrfToken) {
+      headers['x-csrf-token'] = cachedCsrfToken;
+    }
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      let msg = `Upload failed (${response.status})`;
+      try {
+        const j = JSON.parse(errText);
+        if (j?.error?.message) msg = j.error.message;
+      } catch {}
+      throw new Error(msg);
+    }
+
+    const json = await response.json();
+    return json?.data ?? json;
+  },
+
+  async deleteAccount(): Promise<any> {
+    return apiRequest<any>('/api/me', {
+      method: 'DELETE',
+    });
+  },
+
+  async logout(): Promise<any> {
+    return apiRequest<any>('/api/auth/logout', {
+      method: 'POST',
+    });
+  },
+
+  async getAppearanceSettings(): Promise<{ appearance: { theme: 'light' | 'dark' | 'system' } }> {
+    return apiRequest<{ appearance: { theme: 'light' | 'dark' | 'system' } }>('/api/settings/appearance');
+  },
+
+  async updateAppearanceSettings(theme: 'light' | 'dark' | 'system'): Promise<any> {
+    return apiRequest<any>('/api/settings/appearance', {
+      method: 'PUT',
+      body: JSON.stringify({ theme }),
+    });
+  },
+
+  async getProviderSettings(): Promise<{ providers: ProviderCredentialStatus[] }> {
+    return apiRequest<{ providers: ProviderCredentialStatus[] }>('/api/settings/providers');
+  },
+
+  async updateProviderSettings(provider: string, secrets: Record<string, string>, label = 'Default'): Promise<any> {
+    return apiRequest<any>(`/api/settings/providers/${provider}`, {
+      method: 'PUT',
+      body: JSON.stringify({ label, secrets }),
+    });
+  },
+
+  async disableProvider(provider: string): Promise<any> {
+    return apiRequest<any>(`/api/settings/providers/${provider}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async getBackups(): Promise<{ backups: UserBackup[] }> {
+    return apiRequest<{ backups: UserBackup[] }>('/api/settings/backups');
+  },
+
+  async createBackup(): Promise<{ backup: UserBackup }> {
+    return apiRequest<{ backup: UserBackup }>('/api/settings/backups', {
+      method: 'POST',
+    });
+  },
+
+  async exportBackup(id: string): Promise<{ backup: { id: string; label: string | null; byteSize: number; payload: unknown } }> {
+    return apiRequest<{ backup: { id: string; label: string | null; byteSize: number; payload: unknown } }>(`/api/settings/backups/${id}/export`);
+  },
+
+  async getStorageSettings(): Promise<{ storage: StorageStats }> {
+    return apiRequest<{ storage: StorageStats }>('/api/settings/storage');
   },
 };

@@ -206,10 +206,14 @@ export async function findMediaIdByExternalIds(db: D1Database, ids: Array<[strin
 }
 
 export async function resolveMergedMediaId(db: D1Database, requestedMediaId: string): Promise<{ mediaId: string; aliasFromMediaId: string | null }> {
-  const alias = await db.prepare("SELECT target_media_id FROM media_merge_aliases WHERE source_media_id = ? AND status = 'merged'")
-    .bind(requestedMediaId)
-    .first<{ target_media_id: string }>();
-  return { mediaId: alias?.target_media_id ?? requestedMediaId, aliasFromMediaId: alias ? requestedMediaId : null };
+  try {
+    const alias = await db.prepare("SELECT target_media_id FROM media_merge_aliases WHERE source_media_id = ? AND status = 'merged'")
+      .bind(requestedMediaId)
+      .first<{ target_media_id: string }>();
+    return { mediaId: alias?.target_media_id ?? requestedMediaId, aliasFromMediaId: alias ? requestedMediaId : null };
+  } catch {
+    return { mediaId: requestedMediaId, aliasFromMediaId: null };
+  }
 }
 
 export async function attachExternalId(db: D1Database, mediaId: string, source: string, externalId: string, now: string): Promise<string | null> {

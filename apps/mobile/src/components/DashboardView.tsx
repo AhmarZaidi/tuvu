@@ -12,6 +12,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, DashboardResponse, DashboardEntry } from '../services/api';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { TopBar } from './TopBar';
 import { PageHeader } from './PageHeader';
 import { DashboardStats } from './DashboardStats';
@@ -19,6 +20,7 @@ import { DashboardToolbar, SortMode } from './DashboardToolbar';
 import { SectionPills } from './SectionPills';
 import { MediaCard } from './MediaCard';
 import { CreateMediaModal } from './CreateMediaModal';
+import { GoldenGlow } from './GoldenGlow';
 
 interface DashboardViewProps {
   kind: 'shows' | 'anime' | 'movies' | 'books' | 'games';
@@ -30,6 +32,7 @@ interface DashboardViewProps {
 export function DashboardView({ kind, title, mediaType, emptyMessage }: DashboardViewProps) {
   const queryClient = useQueryClient();
   const { width: windowWidth } = useWindowDimensions();
+  const { colors } = useAppTheme();
 
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -143,7 +146,8 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <GoldenGlow />
       {/* 1. Mobile TopBar matching web .topbar */}
       <TopBar />
 
@@ -157,8 +161,8 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
           <RefreshControl
             refreshing={isRefetching}
             onRefresh={refetch}
-            tintColor={theme.colors.accent}
-            colors={[theme.colors.accent]}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
           />
         }
         ListHeaderComponent={

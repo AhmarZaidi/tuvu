@@ -16,6 +16,7 @@ import { theme } from '../../constants/theme';
 import { StatusBadge } from '../../components/StatusBadge';
 import { TrackingPanel } from '../../components/TrackingPanel';
 import { SeasonAccordion } from '../../components/SeasonAccordion';
+import { GoldenGlow } from '../../components/GoldenGlow';
 
 export default function MediaDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -115,7 +116,9 @@ export default function MediaDetailsScreen() {
   const isUnitTrackable = media.type === 'book' || media.type === 'game';
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={styles.container}>
+      <GoldenGlow />
+      <ScrollView contentContainerStyle={styles.content}>
       {/* Backdrop Image */}
       {backdropUrl && (
         <View style={styles.backdropContainer}>
@@ -211,6 +214,7 @@ export default function MediaDetailsScreen() {
         )}
       </View>
     </ScrollView>
+    </View>
   );
 }
 

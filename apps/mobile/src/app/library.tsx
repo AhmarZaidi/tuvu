@@ -12,8 +12,10 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api, DashboardEntry } from '../services/api';
+import { useAppTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
 import { MediaCard } from '../components/MediaCard';
+import { GoldenGlow } from '../components/GoldenGlow';
 
 const MEDIA_TYPES = [
   { key: 'all', label: 'All Media' },
@@ -34,6 +36,7 @@ const STATUS_FILTERS = [
 ];
 
 export default function AllLibraryScreen() {
+  const { colors } = useAppTheme();
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [search, setSearch] = useState('');
@@ -80,7 +83,8 @@ export default function AllLibraryScreen() {
   }, [rawEntries, search]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <GoldenGlow />
       {/* Search Input */}
       <View style={styles.searchBar}>
         <Ionicons name="search" size={16} color={theme.colors.textSubtle} style={{ marginRight: 8 }} />

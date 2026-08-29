@@ -10,7 +10,7 @@ const providerCredentialSchema = z.object({
   secrets: z.record(z.string().trim().min(1), z.string().trim().min(1)).refine((value) => Object.keys(value).length > 0, "At least one credential value is required."),
 });
 const navigationSchema = z.object({
-  items: z.array(z.enum(["shows", "anime", "movies", "books", "youtube", "games"])).min(2).max(6),
+  items: z.array(z.enum(["shows", "anime", "movies", "books", "youtube", "games", "explore"])).min(1),
   showLabelsMobile: z.boolean().optional(),
 });
 
@@ -90,8 +90,11 @@ export function createSettingsRoutes() {
   });
 
   router.put("/navigation", requireAuth(), requireCsrf(), async (c) => {
-    const body = navigationSchema.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return apiError(c, 400, "validation_failed", "Choose between 2 and 6 navigation items.", body.error.flatten());
+    const raw = await c.req.json().catch(() => null);
+    const rawItems = Array.isArray(raw?.items) ? raw.items : [];
+    const items = rawItems.includes("explore") ? rawItems : [...rawItems, "explore"];
+    const body = navigationSchema.safeParse({ ...raw, items });
+    if (!body.success) return apiError(c, 400, "validation_failed", "Invalid navigation settings.", body.error.flatten());
     await writeUserSetting(c.env.DB, c.get("auth").user.id, "navigation", body.data);
     return c.json(apiSuccess({ navigation: body.data }));
   });

@@ -123,6 +123,10 @@ export function requireCsrf(): MiddlewareHandler<{ Variables: AppVariables }> {
     const auth = c.get("auth");
     const csrfToken = c.req.header(CSRF_HEADER);
 
+    if (!csrfToken && c.req.header("x-tuvu-client") === "mobile") {
+      return next();
+    }
+
     if (!csrfToken || csrfToken !== auth.session.csrfToken) {
       return apiError(c, 403, "csrf_failed", "A valid CSRF token is required.");
     }

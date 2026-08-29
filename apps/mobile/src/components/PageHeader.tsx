@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 
 interface PageHeaderProps {
   eyebrow?: string;
@@ -16,17 +16,29 @@ export function PageHeader({
   actionLabel,
   onAction,
 }: PageHeaderProps) {
+  const { colors } = useAppTheme();
+
   return (
     <View style={styles.container}>
       <View style={styles.titles}>
-        <Text style={styles.eyebrow}>{eyebrow}</Text>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.eyebrow, { color: colors.accent }]}>{eyebrow}</Text>
+        <Text style={[styles.title, { color: colors.textStrong }]}>{title}</Text>
       </View>
 
-      {actionLabel && onAction && (
-        <Pressable style={styles.actionButton} onPress={onAction}>
-          <Ionicons name="add" size={16} color={theme.colors.accentContrast} />
-          <Text style={styles.actionText}>{actionLabel}</Text>
+      {onAction && (
+        <Pressable
+          style={[
+            styles.circularAddButton,
+            {
+              backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.055)' : 'rgba(34, 31, 25, 0.055)',
+              borderColor: colors.border,
+            },
+          ]}
+          onPress={onAction}
+          accessibilityLabel={actionLabel || 'Add Media'}
+          hitSlop={8}
+        >
+          <Ionicons name="add" size={22} color={colors.accent} />
         </Pressable>
       )}
     </View>
@@ -38,7 +50,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: theme.spacing.md,
+    paddingHorizontal: 14,
     paddingTop: 14,
     paddingBottom: 10,
   },
@@ -48,7 +60,6 @@ const styles = StyleSheet.create({
   eyebrow: {
     fontSize: 11,
     fontWeight: '800',
-    color: theme.colors.accent,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     marginBottom: 2,
@@ -56,21 +67,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 26,
     fontWeight: '900',
-    color: '#fff4d3',
     letterSpacing: -0.5,
   },
-  actionButton: {
-    flexDirection: 'row',
+  circularAddButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
     alignItems: 'center',
-    backgroundColor: theme.colors.accent,
-    borderRadius: theme.borderRadius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    gap: 4,
-  },
-  actionText: {
-    color: theme.colors.accentContrast,
-    fontSize: 12,
-    fontWeight: '800',
+    justifyContent: 'center',
   },
 });

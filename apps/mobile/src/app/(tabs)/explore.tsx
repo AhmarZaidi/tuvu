@@ -14,10 +14,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { api, DashboardEntry, ExploreResult } from '../../services/api';
+import { useAppTheme } from '../../context/ThemeContext';
 import { theme } from '../../constants/theme';
 import { MediaCard } from '../../components/MediaCard';
 import { SectionHeader } from '../../components/SectionHeader';
 import { TopBar } from '../../components/TopBar';
+import { GoldenGlow } from '../../components/GoldenGlow';
 
 const MEDIA_TYPES = [
   { key: '', label: 'All Media' },
@@ -31,6 +33,7 @@ const MEDIA_TYPES = [
 export default function ExploreScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors } = useAppTheme();
   const [query, setQuery] = useState('');
   const [activeType, setActiveType] = useState('');
   const [addingId, setAddingId] = useState<string | null>(null);
@@ -69,7 +72,8 @@ export default function ExploreScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <GoldenGlow />
       <TopBar />
       {/* Search Input Bar */}
       <View style={styles.searchContainer}>

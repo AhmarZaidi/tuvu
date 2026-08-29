@@ -80,7 +80,10 @@ const DEFAULT_PROVIDER_CATALOG: MobileProviderCatalogItem[] = [
     category: 'audiovisual',
     description: 'Primary metadata, posters, and credits for movies, shows, and anime.',
     keyless: false,
-    fields: [{ key: 'TMDB_API_KEY', label: 'API Key / Read Token', placeholder: 'TMDB v3 API key or v4 token', secure: true }],
+    fields: [
+      { key: 'TMDB_API_KEY', label: 'API Key / Read Token', placeholder: 'TMDB v3 API key or v4 token', secure: true },
+      { key: 'TMDB_API_ENDPOINT', label: 'Custom API Endpoint (Optional)', placeholder: 'Default: https://api.themoviedb.org/3 (or proxy)', secure: false },
+    ],
     attribution: 'This product uses the TMDB API but is not endorsed or certified by TMDB.',
     docUrl: 'https://developer.themoviedb.org/docs',
   },

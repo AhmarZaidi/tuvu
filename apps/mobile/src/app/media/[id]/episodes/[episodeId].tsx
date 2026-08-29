@@ -124,7 +124,7 @@ export default function EpisodeDetailsScreen() {
   }
 
   const stillUrl = episode.stillPath
-    ? (episode.stillPath.startsWith('http') ? episode.stillPath : `https://image.tmdb.org/t/p/w780${episode.stillPath}`)
+    ? (episode.stillPath.startsWith('http') ? episode.stillPath : `https://tmdb-image-prod.b-cdn.net/t/p/w780${episode.stillPath}`)
     : null;
 
   return (

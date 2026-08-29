@@ -105,12 +105,12 @@ export default function MediaDetailsScreen() {
   const posterUrl = media.posterPath
     ? (media.posterPath.startsWith('http')
         ? media.posterPath
-        : `https://image.tmdb.org/t/p/w500${media.posterPath}`)
+        : `https://tmdb-image-prod.b-cdn.net/t/p/w500${media.posterPath}`)
     : null;
   const backdropUrl = media.backdropPath
     ? (media.backdropPath.startsWith('http')
         ? media.backdropPath
-        : `https://image.tmdb.org/t/p/w780${media.backdropPath}`)
+        : `https://tmdb-image-prod.b-cdn.net/t/p/w780${media.backdropPath}`)
     : null;
 
   const isMovie = media.type === 'movie';

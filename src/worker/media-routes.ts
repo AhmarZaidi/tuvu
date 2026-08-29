@@ -287,6 +287,36 @@ export function createMediaRoutes() {
     return c.json(apiSuccess({ posterPath: uploaded.publicUrl }));
   });
 
+  // GET /api/media/image-proxy?url=...
+  router.get("/image-proxy", async (c) => {
+    const rawUrl = c.req.query("url");
+    if (!rawUrl) return apiError(c, 400, "bad_request", "Missing url parameter.");
+    try {
+      const parsed = new URL(rawUrl);
+      const hostname = parsed.hostname.toLowerCase();
+      if (!hostname.includes("tmdb.org") && !hostname.includes("b-cdn.net") && !hostname.includes("themoviedb.org")) {
+        return apiError(c, 403, "forbidden", "Only TMDB images are supported.");
+      }
+      if (hostname === "image.tmdb.org") {
+        parsed.hostname = "tmdb-image-prod.b-cdn.net";
+      }
+      const upstream = await fetch(parsed.toString());
+      if (!upstream.ok) {
+        return apiError(c, 502, "bad_gateway", "Upstream image fetch failed.");
+      }
+      const contentType = upstream.headers.get("content-type") || "image/jpeg";
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "public, max-age=604800, immutable",
+        },
+      });
+    } catch {
+      return apiError(c, 502, "bad_gateway", "Failed to retrieve image.");
+    }
+  });
+
   return router;
 }
 

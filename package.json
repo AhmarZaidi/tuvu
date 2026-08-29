@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "dev:worker": "npm run build:client && wrangler dev --local --port 8787",
-    "dev:worker:lan": "npm run build:client && wrangler dev --local --port 8787 --ip 0.0.0.0",
+    "dev:worker": "npm run build:client && node scripts/dev-worker.mjs",
+    "dev:worker:lan": "npm run build:client && node scripts/dev-worker.mjs --lan",
     "build": "npm run typecheck && npm run build:client",
     "build:client": "vite build",
     "bundle:report": "vite build --mode analyze",

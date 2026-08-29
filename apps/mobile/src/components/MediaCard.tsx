@@ -37,7 +37,7 @@ export function MediaCard({
   const [marking, setMarking] = useState(false);
 
   const posterUrl = item.posterPath
-    ? (item.posterPath.startsWith('http') ? item.posterPath : `https://image.tmdb.org/t/p/w342${item.posterPath}`)
+    ? (item.posterPath.startsWith('http') ? item.posterPath : `https://tmdb-image-prod.b-cdn.net/t/p/w342${item.posterPath}`)
     : null;
 
   // Calculate progress percentage

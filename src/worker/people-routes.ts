@@ -3,6 +3,7 @@ import { externalApiEndpoints } from "@shared/constants";
 import { envString } from "./env";
 import { apiError, apiSuccess } from "./http";
 import { requireAuth, type AppVariables } from "./session";
+import { tmdbFetch } from "./providers/tmdb";
 
 type PersonPayload = {
   id: string;
@@ -39,10 +40,9 @@ export function createPeopleRoutes() {
         return c.json(apiSuccess(JSON.parse(cached.response_json) as PersonPayload));
       }
 
-      const url = new URL(`${externalApiEndpoints.tmdbApi}/person/${encodeURIComponent(id)}`);
-      url.searchParams.set("api_key", key);
-      url.searchParams.set("append_to_response", "combined_credits,external_ids");
-      const response = await fetch(url.toString());
+      const response = await tmdbFetch(c.env, `person/${encodeURIComponent(id)}`, key, {
+        append_to_response: "combined_credits,external_ids",
+      }, c.get("user")?.id);
       if (!response.ok) {
         if (cached) return c.json(apiSuccess(JSON.parse(cached.response_json) as PersonPayload));
         return apiError(c, 503, "server_error", "Person details could not be refreshed right now.");

@@ -48,6 +48,7 @@ export const PROVIDER_CATALOG: ProviderCatalogItem[] = [
     defaultStatus: "active",
     fields: [
       { key: "TMDB_API_KEY", label: "API Key / Read Token", placeholder: "TMDB v3 API key or v4 Read Access Token", secure: true },
+      { key: "TMDB_API_ENDPOINT", label: "Custom API Endpoint (Optional)", placeholder: "Default: https://api.themoviedb.org/3 (or custom proxy)", secure: false },
     ],
     attribution: "This product uses the TMDB API but is not endorsed or certified by TMDB.",
     docUrl: "https://developer.themoviedb.org/docs",

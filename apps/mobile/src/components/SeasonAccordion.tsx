@@ -132,7 +132,7 @@ export function SeasonAccordion({ mediaId, episodes, onEpisodesUpdated }: Season
                   const isWatched = Boolean(ep.activity?.watched);
                   const isBusy = busyEpisodeId === ep.id;
                   const stillUrl = ep.stillPath
-                    ? (ep.stillPath.startsWith('http') ? ep.stillPath : `https://image.tmdb.org/t/p/w300${ep.stillPath}`)
+                    ? (ep.stillPath.startsWith('http') ? ep.stillPath : `https://tmdb-image-prod.b-cdn.net/t/p/w300${ep.stillPath}`)
                     : null;
 
                   return (

@@ -1,11 +1,12 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
 import { useAppTheme } from '../context/ThemeContext';
+import { useSearch } from '../context/SearchContext';
 import { api } from '../services/api';
 
 interface TopBarProps {
@@ -17,6 +18,7 @@ export function TopBar({ onSearchPress }: TopBarProps) {
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { colors, isDark, theme } = useAppTheme();
+  const { searchQuery, setSearchQuery, searchInputRef, submitSearch, clearSearch } = useSearch();
 
   const isProfile = pathname ? pathname.includes('profile') : false;
 
@@ -52,8 +54,8 @@ export function TopBar({ onSearchPress }: TopBarProps) {
         />
       </Pressable>
 
-      {/* Search Pill Input */}
-      <Pressable
+      {/* Consolidated Interactive Search Pill */}
+      <View
         style={[
           styles.searchPill,
           {
@@ -62,11 +64,26 @@ export function TopBar({ onSearchPress }: TopBarProps) {
             borderRadius: theme.borderRadius.pill,
           },
         ]}
-        onPress={onSearchPress || (() => router.push('/explore' as any))}
       >
         <Ionicons name="search" size={16} color={colors.textSubtle} style={styles.searchIcon} />
-        <Text style={[styles.searchPlaceholder, { color: colors.textSubtle }]}>Search any media</Text>
-      </Pressable>
+        <TextInput
+          ref={searchInputRef as any}
+          style={[styles.searchInput, { color: colors.textStrong }]}
+          placeholder="Search any media..."
+          placeholderTextColor={colors.textSubtle}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onSubmitEditing={() => submitSearch()}
+          returnKeyType="search"
+          autoCorrect={false}
+          autoCapitalize="none"
+        />
+        {searchQuery.length > 0 && (
+          <Pressable onPress={clearSearch} hitSlop={10} style={styles.clearButton}>
+            <Ionicons name="close-circle" size={16} color={colors.textSubtle} />
+          </Pressable>
+        )}
+      </View>
 
       {/* Profile Avatar Button */}
       <Pressable style={styles.profileButton} onPress={() => router.push('/profile' as any)} hitSlop={4}>
@@ -136,8 +153,14 @@ const styles = StyleSheet.create({
   searchIcon: {
     marginRight: 8,
   },
-  searchPlaceholder: {
+  searchInput: {
+    flex: 1,
     fontSize: 13,
+    padding: 0,
+    height: '100%',
+  },
+  clearButton: {
+    marginLeft: 6,
   },
   profileButton: {
     position: 'relative',

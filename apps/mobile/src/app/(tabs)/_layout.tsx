@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Tabs } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../../context/ThemeContext';
+import { useSearch } from '../../context/SearchContext';
 import { api } from '../../services/api';
 
 interface TabItemConfig {
@@ -26,6 +27,8 @@ const ALL_TAB_DEFS: TabItemConfig[] = [
 export default function TabsLayout() {
   const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
+  const { focusSearchInput } = useSearch();
+  const lastExplorePressRef = useRef<number>(0);
 
   // Live Navigation Settings
   const { data: navData } = useQuery({
@@ -75,6 +78,18 @@ export default function TabsLayout() {
         <Tabs.Screen
           key={item.route}
           name={item.route}
+          listeners={() => (item.id === 'explore' ? {
+            tabPress: () => {
+              const now = Date.now();
+              const diff = now - lastExplorePressRef.current;
+              if (diff > 40 && diff < 550) {
+                lastExplorePressRef.current = 0;
+                focusSearchInput();
+              } else {
+                lastExplorePressRef.current = now;
+              }
+            },
+          } : {})}
           options={{
             title: item.title,
             tabBarIcon: ({ color, focused }) => (

@@ -83,20 +83,80 @@ export async function providerExplore(env: Env, userId?: string | null): Promise
   ].filter((row) => row.results.length > 0);
 }
 
-export async function providerTypeExplore(env: Env, type: MediaType, userId?: string | null): Promise<ProviderResult[]> {
-  const limit = 40;
+export async function providerTypeExploreRows(env: Env, type: MediaType, userId?: string | null): Promise<ExploreRow[]> {
+  const limit = 25;
   switch (type) {
-    case "movie":
-      return tmdbList(env, "explore-movies", "discover/movie?sort_by=popularity.desc", limit, userId);
-    case "show":
-      return tmdbList(env, "explore-shows", "discover/tv?sort_by=popularity.desc", limit, userId);
-    case "anime":
-      return (await tmdbList(env, "explore-anime", "discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc", limit, userId)).map((result) => ({ ...result, type: "anime" }));
-    case "game":
-      return igdbList(env, "explore-games", "sort rating desc; where rating > 80 & rating_count > 100;", limit, userId);
-    case "book":
-      return openLibrarySubject(env, "fiction", limit, userId);
+    case "movie": {
+      const [popular, trending, topRated, upcoming] = await Promise.allSettled([
+        tmdbList(env, "type:movie:popular", "movie/popular", limit, userId),
+        tmdbList(env, "type:movie:trending", "trending/movie/week", limit, userId),
+        tmdbList(env, "type:movie:top_rated", "movie/top_rated", limit, userId),
+        tmdbList(env, "type:movie:upcoming", "movie/upcoming", limit, userId),
+      ]);
+      return [
+        { id: "movies-popular", title: "Popular Movies", subtitle: "Most popular movies right now.", results: valueOrEmpty(popular) },
+        { id: "movies-trending", title: "Trending This Week", subtitle: "Buzzworthy and widely watched.", results: valueOrEmpty(trending) },
+        { id: "movies-top-rated", title: "Top Rated Movies", subtitle: "All-time critically acclaimed picks.", results: valueOrEmpty(topRated) },
+        { id: "movies-upcoming", title: "Upcoming Releases", subtitle: "Films arriving in theaters and streaming soon.", results: valueOrEmpty(upcoming) },
+      ].filter((r) => r.results.length > 0);
+    }
+    case "show": {
+      const [popular, trending, topRated, onTheAir] = await Promise.allSettled([
+        tmdbList(env, "type:show:popular", "tv/popular", limit, userId),
+        tmdbList(env, "type:show:trending", "trending/tv/week", limit, userId),
+        tmdbList(env, "type:show:top_rated", "tv/top_rated", limit, userId),
+        tmdbList(env, "type:show:on_the_air", "tv/on_the_air", limit, userId),
+      ]);
+      return [
+        { id: "shows-popular", title: "Popular Shows", subtitle: "Series dominating current conversation.", results: valueOrEmpty(popular) },
+        { id: "shows-trending", title: "Trending Shows", subtitle: "High-momentum episodes and seasons.", results: valueOrEmpty(trending) },
+        { id: "shows-top-rated", title: "Top Rated Series", subtitle: "Acclaimed masterpieces across all genres.", results: valueOrEmpty(topRated) },
+        { id: "shows-on-air", title: "Currently Airing", subtitle: "Shows broadcasting new episodes right now.", results: valueOrEmpty(onTheAir) },
+      ].filter((r) => r.results.length > 0);
+    }
+    case "anime": {
+      const [popular, topRated, trending] = await Promise.allSettled([
+        tmdbList(env, "type:anime:popular", "discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc", limit, userId),
+        tmdbList(env, "type:anime:top_rated", "discover/tv?with_genres=16&with_original_language=ja&sort_by=vote_average.desc&vote_count.gte=100", limit, userId),
+        tmdbList(env, "type:anime:recent", "discover/tv?with_genres=16&with_original_language=ja&air_date.gte=2024-01-01&sort_by=popularity.desc", limit, userId),
+      ]);
+      return [
+        { id: "anime-popular", title: "Popular Anime", subtitle: "Most streamed Japanese animation series.", results: valueOrEmpty(popular).map((r) => ({ ...r, type: "anime" as const })) },
+        { id: "anime-top-rated", title: "Top Rated Anime", subtitle: "Highest audience-rated anime classics.", results: valueOrEmpty(topRated).map((r) => ({ ...r, type: "anime" as const })) },
+        { id: "anime-recent", title: "New & Recent Seasons", subtitle: "Fresh series and sequels from this year.", results: valueOrEmpty(trending).map((r) => ({ ...r, type: "anime" as const })) },
+      ].filter((r) => r.results.length > 0);
+    }
+    case "game": {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const [popular, upcoming, topRated] = await Promise.allSettled([
+        igdbList(env, "type:game:popular", "sort rating desc; where rating > 80 & rating_count > 100;", limit, userId),
+        igdbList(env, "type:game:upcoming", `sort first_release_date asc; where first_release_date > ${nowSec};`, limit, userId),
+        igdbList(env, "type:game:hyped", "sort hypes desc; where hypes > 5;", limit, userId),
+      ]);
+      return [
+        { id: "games-popular", title: "Popular Games", subtitle: "Community-rated hits across PC and consoles.", results: valueOrEmpty(popular) },
+        { id: "games-upcoming", title: "Upcoming Games", subtitle: "Anticipated titles releasing soon.", results: valueOrEmpty(upcoming) },
+        { id: "games-hyped", title: "Most Anticipated", subtitle: "Games with massive player interest.", results: valueOrEmpty(topRated) },
+      ].filter((r) => r.results.length > 0);
+    }
+    case "book": {
+      const [fiction, fantasy, mystery] = await Promise.allSettled([
+        openLibrarySubject(env, "fiction", limit, userId),
+        openLibrarySubject(env, "fantasy", limit, userId),
+        openLibrarySubject(env, "mystery", limit, userId),
+      ]);
+      return [
+        { id: "books-fiction", title: "Popular Fiction", subtitle: "Top general and contemporary fiction.", results: valueOrEmpty(fiction) },
+        { id: "books-fantasy", title: "Fantasy & Sci-Fi", subtitle: "Epic world-building and futuristic reads.", results: valueOrEmpty(fantasy) },
+        { id: "books-mystery", title: "Mystery & Thrillers", subtitle: "Gripping whodunits and page-turners.", results: valueOrEmpty(mystery) },
+      ].filter((r) => r.results.length > 0);
+    }
     default:
       return [];
   }
+}
+
+export async function providerTypeExplore(env: Env, type: MediaType, userId?: string | null): Promise<ProviderResult[]> {
+  const rows = await providerTypeExploreRows(env, type, userId);
+  return rows.flatMap((r) => r.results);
 }

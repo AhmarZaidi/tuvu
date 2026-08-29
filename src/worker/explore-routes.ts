@@ -6,7 +6,7 @@ import { addProviderResultToLibrary } from "./media-canonical-service";
 import { apiError, apiSuccess } from "./http";
 import { bumpUserLibraryVersion } from "./library-version-service";
 import type { MediaItemRecord, MediaRepository } from "./media-repository";
-import { providerExplore, providerSearch, providerTypeExplore, type ProviderResult } from "./providers";
+import { providerExplore, providerSearch, providerTypeExplore, providerTypeExploreRows, type ProviderResult } from "./providers";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
 const searchSchema = z.object({
@@ -44,9 +44,10 @@ export function createExploreRoutes() {
     if (!parsedType.success) return apiError(c, 400, "validation_failed", "Invalid media type.", parsedType.error.flatten());
 
     const auth = c.get("auth");
-    const results = await providerTypeExplore(c.env, parsedType.data, auth.user.id);
-    const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, results)) : results;
-    return c.json(apiSuccess({ results: marked }));
+    const rows = await providerTypeExploreRows(c.env, parsedType.data, auth.user.id);
+    const filteredRows = c.env.DB ? await markAndFilterTracked(c.env.DB, auth.user.id, rows) : rows;
+    const allResults = filteredRows.flatMap((r) => r.results);
+    return c.json(apiSuccess({ results: allResults, rows: filteredRows }));
   });
 
   router.get("/search", requireAuth(), async (c) => {
@@ -61,7 +62,8 @@ export function createExploreRoutes() {
     const remote = await providerSearch(c.env, query.data.q, types, 8, auth.user.id);
     const combined = dedupeResults([...local, ...remote]);
     const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, combined)) : combined;
-    return c.json(apiSuccess({ query: query.data.q, results: marked.slice(0, 40) }));
+    const untracked = marked.filter((result) => !result.alreadyTracked);
+    return c.json(apiSuccess({ query: query.data.q, results: untracked.slice(0, 40) }));
   });
 
   router.post("/add", requireAuth(), requireCsrf(), async (c) => {
@@ -162,17 +164,34 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     const ids = [...new Set(providerResults.map((result) => result.providerId))];
     if (ids.length === 0) continue;
     const placeholders = ids.map(() => "?").join(",");
-    const rows = await db.prepare(`SELECT mi.id, mi.source_id, ex.external_id FROM media_items mi
-      LEFT JOIN media_external_ids ex ON ex.media_id = mi.id AND ex.source = ?
-      WHERE (mi.source = ? AND mi.source_id IN (${placeholders})) OR ex.external_id IN (${placeholders})`)
-      .bind(provider, provider, ...ids, ...ids)
-      .all<{ id: string; source_id: string | null; external_id: string | null }>();
-    for (const row of rows.results) {
-      const matchedId = row.source_id ?? row.external_id;
-      if (!matchedId) continue;
-      for (const result of providerResults) {
-        if (result.providerId === matchedId) localIds.set(resultKey(result), row.id);
+    try {
+      const rows = await db.prepare(`SELECT mi.id, mi.canonical_provider_id AS provider_id, ex.external_id FROM media_items mi
+        LEFT JOIN media_external_ids ex ON ex.media_id = mi.id AND (ex.provider_code = ? OR ex.namespace = ?)
+        WHERE (mi.canonical_provider_code = ? AND mi.canonical_provider_id IN (${placeholders})) OR ex.external_id IN (${placeholders})`)
+        .bind(provider, provider, provider, ...ids, ...ids)
+        .all<{ id: string; provider_id: string | null; external_id: string | null }>();
+      for (const row of rows.results) {
+        const matchedId = row.provider_id ?? row.external_id;
+        if (!matchedId) continue;
+        for (const result of providerResults) {
+          if (result.providerId === matchedId) localIds.set(resultKey(result), row.id);
+        }
       }
+    } catch {
+      try {
+        const rows = await db.prepare(`SELECT mi.id, mi.source_id, ex.external_id FROM media_items mi
+          LEFT JOIN media_external_ids ex ON ex.media_id = mi.id AND ex.source = ?
+          WHERE (mi.source = ? AND mi.source_id IN (${placeholders})) OR ex.external_id IN (${placeholders})`)
+          .bind(provider, provider, ...ids, ...ids)
+          .all<{ id: string; source_id: string | null; external_id: string | null }>();
+        for (const row of rows.results) {
+          const matchedId = row.source_id ?? row.external_id;
+          if (!matchedId) continue;
+          for (const result of providerResults) {
+            if (result.providerId === matchedId) localIds.set(resultKey(result), row.id);
+          }
+        }
+      } catch {}
     }
   }
 

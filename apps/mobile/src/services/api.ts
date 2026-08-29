@@ -346,6 +346,17 @@ export const api = {
     return apiRequest<{ rows: ExploreRow[] }>('/api/explore');
   },
 
+  async getExploreTypeData(type: string): Promise<{ results: ExploreResult[]; rows?: ExploreRow[] }> {
+    return apiRequest<{ results: ExploreResult[]; rows?: ExploreRow[] }>(`/api/explore/type/${type}`);
+  },
+
+  async addExploreResult(item: any): Promise<{ media: { id: string; type: string }; alreadyTracked: boolean }> {
+    return apiRequest<{ media: { id: string; type: string }; alreadyTracked: boolean }>('/api/explore/add', {
+      method: 'POST',
+      body: JSON.stringify(item),
+    });
+  },
+
   async search(query: string, type?: string): Promise<{ results: DashboardEntry[] }> {
     const queryParams = new URLSearchParams({ q: query });
     if (type) queryParams.append('type', type);

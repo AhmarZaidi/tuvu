@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
 import { SnackbarProvider } from '../context/SnackbarContext';
+import { SearchProvider } from '../context/SearchContext';
 import { BackButton } from '../components/BackButton';
 
 const queryClient = new QueryClient({
@@ -91,7 +92,9 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
           <SnackbarProvider>
-            <RootNavigation />
+            <SearchProvider>
+              <RootNavigation />
+            </SearchProvider>
           </SnackbarProvider>
         </ThemeProvider>
       </QueryClientProvider>

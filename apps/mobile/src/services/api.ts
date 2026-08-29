@@ -108,6 +108,7 @@ export type MediaDetailData = {
     totalSeasons: number | null;
     source: string;
     genres?: string[];
+    extendedDataJson?: string | null;
   };
   userMedia?: {
     id: string;
@@ -121,6 +122,34 @@ export type MediaDetailData = {
     progressUnit: string | null;
     platform: string | null;
   } | null;
+};
+
+export type HydrationProgress = {
+  status: 'refreshing' | 'needs_retry' | 'complete' | 'idle';
+  totalEpisodes: number;
+  hydratedEpisodes: number;
+  percent: number;
+  queuedJobs: number;
+  runningJobs: number;
+  failedJobs: number;
+  activeJobs: number;
+  lastUpdatedAt?: string | null;
+};
+
+export type ConflictItem = {
+  section: string;
+  label: string;
+  current: string;
+  incoming: string;
+};
+
+export type MediaNewsArticle = {
+  title: string;
+  url: string;
+  publishedAt: string;
+  sourceName: string;
+  excerpt?: string;
+  imageUrl?: string;
 };
 
 export type ExploreRow = {
@@ -318,10 +347,38 @@ export const api = {
   },
 
   async bulkMarkSeason(mediaId: string, seasonNumber: number, watched = true): Promise<any> {
-    return apiRequest<any>(`/api/media/${mediaId}/bulk-episodes`, {
-      method: 'POST',
-      body: JSON.stringify({ seasonNumber, watched }),
+    return apiRequest<any>(`/api/episodes/media/${mediaId}/seasons/${seasonNumber}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ watched }),
     });
+  },
+
+  async triggerMediaRefresh(mediaId: string): Promise<{ queued: boolean; jobId: string }> {
+    return apiRequest<{ queued: boolean; jobId: string }>(`/api/merge/${mediaId}/refresh`, {
+      method: 'POST',
+    });
+  },
+
+  async getHydrationStatus(mediaId: string): Promise<{ job: any; progress: HydrationProgress }> {
+    return apiRequest<{ job: any; progress: HydrationProgress }>(`/api/merge/${mediaId}/refresh-status`);
+  },
+
+  async getMediaConflicts(mediaId: string): Promise<{ conflicts: ConflictItem[] }> {
+    return apiRequest<{ conflicts: ConflictItem[] }>(`/api/merge/${mediaId}/conflicts`);
+  },
+
+  async resolveMediaConflicts(
+    mediaId: string,
+    resolutions: Record<string, 'accept' | 'keep'>
+  ): Promise<{ resolved: boolean; remainingConflicts: ConflictItem[] }> {
+    return apiRequest<{ resolved: boolean; remainingConflicts: ConflictItem[] }>(`/api/merge/${mediaId}/conflicts/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ resolutions }),
+    });
+  },
+
+  async getMediaNews(mediaId: string, refresh = false): Promise<{ articles: MediaNewsArticle[]; warning?: string | null }> {
+    return apiRequest<{ articles: MediaNewsArticle[]; warning?: string | null }>(`/api/media/${mediaId}/news${refresh ? '?refresh=1' : ''}`);
   },
 
   async updateMediaLibrary(mediaId: string, payload: { status?: string; rating?: number | null; isFavorite?: boolean; notes?: string | null }): Promise<any> {

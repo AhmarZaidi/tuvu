@@ -46,8 +46,7 @@ function RootNavigation() {
         <Stack.Screen
           name="media/[id]"
           options={{
-            title: 'Media Details',
-            headerLeft: () => <BackButton fallbackRoute="/(tabs)" style={{ marginRight: 10 }} />,
+            headerShown: false,
           }}
         />
         <Stack.Screen

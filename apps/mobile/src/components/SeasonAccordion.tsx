@@ -14,20 +14,28 @@ import { EpisodeWithActivity, api } from '../services/api';
 
 interface SeasonAccordionProps {
   mediaId: string;
+  mediaTitle?: string;
   episodes: EpisodeWithActivity[];
   onEpisodesUpdated: () => void;
+  progressComponent?: React.ReactNode;
 }
 
-export function SeasonAccordion({ mediaId, episodes, onEpisodesUpdated }: SeasonAccordionProps) {
+export function SeasonAccordion({
+  mediaId,
+  mediaTitle,
+  episodes,
+  onEpisodesUpdated,
+  progressComponent,
+}: SeasonAccordionProps) {
   const router = useRouter();
-  const [collapsedSeasons, setCollapsedSeasons] = useState<Set<number>>(new Set());
+  // Collapsed by default: expandedSeasons starts empty
+  const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set());
   const [busyEpisodeId, setBusyEpisodeId] = useState<string | null>(null);
 
-  // Group episodes by season
   const seasonsMap = useMemo(() => {
     const map = new Map<number, EpisodeWithActivity[]>();
     for (const ep of episodes) {
-      const s = ep.seasonNumber || 1;
+      const s = ep.seasonNumber ?? 1;
       if (!map.has(s)) map.set(s, []);
       map.get(s)!.push(ep);
     }
@@ -38,8 +46,11 @@ export function SeasonAccordion({ mediaId, episodes, onEpisodesUpdated }: Season
     return Array.from(seasonsMap.keys()).sort((a, b) => a - b);
   }, [seasonsMap]);
 
+  const totalEpisodes = episodes.filter((ep) => !ep.isSpecial).length;
+  const totalWatched = episodes.filter((ep) => !ep.isSpecial && ep.activity?.watched).length;
+
   const toggleSeasonCollapse = (seasonNumber: number) => {
-    setCollapsedSeasons((prev) => {
+    setExpandedSeasons((prev) => {
       const next = new Set(prev);
       if (next.has(seasonNumber)) next.delete(seasonNumber);
       else next.add(seasonNumber);
@@ -69,132 +80,139 @@ export function SeasonAccordion({ mediaId, episodes, onEpisodesUpdated }: Season
     }
   };
 
-  if (episodes.length === 0) {
-    return null;
-  }
+  const mediaInitials = (mediaTitle || 'TU').slice(0, 2).toUpperCase();
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionHeading}>Episodes ({episodes.length})</Text>
+      <Text style={styles.eyebrow}>EPISODE GUIDE</Text>
+      <Text style={styles.heading}>Seasons & Episodes</Text>
+      <Text style={styles.subheading}>
+        {totalWatched} of {totalEpisodes || episodes.length} available watched
+      </Text>
 
-      {sortedSeasons.map((seasonNumber) => {
-        const seasonEpisodes = seasonsMap.get(seasonNumber) || [];
-        const isCollapsed = collapsedSeasons.has(seasonNumber);
-        const watchedCount = seasonEpisodes.filter((e) => e.activity?.watched).length;
-        const totalCount = seasonEpisodes.length;
-        const progressPercent = totalCount > 0 ? (watchedCount / totalCount) * 100 : 0;
-        const allWatched = watchedCount === totalCount && totalCount > 0;
+      {progressComponent}
 
-        return (
-          <View key={seasonNumber} style={styles.seasonCard}>
-            {/* Season Header */}
-            <Pressable
-              style={styles.seasonHeader}
-              onPress={() => toggleSeasonCollapse(seasonNumber)}
-            >
-              <View style={styles.seasonTitleRow}>
-                <Ionicons
-                  name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
-                  size={16}
-                  color={theme.colors.accent}
-                />
-                <Text style={styles.seasonTitle}>
-                  {seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`}
-                </Text>
-                <Text style={styles.seasonCountText}>
-                  {watchedCount}/{totalCount} watched
-                </Text>
-              </View>
+      {episodes.length === 0 ? (
+        <View style={styles.emptyGuideCard}>
+          <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginBottom: 8 }} />
+          <Text style={styles.emptyGuideTitle}>Episode guide is being prepared</Text>
+          <Text style={styles.emptyGuideSub}>
+            Episode details will appear here as provider data is loaded.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.seasonStack}>
+          {sortedSeasons.map((seasonNumber) => {
+            const seasonEpisodes = seasonsMap.get(seasonNumber) || [];
+            const isExpanded = expandedSeasons.has(seasonNumber);
+            const watchedCount = seasonEpisodes.filter((e) => e.activity?.watched).length;
+            const totalCount = seasonEpisodes.length;
+            const allWatched = watchedCount === totalCount && totalCount > 0;
 
-              {/* Bulk Mark Season Watched */}
-              <Pressable
-                style={[styles.bulkButton, allWatched && styles.bulkButtonWatched]}
-                onPress={() => handleMarkSeasonWatched(seasonNumber, !allWatched)}
-                hitSlop={8}
-              >
-                <Ionicons
-                  name={allWatched ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                  size={18}
-                  color={allWatched ? theme.colors.accent : theme.colors.textSubtle}
-                />
-              </Pressable>
-            </Pressable>
+            return (
+              <View key={seasonNumber} style={styles.seasonCard}>
+                {/* Season Header */}
+                <Pressable
+                  style={styles.seasonHeader}
+                  onPress={() => toggleSeasonCollapse(seasonNumber)}
+                >
+                  <View style={styles.seasonHeaderLeft}>
+                    <Ionicons
+                      name={isExpanded ? 'chevron-down' : 'chevron-forward'}
+                      size={16}
+                      color="#f8f7f2"
+                    />
+                    <Text style={styles.seasonName}>
+                      {seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`}
+                    </Text>
+                    <Text style={styles.seasonCount}>
+                      {watchedCount}/{totalCount}
+                    </Text>
+                  </View>
 
-            {/* Season Progress Bar */}
-            <View style={styles.seasonProgressTrack}>
-              <View style={[styles.seasonProgressFill, { width: `${progressPercent}%` }]} />
-            </View>
+                  {/* Bulk Season Checkmark Button */}
+                  <Pressable
+                    style={[styles.seasonCheckCircle, allWatched && styles.seasonCheckCircleWatched]}
+                    onPress={() => handleMarkSeasonWatched(seasonNumber, !allWatched)}
+                    hitSlop={8}
+                  >
+                    <Ionicons
+                      name="checkmark"
+                      size={16}
+                      color={allWatched ? '#101112' : '#8b8e89'}
+                    />
+                  </Pressable>
+                </Pressable>
 
-            {/* Episodes List (when expanded) */}
-            {!isCollapsed && (
-              <View style={styles.episodesList}>
-                {seasonEpisodes.map((ep) => {
-                  const isWatched = Boolean(ep.activity?.watched);
-                  const isBusy = busyEpisodeId === ep.id;
-                  const stillUrl = ep.stillPath
-                    ? (ep.stillPath.startsWith('http') ? ep.stillPath : `https://tmdb-image-prod.b-cdn.net/t/p/w300${ep.stillPath}`)
-                    : null;
+                {/* Episodes List */}
+                {isExpanded && (
+                  <View style={styles.episodesList}>
+                    {seasonEpisodes.map((ep) => {
+                      const isWatched = Boolean(ep.activity?.watched);
+                      const isBusy = busyEpisodeId === ep.id;
+                      const stillUrl = ep.stillPath
+                        ? ep.stillPath.startsWith('http')
+                          ? ep.stillPath
+                          : `https://tmdb-image-prod.b-cdn.net/t/p/w300${ep.stillPath}`
+                        : null;
 
-                  return (
-                    <Pressable
-                      key={ep.id}
-                      style={styles.episodeItem}
-                      onPress={() => router.push(`/media/${mediaId}/episodes/${ep.id}` as any)}
-                    >
-                      {/* Still image thumbnail */}
-                      <View style={styles.stillContainer}>
-                        {stillUrl ? (
-                          <Image source={{ uri: stillUrl }} style={styles.stillImage} contentFit="cover" />
-                        ) : (
-                          <View style={styles.stillPlaceholder}>
-                            <Text style={styles.stillEpisodeNumber}>E{ep.episodeNumber}</Text>
+                      const epCode = `S${String(ep.seasonNumber ?? 0).padStart(2, '0')}xE${String(
+                        ep.episodeNumber
+                      ).padStart(2, '0')}`;
+
+                      return (
+                        <Pressable
+                          key={ep.id}
+                          style={styles.episodeRow}
+                          onPress={() => router.push(`/media/${mediaId}/episodes/${ep.id}` as any)}
+                        >
+                          {/* Thumbnail / Initials Box */}
+                          {stillUrl ? (
+                            <Image source={{ uri: stillUrl }} style={styles.thumbnail} contentFit="cover" />
+                          ) : (
+                            <View style={styles.thumbnailPlaceholder}>
+                              <Text style={styles.initialsText}>{mediaInitials}</Text>
+                            </View>
+                          )}
+
+                          {/* Title & Code */}
+                          <View style={styles.episodeMeta}>
+                            <Text style={styles.episodeCode}>{epCode}</Text>
+                            <Text style={styles.episodeTitle} numberOfLines={1}>
+                              {ep.title || `Episode ${ep.episodeNumber}`}
+                            </Text>
                           </View>
-                        )}
-                      </View>
 
-                      {/* Episode Meta */}
-                      <View style={styles.episodeInfo}>
-                        <View style={styles.episodeHeaderRow}>
-                          <Text style={styles.episodeCode}>
-                            S{ep.seasonNumber} E{ep.episodeNumber}
-                          </Text>
-                          {ep.airDate && <Text style={styles.episodeAirDate}>{ep.airDate}</Text>}
-                        </View>
-                        <Text style={styles.episodeTitle} numberOfLines={1}>
-                          {ep.title || `Episode ${ep.episodeNumber}`}
-                        </Text>
-                        {ep.overview ? (
-                          <Text style={styles.episodeOverview} numberOfLines={2}>
-                            {ep.overview}
-                          </Text>
-                        ) : null}
-                      </View>
+                          {/* Watched Toggle Circle */}
+                          <Pressable
+                            style={[styles.episodeCheckCircle, isWatched && styles.episodeCheckCircleWatched]}
+                            onPress={() => handleToggleWatched(ep)}
+                            disabled={isBusy}
+                            hitSlop={6}
+                          >
+                            {isBusy ? (
+                              <ActivityIndicator size="small" color="#101112" />
+                            ) : (
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color={isWatched ? '#101112' : '#8b8e89'}
+                              />
+                            )}
+                          </Pressable>
 
-                      {/* Watched Toggle Checkmark */}
-                      <Pressable
-                        style={[styles.checkAction, isWatched && styles.checkActionWatched]}
-                        onPress={() => handleToggleWatched(ep)}
-                        disabled={isBusy}
-                        hitSlop={8}
-                      >
-                        {isBusy ? (
-                          <ActivityIndicator size="small" color={theme.colors.accent} />
-                        ) : (
-                          <Ionicons
-                            name={isWatched ? 'checkmark' : 'checkmark-outline'}
-                            size={18}
-                            color={isWatched ? theme.colors.accentContrast : theme.colors.textSubtle}
-                          />
-                        )}
-                      </Pressable>
-                    </Pressable>
-                  );
-                })}
+                          {/* Navigation Chevron */}
+                          <Ionicons name="chevron-forward" size={16} color="#8b8e89" style={styles.chevron} />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
-            )}
-          </View>
-        );
-      })}
+            );
+          })}
+        </View>
+      )}
     </View>
   );
 }
@@ -203,18 +221,53 @@ const styles = StyleSheet.create({
   container: {
     marginTop: 18,
   },
-  sectionHeading: {
-    color: theme.colors.textStrong,
-    fontSize: 16,
+  eyebrow: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    color: theme.colors.accent,
+    marginBottom: 2,
+  },
+  heading: {
+    fontSize: 18,
     fontWeight: '800',
-    marginBottom: 10,
+    color: '#f8f7f2',
+    marginBottom: 2,
+  },
+  subheading: {
+    fontSize: 13,
+    color: '#aeb1ac',
+    marginBottom: 12,
+  },
+  emptyGuideCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: theme.borderRadius.sm,
+    padding: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 6,
+  },
+  emptyGuideTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#f8f7f2',
+    marginBottom: 4,
+  },
+  emptyGuideSub: {
+    fontSize: 12,
+    color: '#8b8e89',
+    textAlign: 'center',
+  },
+  seasonStack: {
+    gap: 8,
   },
   seasonCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderRadius: theme.borderRadius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
-    marginBottom: 10,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     overflow: 'hidden',
   },
   seasonHeader: {
@@ -222,111 +275,99 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  seasonTitleRow: {
+  seasonHeaderLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  seasonTitle: {
-    color: theme.colors.textStrong,
-    fontSize: 14,
-    fontWeight: '800',
+  seasonName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#f8f7f2',
   },
-  seasonCountText: {
-    color: theme.colors.textSubtle,
-    fontSize: 12,
+  seasonCount: {
+    fontSize: 13,
     fontWeight: '600',
+    color: '#8b8e89',
   },
-  bulkButton: {
-    padding: 4,
+  seasonCheckCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  bulkButtonWatched: {},
-  seasonProgressTrack: {
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-  },
-  seasonProgressFill: {
-    height: '100%',
+  seasonCheckCircleWatched: {
     backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
   },
   episodesList: {
-    paddingVertical: 4,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
-  episodeItem: {
+  episodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.04)',
     gap: 10,
   },
-  stillContainer: {
-    width: 64,
-    height: 40,
-    borderRadius: 4,
-    overflow: 'hidden',
-    backgroundColor: '#1c1d1e',
+  thumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
   },
-  stillImage: {
-    width: '100%',
-    height: '100%',
-  },
-  stillPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
+  thumbnailPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 191, 71, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 191, 71, 0.25)',
     justifyContent: 'center',
-    backgroundColor: '#1c1d1e',
-  },
-  stillEpisodeNumber: {
-    color: theme.colors.textSubtle,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  episodeInfo: {
-    flex: 1,
-  },
-  episodeHeaderRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 2,
+  },
+  initialsText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: theme.colors.accent,
+  },
+  episodeMeta: {
+    flex: 1,
   },
   episodeCode: {
-    color: theme.colors.accent,
     fontSize: 11,
-    fontWeight: '800',
-  },
-  episodeAirDate: {
-    color: theme.colors.textSubtle,
-    fontSize: 10,
     fontWeight: '600',
+    color: '#8b8e89',
+    marginBottom: 2,
   },
   episodeTitle: {
-    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: '700',
+    color: '#f8f7f2',
   },
-  episodeOverview: {
-    color: theme.colors.textMuted,
-    fontSize: 11,
-    lineHeight: 15,
-    marginTop: 2,
-  },
-  checkAction: {
+  episodeCheckCircle: {
     width: 32,
     height: 32,
-    borderRadius: theme.borderRadius.pill,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.12)',
-    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    alignItems: 'center',
   },
-  checkActionWatched: {
+  episodeCheckCircleWatched: {
     backgroundColor: theme.colors.accent,
     borderColor: theme.colors.accent,
+  },
+  chevron: {
+    marginLeft: 2,
   },
 });

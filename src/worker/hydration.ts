@@ -112,35 +112,127 @@ async function hydrateTmdb(env: Env, job: any) {
     const releaseDate = media.type === "movie" ? data.release_date : data.first_air_date;
     const runtime = media.type === "movie" ? data.runtime : (data.episode_run_time?.[0] ?? null);
     
-    const extendedData = { cast, crew, creators, watchProviders, related, videos, externalIds: data.external_ids, rating: data.vote_average, voteCount: data.vote_count, popularity: data.popularity, genres: data.genres || [], homepage: data.homepage || null };
+    const pendingConflicts: Array<{ section: string; label: string; current: string; incoming: string }> = [];
+
+    // Check title conflict
+    const incomingTitle = data.title ?? data.name;
+    if (media.title && incomingTitle && media.title.trim().toLowerCase() !== incomingTitle.trim().toLowerCase()) {
+      pendingConflicts.push({ section: "title", label: "Title", current: media.title, incoming: incomingTitle });
+    }
+
+    // Check overview conflict
+    const incomingOverview = data.overview?.trim();
+    if (media.overview && incomingOverview && media.overview.trim() !== incomingOverview) {
+      pendingConflicts.push({ section: "overview", label: "Overview", current: media.overview, incoming: incomingOverview });
+    }
+
+    // Check poster conflict
+    const incomingPoster = tmdbImage(data.poster_path, "w342");
+    if (media.poster_path && incomingPoster && media.poster_path !== incomingPoster) {
+      pendingConflicts.push({ section: "poster", label: "Poster Artwork", current: media.poster_path, incoming: incomingPoster });
+    }
+
+    // Check backdrop conflict
+    const incomingBackdrop = tmdbImage(data.backdrop_path, "w780");
+    if (media.backdrop_path && incomingBackdrop && media.backdrop_path !== incomingBackdrop) {
+      pendingConflicts.push({ section: "backdrop", label: "Backdrop Banner", current: media.backdrop_path, incoming: incomingBackdrop });
+    }
+
+    // Check release date conflict
+    if (media.release_date && releaseDate && media.release_date !== releaseDate) {
+      pendingConflicts.push({ section: "release_date", label: "Release Date", current: media.release_date, incoming: releaseDate });
+    }
+
+    const conflictingSections = new Set(pendingConflicts.map((c) => c.section));
+
+    // Only overwrite existing non-empty fields if there is no conflict
+    const appliedTitle = conflictingSections.has("title") ? media.title : (incomingTitle ?? media.title);
+    const appliedOverview = conflictingSections.has("overview") ? media.overview : (data.overview || media.overview);
+    const appliedPoster = conflictingSections.has("poster") ? media.poster_path : (incomingPoster || media.poster_path);
+    const appliedBackdrop = conflictingSections.has("backdrop") ? media.backdrop_path : (incomingBackdrop || media.backdrop_path);
+    const appliedReleaseDate = conflictingSections.has("release_date") ? media.release_date : (releaseDate || media.release_date);
+
+    const existingExt = JSON.parse(media.extended_data_json || "{}");
+    const extendedData = {
+      ...existingExt,
+      cast,
+      crew,
+      creators,
+      watchProviders,
+      related,
+      videos,
+      externalIds: data.external_ids,
+      rating: data.vote_average,
+      voteCount: data.vote_count,
+      popularity: data.popularity,
+      genres: data.genres || [],
+      homepage: data.homepage || null,
+      pendingConflicts,
+    };
 
     const compactCache = {
       id: data.id,
       type: media.type,
-      title: data.title ?? data.name ?? media.title,
+      title: appliedTitle,
       status: data.status ?? null,
-      releaseDate,
-      posterPath: tmdbImage(data.poster_path, "w342"),
-      backdropPath: tmdbImage(data.backdrop_path, "w780"),
+      releaseDate: appliedReleaseDate,
+      posterPath: appliedPoster,
+      backdropPath: appliedBackdrop,
       rating: data.vote_average ?? null,
       voteCount: data.vote_count ?? null,
       hydratedAt: now.toISOString(),
     };
     await runD1("cache TMDB media detail", writeProviderCache(db, "tmdb", `detail:${media.id}`, compactCache, 200, providerTtls.tmdbDetail));
 
-    await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
-      overview = COALESCE(?, overview),
-      poster_path = COALESCE(?, poster_path),
-      backdrop_path = COALESCE(?, backdrop_path),
-      release_date = COALESCE(?, release_date),
-      runtime_minutes = COALESCE(?, runtime_minutes),
-      air_status = COALESCE(?, air_status),
-      extended_data_json = ?, 
-      total_seasons = COALESCE(?, total_seasons), 
-      total_episodes = COALESCE(?, total_episodes),
-      updated_at = ? 
-      WHERE id = ?`)
-      .bind(data.overview || null, tmdbImage(data.poster_path, "w342"), tmdbImage(data.backdrop_path, "w780"), releaseDate || null, runtime || null, inferTmdbStatus(data.status, media.type), JSON.stringify(extendedData), data.number_of_seasons || null, data.number_of_episodes || null, now.toISOString(), media.id).run());
+    try {
+      await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
+        title = ?,
+        overview = ?,
+        poster_path = ?,
+        backdrop_path = ?,
+        release_date = ?,
+        runtime_minutes = COALESCE(?, runtime_minutes),
+        air_status = COALESCE(?, air_status),
+        extended_data_json = ?, 
+        total_seasons = COALESCE(?, total_seasons), 
+        total_episodes = COALESCE(?, total_episodes),
+        updated_at = ? 
+        WHERE id = ?`)
+        .bind(
+          appliedTitle,
+          appliedOverview || null,
+          appliedPoster || null,
+          appliedBackdrop || null,
+          appliedReleaseDate || null,
+          runtime || null,
+          inferTmdbStatus(data.status, media.type),
+          JSON.stringify(extendedData),
+          data.number_of_seasons || null,
+          data.number_of_episodes || null,
+          now.toISOString(),
+          media.id
+        ).run());
+    } catch {
+      await runD1("fallback update hydrated media item", db.prepare(`UPDATE media_items SET
+        title = ?,
+        overview = ?,
+        poster_path = ?,
+        backdrop_path = ?,
+        release_date = ?,
+        extended_data_json = ?,
+        updated_at = ?
+        WHERE id = ?`)
+        .bind(
+          appliedTitle,
+          appliedOverview || null,
+          appliedPoster || null,
+          appliedBackdrop || null,
+          appliedReleaseDate || null,
+          JSON.stringify(extendedData),
+          now.toISOString(),
+          media.id
+        ).run());
+    }
       
     await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, credits_hydrated_at, availability_hydrated_at, updated_at)
       VALUES (?, ?, ?, ?, ?)

@@ -178,7 +178,19 @@ export function createMergeRoutes() {
     const media = await getMedia(c.env.DB, c.req.param("mediaId"));
     if (!media) return apiError(c, 404, "not_found", "Media not found.");
     const now = new Date().toISOString();
-    const provider = media.source === "tv_time" ? "tmdb" : media.source;
+    let provider = (media as any).source || (media as any).provider;
+    if (provider === "tv_time" || !provider) {
+      const extId = await c.env.DB.prepare("SELECT source, external_id FROM media_external_ids WHERE media_id = ?")
+        .bind(media.id)
+        .first<{ source: string; external_id: string }>();
+      if (extId?.source) {
+        provider = extId.source;
+      }
+    }
+    if (!provider) {
+      provider = media.type === "game" ? "rawg" : media.type === "book" ? "openlibrary" : "tmdb";
+    }
+
     if (provider === "tmdb") {
       const tmdbId = await c.env.DB.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb'")
         .bind(media.id)
@@ -220,6 +232,64 @@ export function createMergeRoutes() {
       .bind(mediaId)
       .first<{ id: string; status: string; last_error: string | null; updated_at: string }>();
     return c.json(apiSuccess({ job: job ?? null, progress }));
+  });
+
+  router.get("/:mediaId/conflicts", requireAuth(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
+    const mediaId = c.req.param("mediaId");
+    const media = await getMedia(c.env.DB, mediaId);
+    if (!media) return apiError(c, 404, "not_found", "Media not found.");
+
+    const ext = JSON.parse(media.extended_data_json || "{}");
+    return c.json(apiSuccess({ conflicts: ext.pendingConflicts || [] }));
+  });
+
+  router.post("/:mediaId/conflicts/resolve", requireAuth(), requireCsrf(), async (c) => {
+    if (!c.env.DB) return apiError(c, 503, "server_error", "Database binding is not configured.");
+    const mediaId = c.req.param("mediaId");
+    const media = await getMedia(c.env.DB, mediaId);
+    if (!media) return apiError(c, 404, "not_found", "Media not found.");
+
+    const body = await c.req.json().catch(() => ({})) as { resolutions?: Record<string, "accept" | "keep"> };
+    const resolutions = body.resolutions || {};
+
+    const ext = JSON.parse(media.extended_data_json || "{}");
+    const pendingConflicts: Array<{ section: string; label: string; current: string; incoming: string }> = ext.pendingConflicts || [];
+    const remainingConflicts: Array<{ section: string; label: string; current: string; incoming: string }> = [];
+    const updates: Record<string, string> = {};
+
+    for (const conflict of pendingConflicts) {
+      const decision = resolutions[conflict.section];
+      if (decision === "accept") {
+        if (conflict.section === "title") updates.title = conflict.incoming;
+        else if (conflict.section === "overview") updates.overview = conflict.incoming;
+        else if (conflict.section === "poster") updates.poster_path = conflict.incoming;
+        else if (conflict.section === "backdrop") updates.backdrop_path = conflict.incoming;
+        else if (conflict.section === "release_date") updates.release_date = conflict.incoming;
+      } else if (decision === "keep") {
+        // Kept current, conflict is resolved
+      } else {
+        remainingConflicts.push(conflict);
+      }
+    }
+
+    ext.pendingConflicts = remainingConflicts;
+    const now = new Date().toISOString();
+
+    let query = "UPDATE media_items SET extended_data_json = ?, updated_at = ?";
+    const binds: any[] = [JSON.stringify(ext), now];
+
+    if (updates.title !== undefined) { query += ", title = ?"; binds.push(updates.title); }
+    if (updates.overview !== undefined) { query += ", overview = ?"; binds.push(updates.overview); }
+    if (updates.poster_path !== undefined) { query += ", poster_path = ?"; binds.push(updates.poster_path); }
+    if (updates.backdrop_path !== undefined) { query += ", backdrop_path = ?"; binds.push(updates.backdrop_path); }
+    if (updates.release_date !== undefined) { query += ", release_date = ?"; binds.push(updates.release_date); }
+
+    query += " WHERE id = ?";
+    binds.push(mediaId);
+
+    await c.env.DB.prepare(query).bind(...binds).run();
+    return c.json(apiSuccess({ resolved: true, remainingConflicts }));
   });
 
   return router;
@@ -353,22 +423,23 @@ async function mergeMedia(db: D1Database, userId: string, sourceMediaId: string,
 }
 
 async function enqueueMediaRefreshJob(db: D1Database, mediaId: string, provider: string, now: string) {
+  const safeProvider = provider || "tmdb";
   const existing = await db.prepare(`SELECT id FROM metadata_refresh_jobs
     WHERE media_id = ? AND provider = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
-    .bind(mediaId, provider)
+    .bind(mediaId, safeProvider)
     .first<{ id: string }>();
   if (existing) return existing.id;
   const id = randomId("mrj");
   await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?)")
-    .bind(id, mediaId, provider, now, now)
+    .bind(id, mediaId, safeProvider, now, now)
     .run();
   return id;
 }
 
 async function hydrationProgress(db: D1Database, mediaId: string) {
   const [media, episodeCounts, jobCounts, failedJob] = await Promise.all([
-    db.prepare("SELECT total_episodes FROM media_items WHERE id = ?").bind(mediaId).first<{ total_episodes: number | null }>(),
+    db.prepare("SELECT * FROM media_items WHERE id = ?").bind(mediaId).first<any>(),
     db.prepare(`SELECT
         COUNT(*) AS episode_count,
         SUM(CASE WHEN still_path IS NOT NULL OR overview IS NOT NULL OR air_date IS NOT NULL OR runtime_minutes IS NOT NULL OR external_id IS NOT NULL OR extended_data_json IS NOT NULL THEN 1 ELSE 0 END) AS hydrated_count
@@ -384,8 +455,20 @@ async function hydrationProgress(db: D1Database, mediaId: string) {
       .first<{ last_error: string | null; updated_at: string }>(),
   ]);
 
+  let mediaTotalEpisodes: number | null = null;
+  if (media) {
+    if (typeof media.total_episodes === "number") {
+      mediaTotalEpisodes = media.total_episodes;
+    } else if (media.extended_data_json) {
+      try {
+        const ext = JSON.parse(media.extended_data_json);
+        mediaTotalEpisodes = ext.totalEpisodes ?? ext.number_of_episodes ?? null;
+      } catch {}
+    }
+  }
+
   const counts = new Map((jobCounts.results ?? []).map((row) => [row.status, row.count]));
-  const totalEpisodes = Math.max(media?.total_episodes ?? 0, episodeCounts?.episode_count ?? 0);
+  const totalEpisodes = Math.max(mediaTotalEpisodes ?? 0, episodeCounts?.episode_count ?? 0);
   const hydratedEpisodes = Math.min(totalEpisodes, episodeCounts?.hydrated_count ?? 0);
   const queuedJobs = counts.get("queued") ?? 0;
   const runningJobs = counts.get("running") ?? 0;

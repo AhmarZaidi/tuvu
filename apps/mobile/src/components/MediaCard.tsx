@@ -14,6 +14,7 @@ interface MediaCardProps {
   width?: number;
   variant?: 'grid' | 'compact';
   onMarkNext?: (episodeId: string) => Promise<void>;
+  reserveActionSpace?: boolean;
 }
 
 function resolveStatusTone(status: string): StatusTone {
@@ -34,6 +35,7 @@ export function MediaCard({
   width = 160,
   variant = 'grid',
   onMarkNext,
+  reserveActionSpace = false,
 }: MediaCardProps) {
   const router = useRouter();
   const [marking, setMarking] = useState(false);
@@ -194,6 +196,8 @@ export function MediaCard({
             </>
           )}
         </Pressable>
+      ) : reserveActionSpace ? (
+        <View style={styles.quickWatchPlaceholder} />
       ) : null}
     </View>
   );
@@ -305,6 +309,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   quickWatchButton: {
+    height: 24,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -312,10 +317,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 207, 92, 0.25)',
     borderRadius: theme.borderRadius.sm,
-    paddingVertical: 4,
     paddingHorizontal: 4,
     marginTop: 5,
     gap: 3,
+  },
+  quickWatchPlaceholder: {
+    height: 24,
+    marginTop: 5,
   },
   quickWatchText: {
     color: theme.colors.accent,

@@ -12,7 +12,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api, DashboardEntry, ExploreResult, ExploreRow } from '../../services/api';
 import { useAppTheme } from '../../context/ThemeContext';
 import { useSearch } from '../../context/SearchContext';
@@ -89,8 +89,16 @@ export default function ExploreScreen() {
   const { searchQuery, setSearchQuery } = useSearch();
   const { showNotice } = useSnackbar();
 
-  const [activeCategory, setActiveCategory] = useState<string>('');
+  const params = useLocalSearchParams<{ category?: string; type?: string }>();
+  const [activeCategory, setActiveCategory] = useState<string>(params?.category || params?.type || '');
   const [addingId, setAddingId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const incoming = params?.category || params?.type;
+    if (incoming !== undefined) {
+      setActiveCategory(incoming);
+    }
+  }, [params?.category, params?.type]);
 
   const isSearching = searchQuery.trim().length > 1;
 

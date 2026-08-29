@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { api, DashboardResponse, DashboardEntry, DashboardSection } from '../services/api';
 import { theme } from '../constants/theme';
 import { useAppTheme } from '../context/ThemeContext';
@@ -22,7 +23,6 @@ import { DashboardToolbar, SortMode } from './DashboardToolbar';
 import { SectionPills } from './SectionPills';
 import { SectionHeader } from './SectionHeader';
 import { MediaCard } from './MediaCard';
-import { CreateMediaModal } from './CreateMediaModal';
 import { GoldenGlow } from './GoldenGlow';
 
 interface DashboardViewProps {
@@ -33,9 +33,13 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ kind, title, mediaType, emptyMessage }: DashboardViewProps) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { width: windowWidth } = useWindowDimensions();
   const { colors } = useAppTheme();
+
+  // Keep action button spacing aligned for shows and anime
+  const reserveActionSpace = kind === 'shows' || kind === 'anime';
 
   // Synced layout mode and collapse state across all dashboard pages
   const {
@@ -48,7 +52,13 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('updated');
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+
+  const handleAddMedia = () => {
+    router.push({
+      pathname: '/explore',
+      params: { category: mediaType },
+    } as any);
+  };
 
   const {
     data,
@@ -191,7 +201,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
         eyebrow="Library"
         title={title}
         actionLabel={`+ Add ${mediaType}`}
-        onAction={() => setCreateModalOpen(true)}
+        onAction={handleAddMedia}
       />
 
       {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
@@ -238,7 +248,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
           : emptyMessage || `Add a ${mediaType} to fill this section.`}
       </Text>
       {!search.trim() && (
-        <Pressable style={styles.emptyAddButton} onPress={() => setCreateModalOpen(true)}>
+        <Pressable style={styles.emptyAddButton} onPress={handleAddMedia}>
           <Text style={styles.emptyAddButtonText}>+ Add {mediaType}</Text>
         </Pressable>
       )}
@@ -311,6 +321,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
                   item={pair[0]}
                   width={cardWidth}
                   onMarkNext={handleMarkNext}
+                  reserveActionSpace={reserveActionSpace}
                 />
                 {pair[1] && (
                   <View style={{ marginTop: 10 }}>
@@ -318,6 +329,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
                       item={pair[1]}
                       width={cardWidth}
                       onMarkNext={handleMarkNext}
+                      reserveActionSpace={reserveActionSpace}
                     />
                   </View>
                 )}
@@ -350,6 +362,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
                 item={entry}
                 width={cardWidth}
                 onMarkNext={handleMarkNext}
+                reserveActionSpace={reserveActionSpace}
               />
             </View>
           )}
@@ -388,6 +401,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
                 item={item}
                 width={cardWidth}
                 onMarkNext={handleMarkNext}
+                reserveActionSpace={reserveActionSpace}
               />
             </View>
           )}
@@ -413,17 +427,6 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
           ListEmptyComponent={renderEmptyState}
         />
       )}
-
-      {/* Add Media Modal */}
-      <CreateMediaModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        defaultType={mediaType}
-        onMediaAdded={() => {
-          refetch();
-          queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-        }}
-      />
     </View>
   );
 }

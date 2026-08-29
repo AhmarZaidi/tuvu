@@ -51,7 +51,8 @@ export function createExploreRoutes() {
   });
 
   router.get("/search", requireAuth(), async (c) => {
-    const query = searchSchema.safeParse({ q: c.req.query("q"), types: c.req.query("types") });
+    const rawTypes = c.req.query("types") || c.req.query("type");
+    const query = searchSchema.safeParse({ q: c.req.query("q"), types: rawTypes });
     if (!query.success) return apiError(c, 400, "validation_failed", "Search query is invalid.", query.error.flatten());
     const auth = c.get("auth");
     const mediaRepo = c.get("mediaRepository");

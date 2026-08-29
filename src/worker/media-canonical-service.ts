@@ -174,10 +174,17 @@ export async function resolveOrCreateImportedCanonicalMedia(input: {
   }
 
   const mediaId = randomId("med");
-  await input.db.prepare(`INSERT INTO media_items (id, type, title, overview, poster_path, backdrop_path, air_status, runtime_minutes, release_date, year, language, country, source, source_id, total_episodes, total_seasons, extended_data_json, created_at, updated_at)
-    VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, 'tv_time', ?, NULL, NULL, NULL, ?, ?)`)
-    .bind(mediaId, input.item.type, input.item.title, input.item.releaseDate, input.item.year, input.item.sourceUuid ?? input.item.tvdbId ?? input.item.imdbId, input.item.createdAt ?? input.now, input.now)
-    .run();
+  try {
+    await input.db.prepare(`INSERT INTO media_items (id, media_type_code, canonical_title, normalized_title, type, title, overview, release_date, year, original_language, primary_country, canonical_provider_code, canonical_provider_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, 'tv_time', ?, ?, ?)`)
+      .bind(mediaId, input.item.type, input.item.title, normalizeTitle(input.item.title), input.item.type, input.item.title, input.item.releaseDate, input.item.year, input.item.sourceUuid ?? input.item.tvdbId ?? input.item.imdbId, input.item.createdAt ?? input.now, input.now)
+      .run();
+  } catch {
+    await input.db.prepare(`INSERT INTO media_items (id, type, title, overview, poster_path, backdrop_path, air_status, runtime_minutes, release_date, year, language, country, source, source_id, total_episodes, total_seasons, extended_data_json, created_at, updated_at)
+      VALUES (?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL, NULL, 'tv_time', ?, NULL, NULL, NULL, ?, ?)`)
+      .bind(mediaId, input.item.type, input.item.title, input.item.releaseDate, input.item.year, input.item.sourceUuid ?? input.item.tvdbId ?? input.item.imdbId, input.item.createdAt ?? input.now, input.now)
+      .run();
+  }
   await input.onCreated?.("media_items", mediaId);
   await attachImportedExternalIds(input.db, mediaId, input.item, input.now, input.onCreated);
   await upsertMediaSourceRecord(input.db, mediaId, "tv_time", input.item.sourceUuid ?? input.item.tvdbId ?? input.item.imdbId, input.item.title, input.item.type, input.item.year, {
@@ -189,18 +196,38 @@ export async function resolveOrCreateImportedCanonicalMedia(input: {
 }
 
 export async function findMediaByExternalId(db: D1Database, provider: string, providerId: string): Promise<MediaItemRecord | null> {
-  const row = await db.prepare(`SELECT mi.* FROM media_items mi
-    LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
-    WHERE (mi.source = ? AND mi.source_id = ?) OR (ex.source = ? AND ex.external_id = ?)
-    LIMIT 1`).bind(provider, providerId, provider, providerId).first<MediaItemRow>();
-  return row ? mapMediaItemRow(row) : null;
+  try {
+    const row = await db.prepare(`SELECT mi.* FROM media_items mi
+      LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
+      WHERE (mi.canonical_provider_code = ? AND mi.canonical_provider_id = ?)
+         OR ((ex.provider_code = ? OR ex.namespace = ?) AND ex.external_id = ?)
+      LIMIT 1`).bind(provider, providerId, provider, provider, providerId).first<MediaItemRow>();
+    if (row) return mapMediaItemRow(row);
+  } catch {}
+
+  try {
+    const row = await db.prepare(`SELECT mi.* FROM media_items mi
+      LEFT JOIN media_external_ids ex ON ex.media_id = mi.id
+      WHERE (mi.source = ? AND mi.source_id = ?) OR (ex.source = ? AND ex.external_id = ?)
+      LIMIT 1`).bind(provider, providerId, provider, providerId).first<MediaItemRow>();
+    if (row) return mapMediaItemRow(row);
+  } catch {}
+
+  return null;
 }
 
 export async function findMediaIdByExternalIds(db: D1Database, ids: Array<[string, string | null]>): Promise<string | null> {
   for (const [source, externalId] of ids) {
     if (!externalId) continue;
-    const row = await db.prepare("SELECT media_id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(source, externalId).first<{ media_id: string }>();
-    if (row) return row.media_id;
+    try {
+      const row = await db.prepare("SELECT media_id FROM media_external_ids WHERE (provider_code = ? OR namespace = ?) AND external_id = ?").bind(source, source, externalId).first<{ media_id: string }>();
+      if (row) return row.media_id;
+    } catch {
+      try {
+        const row = await db.prepare("SELECT media_id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(source, externalId).first<{ media_id: string }>();
+        if (row) return row.media_id;
+      } catch {}
+    }
   }
   return null;
 }
@@ -218,22 +245,45 @@ export async function resolveMergedMediaId(db: D1Database, requestedMediaId: str
 
 export async function attachExternalId(db: D1Database, mediaId: string, source: string, externalId: string, now: string): Promise<string | null> {
   if (!externalId || source === "local") return null;
-  const existing = await db.prepare("SELECT id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(source, externalId).first<{ id: string }>();
-  if (existing) return null;
-  const id = randomId("mex");
-  await db.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
-    .bind(id, mediaId, source, externalId, now)
-    .run();
-  return id;
+  try {
+    const existing = await db.prepare("SELECT id FROM media_external_ids WHERE (provider_code = ? OR namespace = ?) AND external_id = ?").bind(source, source, externalId).first<{ id: string }>();
+    if (existing) return null;
+    const id = randomId("mex");
+    await db.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, provider_code, namespace, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(id, mediaId, source, source, externalId, now, now)
+      .run();
+    return id;
+  } catch {
+    try {
+      const existing = await db.prepare("SELECT id FROM media_external_ids WHERE source = ? AND external_id = ?").bind(source, externalId).first<{ id: string }>();
+      if (existing) return null;
+      const id = randomId("mex");
+      await db.prepare("INSERT OR IGNORE INTO media_external_ids (id, media_id, source, external_id, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind(id, mediaId, source, externalId, now)
+        .run();
+      return id;
+    } catch {}
+  }
+  return null;
 }
 
 export async function upsertMediaSourceRecord(db: D1Database, mediaId: string, sourceKind: string, sourceId: string | null, title: string, type: string, year: number | null, raw: unknown, now: string) {
   if (!sourceId) return;
-  await db.prepare(`INSERT INTO media_source_records (id, media_id, source_kind, source_id, raw_title, raw_type, raw_year, normalized_title, cache_key, raw_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
-    ON CONFLICT(source_kind, source_id) DO UPDATE SET media_id=excluded.media_id, raw_title=excluded.raw_title, raw_type=excluded.raw_type, raw_year=excluded.raw_year, normalized_title=excluded.normalized_title, raw_json=excluded.raw_json, updated_at=excluded.updated_at`)
-    .bind(randomId("msr"), mediaId, sourceKind, sourceId, title, type, year, normalizeTitle(title), JSON.stringify(raw), now, now)
-    .run();
+  try {
+    await db.prepare(`INSERT INTO media_source_records (id, media_id, provider_code, provider_entity_id, scope, raw_json, confidence, fetched_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'details', ?, 1.0, ?, ?, ?)
+      ON CONFLICT(media_id, provider_code, scope) DO UPDATE SET raw_json=excluded.raw_json, updated_at=excluded.updated_at`)
+      .bind(randomId("msr"), mediaId, sourceKind, sourceId, JSON.stringify(raw), now, now, now)
+      .run();
+  } catch {
+    try {
+      await db.prepare(`INSERT INTO media_source_records (id, media_id, source_kind, source_id, raw_title, raw_type, raw_year, normalized_title, cache_key, raw_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        ON CONFLICT(source_kind, source_id) DO UPDATE SET media_id=excluded.media_id, raw_title=excluded.raw_title, raw_type=excluded.raw_type, raw_year=excluded.raw_year, normalized_title=excluded.normalized_title, raw_json=excluded.raw_json, updated_at=excluded.updated_at`)
+        .bind(randomId("msr"), mediaId, sourceKind, sourceId, title, type, year, normalizeTitle(title), JSON.stringify(raw), now, now)
+        .run();
+    } catch {}
+  }
 }
 
 export function inferAirStatus(type: MediaType, releaseDate: string | null) {
@@ -263,29 +313,31 @@ async function findMediaByProviderResult(repo: Pick<CanonicalMediaRepository, "s
 }
 
 async function enqueueMetadataRefresh(db: D1Database, mediaId: string, provider: string, now: string) {
-  await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
-    .bind(randomId("mrj"), mediaId, provider, now, now)
-    .run();
+  try {
+    await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
+      .bind(randomId("mrj"), mediaId, provider, now, now)
+      .run();
+  } catch {}
 }
 
-function mapMediaItemRow(row: MediaItemRow): MediaItemRecord {
+function mapMediaItemRow(row: any): MediaItemRecord {
   return {
     id: row.id,
-    type: row.type,
-    title: row.title,
-    overview: row.overview,
-    posterPath: row.poster_path,
-    backdropPath: row.backdrop_path,
-    airStatus: row.air_status,
-    runtimeMinutes: row.runtime_minutes,
-    releaseDate: row.release_date,
-    year: row.year,
-    language: row.language,
-    country: row.country,
-    source: row.source,
-    sourceId: row.source_id,
-    totalEpisodes: row.total_episodes,
-    totalSeasons: row.total_seasons,
+    type: row.type ?? row.media_type_code,
+    title: row.title ?? row.canonical_title,
+    overview: row.overview ?? row.synopsis ?? null,
+    posterPath: row.poster_path ?? row.poster_url ?? null,
+    backdropPath: row.backdrop_path ?? row.backdrop_url ?? null,
+    airStatus: row.air_status ?? row.status ?? "released",
+    runtimeMinutes: row.runtime_minutes ?? null,
+    releaseDate: row.release_date ?? null,
+    year: row.year ?? (row.release_date ? Number(row.release_date.slice(0, 4)) : null),
+    language: row.language ?? row.original_language ?? null,
+    country: row.country ?? row.primary_country ?? null,
+    source: row.source ?? row.canonical_provider_code ?? "unknown",
+    sourceId: row.source_id ?? row.canonical_provider_id ?? null,
+    totalEpisodes: row.total_episodes ?? null,
+    totalSeasons: row.total_seasons ?? null,
     extendedDataJson: row.extended_data_json ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

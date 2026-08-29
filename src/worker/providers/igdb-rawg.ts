@@ -45,18 +45,27 @@ export async function rawgPing(env: Env, userId?: string | null): Promise<{ ok: 
 }
 
 export async function igdbSearch(env: Env, query: string, limit: number, userId?: string | null) {
-  const q = `search "${query}"; fields name,slug,summary,cover.image_id,first_release_date,rating,rating_count,platforms.name,genres.name,involved_companies.company.name; limit ${limit};`;
-  const data = await igdbRequest<unknown[]>(env, q, `search:${query.toLowerCase()}`, userId);
-  const results = (data ?? []).map(normalizeIgdb).filter(isProviderResult);
-  return results.length === 0 ? rawgSearch(env, query, limit, userId) : results;
+  try {
+    const q = `search "${query}"; fields name,slug,summary,cover.image_id,first_release_date,rating,rating_count,platforms.name,genres.name,involved_companies.company.name; limit ${limit};`;
+    const data = await igdbRequest<unknown[]>(env, q, `search:${query.toLowerCase()}`, userId);
+    const results = (data ?? []).map(normalizeIgdb).filter(isProviderResult);
+    if (results.length > 0) return results;
+  } catch (err) {
+    console.error("[IGDB] search error, falling back to RAWG:", err);
+  }
+  return rawgSearch(env, query, limit, userId);
 }
 
 export async function igdbList(env: Env, cacheKey: string, query: string, limit: number, userId?: string | null) {
-  const q = `fields name,slug,summary,cover.image_id,first_release_date,rating,rating_count,platforms.name,genres.name,involved_companies.company.name; ${query} limit ${limit};`;
-  const data = await igdbRequest<unknown[]>(env, q, `list:${cacheKey}`, userId);
-  const results = (data ?? []).map(normalizeIgdb).filter(isProviderResult);
-  if (results.length === 0) return rawgList(env, cacheKey, cacheKey.includes("upcoming") ? "-added" : "-rating", limit, userId);
-  return results;
+  try {
+    const q = `fields name,slug,summary,cover.image_id,first_release_date,rating,rating_count,platforms.name,genres.name,involved_companies.company.name; ${query} limit ${limit};`;
+    const data = await igdbRequest<unknown[]>(env, q, `list:${cacheKey}`, userId);
+    const results = (data ?? []).map(normalizeIgdb).filter(isProviderResult);
+    if (results.length > 0) return results;
+  } catch (err) {
+    console.error("[IGDB] list error, falling back to RAWG:", err);
+  }
+  return rawgList(env, cacheKey, cacheKey.includes("upcoming") ? "-added" : "-rating", limit, userId);
 }
 
 export async function igdbFetchDetails(env: Env, providerId: string, userId?: string | null) {
@@ -91,14 +100,25 @@ async function getIgdbToken(env: Env, forceRefresh = false, userId?: string | nu
   if (!clientId || !clientSecret) return null;
   const cacheKey = userId ? `oauth_token:${userId}` : "oauth_token";
   if (!forceRefresh && env.DB) {
-    const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider = 'igdb' AND cache_key = ?").bind(cacheKey).first<{ response_json: string; expires_at: string }>();
-    if (cached && new Date(cached.expires_at).getTime() > Date.now()) return cached.response_json;
+    try {
+      const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'igdb' AND cache_key = ?").bind(cacheKey).first<{ response_json: string; expires_at: string }>();
+      if (cached && new Date(cached.expires_at).getTime() > Date.now()) return cached.response_json;
+    } catch {
+      try {
+        const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider = 'igdb' AND cache_key = ?").bind(cacheKey).first<{ response_json: string; expires_at: string }>();
+        if (cached && new Date(cached.expires_at).getTime() > Date.now()) return cached.response_json;
+      } catch {}
+    }
   }
   const response = await fetch(`${externalApiEndpoints.twitchOAuthToken}?client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}&grant_type=client_credentials`, { method: "POST" });
   if (!response.ok) return null;
   const data = await response.json() as { access_token: string; expires_in: number };
   if (!data.access_token) return null;
-  if (env.DB) await writeProviderCache(env.DB, "igdb", cacheKey, data.access_token, 200, Math.floor(data.expires_in * 0.9));
+  if (env.DB) {
+    try {
+      await writeProviderCache(env.DB, "igdb", cacheKey, data.access_token, 200, Math.floor(data.expires_in * 0.9));
+    } catch {}
+  }
   return data.access_token;
 }
 

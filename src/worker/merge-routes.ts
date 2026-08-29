@@ -415,16 +415,29 @@ async function moveUserMedia(db: D1Database, userId: string, sourceMediaId: stri
     await db.prepare("UPDATE user_media SET media_id = ?, updated_at = ? WHERE user_id = ? AND media_id = ?").bind(targetMediaId, now, userId, sourceMediaId).run();
     return;
   }
-  await db.prepare(`UPDATE user_media SET
-    is_favorite = MAX(is_favorite, ?),
-    rating = COALESCE(rating, ?),
-    notes = COALESCE(notes, ?),
-    watched_at = COALESCE(watched_at, ?),
-    rewatch_count = MAX(rewatch_count, ?),
-    progress_episodes = MAX(progress_episodes, ?),
-    updated_at = ?
-    WHERE user_id = ? AND media_id = ?`)
-    .bind(source.is_favorite, source.rating, source.notes, source.watched_at, source.rewatch_count, source.progress_episodes, now, userId, targetMediaId).run();
+  try {
+    await db.prepare(`UPDATE user_media SET
+      is_favorite = MAX(is_favorite, ?),
+      rating = COALESCE(rating, ?),
+      notes = COALESCE(notes, ?),
+      completed_at = COALESCE(completed_at, ?),
+      rewatch_count = MAX(rewatch_count, ?),
+      progress_episodes = MAX(progress_episodes, ?),
+      updated_at = ?
+      WHERE user_id = ? AND media_id = ?`)
+      .bind(source.is_favorite, source.rating, source.notes, (source as any).completed_at ?? (source as any).watched_at, source.rewatch_count, source.progress_episodes, now, userId, targetMediaId).run();
+  } catch {
+    await db.prepare(`UPDATE user_media SET
+      is_favorite = MAX(is_favorite, ?),
+      rating = COALESCE(rating, ?),
+      notes = COALESCE(notes, ?),
+      watched_at = COALESCE(watched_at, ?),
+      rewatch_count = MAX(rewatch_count, ?),
+      progress_episodes = MAX(progress_episodes, ?),
+      updated_at = ?
+      WHERE user_id = ? AND media_id = ?`)
+      .bind(source.is_favorite, source.rating, source.notes, (source as any).watched_at ?? (source as any).completed_at, source.rewatch_count, source.progress_episodes, now, userId, targetMediaId).run();
+  }
   await db.prepare("DELETE FROM user_media WHERE user_id = ? AND media_id = ?").bind(userId, sourceMediaId).run();
 }
 

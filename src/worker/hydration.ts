@@ -261,31 +261,43 @@ async function enqueueSeasonHydrationJobs(db: D1Database, mediaId: string, provi
 export async function maybeEnqueueStaleMediaRefresh(env: Env, media: { id: string; source: string; sourceId: string | null }) {
   if (!env.DB) return null;
   const db = env.DB;
-  const provider = await hydrationProviderForMedia(db, media);
-  if (!provider) return null;
+  try {
+    const provider = await hydrationProviderForMedia(db, media);
+    if (!provider) return null;
 
-  const freshness = await runD1("load media freshness", db.prepare("SELECT details_hydrated_at FROM media_metadata_freshness WHERE media_id = ?").bind(media.id).first<{ details_hydrated_at: string | null }>());
-  if (freshness?.details_hydrated_at && Date.now() - new Date(freshness.details_hydrated_at).getTime() < 30 * 24 * 60 * 60 * 1000) {
+    const freshness = await runD1("load media freshness", db.prepare("SELECT details_hydrated_at FROM media_metadata_freshness WHERE media_id = ?").bind(media.id).first<{ details_hydrated_at: string | null }>());
+    if (freshness?.details_hydrated_at && Date.now() - new Date(freshness.details_hydrated_at).getTime() < 30 * 24 * 60 * 60 * 1000) {
+      return null;
+    }
+
+    const active = await runD1("load active hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
+      WHERE media_id = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
+      LIMIT 1`).bind(media.id).first<{ id: string }>());
+    if (active) return active.id;
+
+    const now = new Date().toISOString();
+    const id = randomId("mrj");
+    await runD1("insert stale hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)")
+      .bind(id, media.id, provider, now, now)
+      .run());
+    return id;
+  } catch (err) {
     return null;
   }
-
-  const active = await runD1("load active hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
-    LIMIT 1`).bind(media.id).first<{ id: string }>());
-  if (active) return active.id;
-
-  const now = new Date().toISOString();
-  const id = randomId("mrj");
-  await runD1("insert stale hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)")
-    .bind(id, media.id, provider, now, now)
-    .run());
-  return id;
 }
 
 async function hydrationProviderForMedia(db: D1Database, media: { id: string; source: string; sourceId: string | null }) {
   if (media.source === "tmdb" || media.source === "igdb" || media.source === "openlibrary" || media.source === "jikan" || media.source === "rawg") return media.source;
-  const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb' LIMIT 1").bind(media.id).first<{ external_id: string }>();
-  return tmdb ? "tmdb" : null;
+  try {
+    const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND (provider_code = 'tmdb' OR namespace = 'tmdb') LIMIT 1").bind(media.id).first<{ external_id: string }>();
+    if (tmdb) return "tmdb";
+  } catch {
+    try {
+      const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb' LIMIT 1").bind(media.id).first<{ external_id: string }>();
+      if (tmdb) return "tmdb";
+    } catch {}
+  }
+  return null;
 }
 
 function logHydrationFailure(job: any, error: unknown) {

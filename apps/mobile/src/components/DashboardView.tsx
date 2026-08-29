@@ -192,6 +192,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
               viewMode={viewMode}
               onToggleViewMode={() => setViewMode((prev) => (prev === 'grid' ? 'compact' : 'grid'))}
               sortMode={sortMode}
+              onSelectSort={setSortMode}
               onCycleSort={cycleSort}
               placeholder={`Filter ${title.toLowerCase()}...`}
             />

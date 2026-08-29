@@ -132,6 +132,8 @@ export type ExploreRow = {
 
 export type ExploreResult = {
   id?: string;
+  mediaId?: string;
+  localMediaId?: string | null;
   provider: string;
   providerId: string;
   type: 'show' | 'movie' | 'anime' | 'game' | 'book';
@@ -141,6 +143,7 @@ export type ExploreResult = {
   backdropPath: string | null;
   year: number | null;
   userStatus?: string;
+  alreadyTracked?: boolean;
 };
 
 let cachedCsrfToken: string | null = null;
@@ -335,10 +338,12 @@ export const api = {
     });
   },
 
-  async addToLibrary(mediaId: string, status: string): Promise<any> {
-    return apiRequest<any>('/api/library', {
+  async addToLibrary(mediaId: string, status?: string): Promise<any> {
+    const payload: any = { mediaId };
+    if (status) payload.status = status;
+    return apiRequest<any>(`/api/library/${mediaId}`, {
       method: 'POST',
-      body: JSON.stringify({ mediaId, status }),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -357,10 +362,13 @@ export const api = {
     });
   },
 
-  async search(query: string, type?: string): Promise<{ results: DashboardEntry[] }> {
+  async search(query: string, type?: string): Promise<{ results: ExploreResult[] }> {
     const queryParams = new URLSearchParams({ q: query });
-    if (type) queryParams.append('type', type);
-    return apiRequest<{ results: DashboardEntry[] }>(`/api/explore/search?${queryParams.toString()}`);
+    if (type && type.trim()) {
+      queryParams.append('types', type.trim());
+      queryParams.append('type', type.trim());
+    }
+    return apiRequest<{ results: ExploreResult[] }>(`/api/explore/search?${queryParams.toString()}`);
   },
 
   async getProfileStats(): Promise<any> {

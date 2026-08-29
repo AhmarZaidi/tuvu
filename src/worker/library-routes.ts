@@ -82,16 +82,9 @@ export function createLibraryRoutes() {
     return c.json(apiSuccess({ library: entries }));
   });
 
-  // POST /api/library/:mediaId — add to library
-  router.post("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
-    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!body.success) {
-      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
-    }
-
+  const handleAddLibrary = async (c: any, mediaId: string, bodyData: any) => {
     const mediaRepo = c.get("mediaRepository");
     const auth = c.get("auth");
-    const mediaId = c.req.param("mediaId");
 
     const media = await mediaRepo.findMediaById(mediaId);
     if (!media) {
@@ -103,7 +96,7 @@ export function createLibraryRoutes() {
       return apiError(c, 409, "conflict", "This item is already in your library.");
     }
 
-    const status = body.data.status ?? defaultStatus(media.type);
+    const status = bodyData.status ?? defaultStatus(media.type);
     if (!validateStatus(media.type, status)) {
       return apiError(c, 400, "validation_failed", `Invalid status '${status}' for ${media.type}.`);
     }
@@ -143,6 +136,29 @@ export function createLibraryRoutes() {
 
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ userMedia: record, media, libraryVersion }), 201);
+  };
+
+  // POST /api/library — add to library (mediaId in body)
+  router.post("/", requireAuth(), requireCsrf(), async (c) => {
+    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) {
+      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
+    }
+    const mediaId = body.data.mediaId;
+    if (!mediaId) {
+      return apiError(c, 400, "validation_failed", "mediaId is required in request body.");
+    }
+    return handleAddLibrary(c, mediaId, body.data);
+  });
+
+  // POST /api/library/:mediaId — add to library
+  router.post("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
+    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) {
+      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
+    }
+    const mediaId = c.req.param("mediaId");
+    return handleAddLibrary(c, mediaId, body.data);
   });
 
   // DELETE /api/library/:mediaId — remove from library

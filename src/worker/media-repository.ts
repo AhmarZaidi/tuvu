@@ -305,21 +305,76 @@ export class D1MediaRepository implements MediaRepository {
   constructor(private readonly db: D1Database) {}
 
   async createMedia(item: MediaItemRecord) {
-    await this.db
-      .prepare(
-        `INSERT INTO media_items
-           (id, type, title, overview, poster_path, backdrop_path, air_status,
-            runtime_minutes, release_date, year, language, country,
-            source, source_id, total_episodes, total_seasons, extended_data_json, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      )
-      .bind(
-        item.id, item.type, item.title, item.overview, item.posterPath, item.backdropPath,
-        item.airStatus, item.runtimeMinutes, item.releaseDate, item.year, item.language,
-        item.country, item.source, item.sourceId, item.totalEpisodes, item.totalSeasons,
-        item.extendedDataJson ?? null, item.createdAt, item.updatedAt,
-      )
-      .run();
+    const norm = (item.title || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO media_items
+             (id, media_type_code, canonical_title, normalized_title, type, title, overview, synopsis,
+              poster_path, poster_url, backdrop_path, backdrop_url, air_status, status,
+              runtime_minutes, release_date, year, original_language, primary_country,
+              canonical_provider_code, canonical_provider_id, extended_data_json, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        )
+        .bind(
+          item.id,
+          item.type,
+          item.title,
+          norm,
+          item.type,
+          item.title,
+          item.overview,
+          item.overview,
+          item.posterPath,
+          item.posterPath,
+          item.backdropPath,
+          item.backdropPath,
+          item.airStatus,
+          item.airStatus,
+          item.runtimeMinutes,
+          item.releaseDate,
+          item.year,
+          item.language,
+          item.country,
+          item.source,
+          item.sourceId,
+          item.extendedDataJson ?? "{}",
+          item.createdAt,
+          item.updatedAt,
+        )
+        .run();
+      return;
+    } catch (e1) {
+      try {
+        await this.db
+          .prepare(
+            `INSERT INTO media_items
+               (id, type, title, overview, poster_path, backdrop_path, air_status,
+                runtime_minutes, release_date, year, language, country,
+                source, source_id, total_episodes, total_seasons, extended_data_json, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          )
+          .bind(
+            item.id, item.type, item.title, item.overview, item.posterPath, item.backdropPath,
+            item.airStatus, item.runtimeMinutes, item.releaseDate, item.year, item.language,
+            item.country, item.source, item.sourceId, item.totalEpisodes, item.totalSeasons,
+            item.extendedDataJson ?? null, item.createdAt, item.updatedAt,
+          )
+          .run();
+        return;
+      } catch (e2) {
+        await this.db
+          .prepare(
+            `INSERT INTO media_items
+               (id, media_type_code, canonical_title, normalized_title, type, title, poster_path, poster_url, release_date, year, created_at, updated_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+          )
+          .bind(
+            item.id, item.type, item.title, norm, item.type, item.title, item.posterPath, item.posterPath, item.releaseDate, item.year, item.createdAt, item.updatedAt
+          )
+          .run();
+      }
+    }
   }
 
   async updateMediaPoster(mediaId: string, posterPath: string, now: string) {
@@ -343,16 +398,29 @@ export class D1MediaRepository implements MediaRepository {
 
   async searchMedia(query: string, type?: MediaType, limit = 20) {
     const like = `%${query}%`;
-    const result = type
-      ? await this.db
-          .prepare("SELECT * FROM media_items WHERE type = ? AND title LIKE ? LIMIT ?")
-          .bind(type, like, limit)
-          .all<MediaItemRow>()
-      : await this.db
-          .prepare("SELECT * FROM media_items WHERE title LIKE ? LIMIT ?")
-          .bind(like, limit)
-          .all<MediaItemRow>();
-    return result.results.map(mapMediaItem);
+    try {
+      const result = type
+        ? await this.db
+            .prepare("SELECT * FROM media_items WHERE (type = ? OR media_type_code = ?) AND (title LIKE ? OR canonical_title LIKE ?) LIMIT ?")
+            .bind(type, type, like, like, limit)
+            .all<MediaItemRow>()
+        : await this.db
+            .prepare("SELECT * FROM media_items WHERE (title LIKE ? OR canonical_title LIKE ?) LIMIT ?")
+            .bind(like, like, limit)
+            .all<MediaItemRow>();
+      return result.results.map(mapMediaItem);
+    } catch {
+      const result = type
+        ? await this.db
+            .prepare("SELECT * FROM media_items WHERE type = ? AND title LIKE ? LIMIT ?")
+            .bind(type, like, limit)
+            .all<MediaItemRow>()
+        : await this.db
+            .prepare("SELECT * FROM media_items WHERE title LIKE ? LIMIT ?")
+            .bind(like, limit)
+            .all<MediaItemRow>();
+      return result.results.map(mapMediaItem);
+    }
   }
 
   async createSeason(season: SeasonRecord) {
@@ -416,8 +484,13 @@ export class D1MediaRepository implements MediaRepository {
   }
 
   async createMediaUnit(unit: MediaUnitRecord) {
-    await this.db.prepare(`INSERT INTO media_units (id, media_id, parent_id, kind, position, title, overview, image_path, release_date, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .bind(unit.id, unit.mediaId, unit.parentId, unit.kind, unit.position, unit.title, unit.overview, unit.imagePath, unit.releaseDate, unit.externalId, unit.createdAt, unit.updatedAt).run();
+    try {
+      await this.db.prepare(`INSERT INTO media_units (id, media_id, parent_id, unit_kind, position, title, synopsis, image_url, release_date, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(unit.id, unit.mediaId, unit.parentId, unit.kind, unit.position, unit.title, unit.overview, unit.imagePath, unit.releaseDate, unit.externalId, unit.createdAt, unit.updatedAt).run();
+    } catch {
+      await this.db.prepare(`INSERT INTO media_units (id, media_id, parent_id, kind, position, title, overview, image_path, release_date, external_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(unit.id, unit.mediaId, unit.parentId, unit.kind, unit.position, unit.title, unit.overview, unit.imagePath, unit.releaseDate, unit.externalId, unit.createdAt, unit.updatedAt).run();
+    }
   }
 
   async findMediaUnits(mediaId: string) {
@@ -431,48 +504,114 @@ export class D1MediaRepository implements MediaRepository {
   }
 
   async upsertUnitActivity(activity: UnitActivityRecord) {
-    await this.db.prepare(`INSERT INTO unit_activity (id, user_id, unit_id, media_id, completed, completed_at, rating, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, unit_id) DO UPDATE SET completed=excluded.completed, completed_at=excluded.completed_at, rating=excluded.rating, notes=excluded.notes, updated_at=excluded.updated_at`)
-      .bind(activity.id, activity.userId, activity.unitId, activity.mediaId, activity.completed ? 1 : 0, activity.completedAt, activity.rating, activity.notes, activity.createdAt, activity.updatedAt).run();
+    try {
+      const userMediaId = (await this.findUserMedia(activity.userId, activity.mediaId))?.id ?? activity.id;
+      await this.db.prepare(
+        `INSERT INTO unit_activity (id, user_id, user_media_id, unit_id, completed_count, last_completed_at, rating, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, unit_id) DO UPDATE SET completed_count=excluded.completed_count, last_completed_at=excluded.last_completed_at, rating=excluded.rating, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(
+        activity.id, activity.userId, userMediaId, activity.unitId,
+        activity.completed ? 1 : 0, activity.completedAt, activity.rating, activity.notes, activity.createdAt, activity.updatedAt
+      ).run();
+    } catch {
+      await this.db.prepare(
+        `INSERT INTO unit_activity (id, user_id, unit_id, media_id, completed, completed_at, rating, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, unit_id) DO UPDATE SET completed=excluded.completed, completed_at=excluded.completed_at, rating=excluded.rating, notes=excluded.notes, updated_at=excluded.updated_at`
+      ).bind(
+        activity.id, activity.userId, activity.unitId, activity.mediaId,
+        activity.completed ? 1 : 0, activity.completedAt, activity.rating, activity.notes, activity.createdAt, activity.updatedAt
+      ).run();
+    }
     return (await this.findUnitActivity(activity.userId, activity.unitId))!;
   }
 
   async findUnitActivity(userId: string, unitId: string) {
-    const row = await this.db.prepare("SELECT * FROM unit_activity WHERE user_id = ? AND unit_id = ?").bind(userId, unitId).first<UnitActivityRow>();
-    return row ? mapUnitActivity(row) : null;
+    try {
+      const row = await this.db.prepare("SELECT * FROM unit_activity WHERE user_id = ? AND unit_id = ?").bind(userId, unitId).first<any>();
+      return row ? mapUnitActivity(row) : null;
+    } catch {
+      return null;
+    }
   }
 
   async findUnitActivitiesForMedia(userId: string, mediaId: string) {
-    const result = await this.db.prepare("SELECT * FROM unit_activity WHERE user_id = ? AND media_id = ?").bind(userId, mediaId).all<UnitActivityRow>();
-    return result.results.map(mapUnitActivity);
+    try {
+      const result = await this.db.prepare(
+        `SELECT ua.*, COALESCE(um.media_id, mu.media_id, ?) as media_id
+         FROM unit_activity ua
+         LEFT JOIN user_media um ON um.id = ua.user_media_id
+         LEFT JOIN media_units mu ON mu.id = ua.unit_id
+         WHERE ua.user_id = ? AND (um.media_id = ? OR mu.media_id = ?)`
+      ).bind(mediaId, userId, mediaId, mediaId).all<any>();
+      return result.results.map(mapUnitActivity);
+    } catch {
+      try {
+        const result = await this.db.prepare("SELECT * FROM unit_activity WHERE user_id = ? AND media_id = ?").bind(userId, mediaId).all<any>();
+        return result.results.map(mapUnitActivity);
+      } catch {
+        return [];
+      }
+    }
   }
 
   async upsertUserMedia(record: UserMediaRecord) {
-    await this.db
-      .prepare(
-        `INSERT INTO user_media
-           (id, user_id, media_id, status, is_favorite, rating, notes,
-            watched_at, rewatch_count, progress_episodes, progress_value, progress_total,
-            progress_unit, platform, started_at, purchase_library, visibility, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(user_id, media_id) DO UPDATE SET
-           status=excluded.status, is_favorite=excluded.is_favorite,
-           rating=excluded.rating, notes=excluded.notes,
-           watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count,
-           progress_episodes=excluded.progress_episodes, progress_value=excluded.progress_value,
-           progress_total=excluded.progress_total, progress_unit=excluded.progress_unit,
-           platform=excluded.platform, started_at=excluded.started_at, purchase_library=excluded.purchase_library, visibility=excluded.visibility,
-           updated_at=excluded.updated_at`,
-      )
-      .bind(
-        record.id, record.userId, record.mediaId, record.status,
-        record.isFavorite ? 1 : 0, record.rating, record.notes,
-        record.watchedAt, record.rewatchCount, record.progressEpisodes,
-        record.progressValue, record.progressTotal, record.progressUnit, record.platform,
-        record.startedAt, record.purchaseLibrary,
-        record.visibility, record.createdAt, record.updatedAt,
-      )
-      .run();
-    return (await this.findUserMedia(record.userId, record.mediaId))!;
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO user_media
+             (id, user_id, media_id, status, is_favorite, rating, notes,
+              completed_at, rewatch_count, progress_episodes, progress_value, progress_total,
+              progress_unit, platform, started_at, purchase_library, visibility, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, media_id) DO UPDATE SET
+             status=excluded.status, is_favorite=excluded.is_favorite,
+             rating=excluded.rating, notes=excluded.notes,
+             completed_at=excluded.completed_at, rewatch_count=excluded.rewatch_count,
+             progress_episodes=excluded.progress_episodes, progress_value=excluded.progress_value,
+             progress_total=excluded.progress_total, progress_unit=excluded.progress_unit,
+             platform=excluded.platform, started_at=excluded.started_at, purchase_library=excluded.purchase_library, visibility=excluded.visibility,
+             updated_at=excluded.updated_at`,
+        )
+        .bind(
+          record.id, record.userId, record.mediaId, record.status,
+          record.isFavorite ? 1 : 0, record.rating, record.notes,
+          record.watchedAt, record.rewatchCount, record.progressEpisodes,
+          record.progressValue, record.progressTotal, record.progressUnit, record.platform,
+          record.startedAt, record.purchaseLibrary,
+          record.visibility, record.createdAt, record.updatedAt,
+        )
+        .run();
+      return (await this.findUserMedia(record.userId, record.mediaId))!;
+    } catch {
+      await this.db
+        .prepare(
+          `INSERT INTO user_media
+             (id, user_id, media_id, status, is_favorite, rating, notes,
+              watched_at, rewatch_count, progress_episodes, progress_value, progress_total,
+              progress_unit, platform, started_at, purchase_library, visibility, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, media_id) DO UPDATE SET
+             status=excluded.status, is_favorite=excluded.is_favorite,
+             rating=excluded.rating, notes=excluded.notes,
+             watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count,
+             progress_episodes=excluded.progress_episodes, progress_value=excluded.progress_value,
+             progress_total=excluded.progress_total, progress_unit=excluded.progress_unit,
+             platform=excluded.platform, started_at=excluded.started_at, purchase_library=excluded.purchase_library, visibility=excluded.visibility,
+             updated_at=excluded.updated_at`,
+        )
+        .bind(
+          record.id, record.userId, record.mediaId, record.status,
+          record.isFavorite ? 1 : 0, record.rating, record.notes,
+          record.watchedAt, record.rewatchCount, record.progressEpisodes,
+          record.progressValue, record.progressTotal, record.progressUnit, record.platform,
+          record.startedAt, record.purchaseLibrary,
+          record.visibility, record.createdAt, record.updatedAt,
+        )
+        .run();
+      return (await this.findUserMedia(record.userId, record.mediaId))!;
+    }
   }
 
   async findUserMedia(userId: string, mediaId: string) {
@@ -488,8 +627,8 @@ export class D1MediaRepository implements MediaRepository {
     const binds: (string | number)[] = [userId];
 
     if (filters.type) {
-      conditions.push("mi.type = ?");
-      binds.push(filters.type);
+      conditions.push("(mi.type = ? OR mi.media_type_code = ?)");
+      binds.push(filters.type, filters.type);
     }
     if (filters.status) {
       conditions.push("um.status = ?");
@@ -509,15 +648,7 @@ export class D1MediaRepository implements MediaRepository {
 
     const result = await this.db
       .prepare(
-        `SELECT um.*, mi.type as mi_type, mi.title as mi_title, mi.overview as mi_overview,
-                mi.poster_path as mi_poster_path, mi.backdrop_path as mi_backdrop_path,
-                mi.air_status as mi_air_status, mi.runtime_minutes as mi_runtime_minutes,
-                mi.release_date as mi_release_date, mi.year as mi_year,
-                mi.language as mi_language, mi.country as mi_country,
-                mi.source as mi_source, mi.source_id as mi_source_id,
-                mi.total_episodes as mi_total_episodes, mi.total_seasons as mi_total_seasons,
-                mi.extended_data_json as mi_extended_data_json,
-                mi.created_at as mi_created_at, mi.updated_at as mi_updated_at
+        `SELECT um.*, mi.*
          FROM user_media um
          INNER JOIN media_items mi ON mi.id = um.media_id
          WHERE ${where}
@@ -525,43 +656,24 @@ export class D1MediaRepository implements MediaRepository {
          LIMIT ?`,
       )
       .bind(...binds, limit)
-      .all<UserMediaRow & { mi_type: MediaType; mi_title: string; mi_overview: string | null; mi_poster_path: string | null; mi_backdrop_path: string | null; mi_air_status: string | null; mi_runtime_minutes: number | null; mi_release_date: string | null; mi_year: number | null; mi_language: string | null; mi_country: string | null; mi_source: string; mi_source_id: string | null; mi_total_episodes: number | null; mi_total_seasons: number | null; mi_extended_data_json?: string | null; mi_created_at: string; mi_updated_at: string }>();
+      .all<any>();
 
     return result.results.map((row) => ({
       item: mapUserMedia(row),
-      media: mapMediaItem({
-        id: row.media_id,
-        type: row.mi_type,
-        title: row.mi_title,
-        overview: row.mi_overview,
-        poster_path: row.mi_poster_path,
-        backdrop_path: row.mi_backdrop_path,
-        air_status: row.mi_air_status,
-        runtime_minutes: row.mi_runtime_minutes,
-        release_date: row.mi_release_date,
-        year: row.mi_year,
-        language: row.mi_language,
-        country: row.mi_country,
-        source: row.mi_source,
-        source_id: row.mi_source_id,
-        total_episodes: row.mi_total_episodes,
-        total_seasons: row.mi_total_seasons,
-        extended_data_json: row.mi_extended_data_json ?? null,
-        created_at: row.mi_created_at,
-        updated_at: row.mi_updated_at,
-      }),
+      media: mapMediaItem(row),
     }));
   }
 
   async findDashboardEntries(userId: string, kind: DashboardKind, limit: number, offset: number, query?: string | null) {
     const types = mediaTypesForDashboardKind(kind);
     const typePlaceholders = types.map(() => "?").join(", ");
-    const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+    const animeClassificationClause = "(COALESCE(mi.extended_data_json, '') LIKE '%\"category\":\"anime\"%' OR COALESCE(mi.extended_data_json, '') LIKE '%\"anime\":%')";
+    const typeMatches = `COALESCE(mi.type, mi.media_type_code) IN (${typePlaceholders})`;
     const typeClause = kind === "anime"
-      ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
+      ? `(${typeMatches} OR ${animeClassificationClause})`
       : (kind === "shows" || kind === "movies")
-        ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
-        : `mi.type IN (${typePlaceholders})`;
+        ? `(${typeMatches} AND NOT ${animeClassificationClause})`
+        : typeMatches;
     const trimmedQuery = query?.trim();
     const searchClause = trimmedQuery ? "AND mi.title LIKE ?" : "";
     const searchBinds = trimmedQuery ? [`%${trimmedQuery}%`] : [];
@@ -633,22 +745,42 @@ export class D1MediaRepository implements MediaRepository {
   }
 
   async upsertEpisodeActivity(record: EpisodeActivityRecord) {
-    await this.db
-      .prepare(
-        `INSERT INTO episode_activity
-           (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, rating, notes, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)
-         ON CONFLICT(user_id, episode_id) DO UPDATE SET
-           watched=excluded.watched, watched_at=excluded.watched_at,
-           rewatch_count=excluded.rewatch_count, rating=excluded.rating,
-           notes=excluded.notes, updated_at=excluded.updated_at`,
-      )
-      .bind(
-        record.id, record.userId, record.episodeId, record.mediaId,
-        record.watched ? 1 : 0, record.watchedAt, record.rewatchCount, record.rating, record.notes,
-        record.createdAt, record.updatedAt,
-      )
-      .run();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO episode_activity
+             (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, rating, notes, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, episode_id) DO UPDATE SET
+             watched=excluded.watched, watched_at=excluded.watched_at,
+             rewatch_count=excluded.rewatch_count, rating=excluded.rating,
+             notes=excluded.notes, updated_at=excluded.updated_at`,
+        )
+        .bind(
+          record.id, record.userId, record.episodeId, record.mediaId,
+          record.watched ? 1 : 0, record.watchedAt, record.rewatchCount, record.rating, record.notes,
+          record.createdAt, record.updatedAt,
+        )
+        .run();
+    } catch {
+      const userMediaId = (await this.findUserMedia(record.userId, record.mediaId))?.id ?? record.id;
+      await this.db
+        .prepare(
+          `INSERT INTO episode_activity
+             (id, user_id, user_media_id, episode_id, media_id, watched, last_watched_at, watched_count, rating, notes, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, episode_id) DO UPDATE SET
+             watched=excluded.watched, last_watched_at=excluded.last_watched_at,
+             watched_count=excluded.watched_count, rating=excluded.rating,
+             notes=excluded.notes, updated_at=excluded.updated_at`,
+        )
+        .bind(
+          record.id, record.userId, userMediaId, record.episodeId, record.mediaId,
+          record.watched ? 1 : 0, record.watchedAt, record.rewatchCount, record.rating, record.notes,
+          record.createdAt, record.updatedAt,
+        )
+        .run();
+    }
     return (await this.findEpisodeActivity(record.userId, record.episodeId))!;
   }
 
@@ -660,15 +792,21 @@ export class D1MediaRepository implements MediaRepository {
 
   async upsertEpisodeActivities(records: EpisodeActivityRecord[]) {
     if (records.length === 0) return;
-    await this.db.batch(records.map((record) => this.db.prepare(
-      `INSERT INTO episode_activity
-         (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, rating, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(user_id, episode_id) DO UPDATE SET
-         watched = excluded.watched, watched_at = excluded.watched_at,
-         rewatch_count = excluded.rewatch_count, rating = excluded.rating,
-         notes = excluded.notes, updated_at = excluded.updated_at`,
-    ).bind(record.id, record.userId, record.episodeId, record.mediaId, record.watched ? 1 : 0, record.watchedAt, record.rewatchCount, record.rating, record.notes, record.createdAt, record.updatedAt)));
+    try {
+      await this.db.batch(records.map((record) => this.db.prepare(
+        `INSERT INTO episode_activity
+           (id, user_id, episode_id, media_id, watched, watched_at, rewatch_count, rating, notes, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, episode_id) DO UPDATE SET
+           watched = excluded.watched, watched_at = excluded.watched_at,
+           rewatch_count = excluded.rewatch_count, rating = excluded.rating,
+           notes = excluded.notes, updated_at = excluded.updated_at`,
+      ).bind(record.id, record.userId, record.episodeId, record.mediaId, record.watched ? 1 : 0, record.watchedAt, record.rewatchCount, record.rating, record.notes, record.createdAt, record.updatedAt)));
+    } catch {
+      for (const record of records) {
+        await this.upsertEpisodeActivity(record);
+      }
+    }
   }
 
   async findEpisodeActivity(userId: string, episodeId: string) {
@@ -691,12 +829,21 @@ export class D1MediaRepository implements MediaRepository {
     try {
       await this.db
         .prepare(
-          "INSERT INTO activity_events (id, user_id, type, media_id, episode_id, data_json, created_at) VALUES (?,?,?,?,?,?,?)",
+          "INSERT INTO activity_events (id, user_id, event_type, media_id, episode_id, data_json, occurred_at, created_at) VALUES (?,?,?,?,?,?,?,?)",
         )
-        .bind(event.id, event.userId, event.type, event.mediaId, event.episodeId, event.dataJson, event.createdAt)
+        .bind(event.id, event.userId, event.type, event.mediaId, event.episodeId, event.dataJson, event.createdAt, event.createdAt)
         .run();
-    } catch (error) {
-      console.warn("Activity event write failed:", error);
+    } catch {
+      try {
+        await this.db
+          .prepare(
+            "INSERT INTO activity_events (id, user_id, type, media_id, episode_id, data_json, created_at) VALUES (?,?,?,?,?,?,?)",
+          )
+          .bind(event.id, event.userId, event.type, event.mediaId, event.episodeId, event.dataJson, event.createdAt)
+          .run();
+      } catch (error) {
+        console.warn("Activity event write failed:", error);
+      }
     }
   }
 }
@@ -704,24 +851,24 @@ export class D1MediaRepository implements MediaRepository {
 // ─────────────────────────────────────────────────────────────
 // Row mappers
 // ─────────────────────────────────────────────────────────────
-function mapMediaItem(row: MediaItemRow): MediaItemRecord {
+function mapMediaItem(row: any): MediaItemRecord {
   return {
     id: row.id,
-    type: row.type,
-    title: row.title,
-    overview: row.overview,
-    posterPath: row.poster_path,
-    backdropPath: row.backdrop_path,
-    airStatus: row.air_status,
-    runtimeMinutes: row.runtime_minutes,
-    releaseDate: row.release_date,
-    year: row.year,
-    language: row.language,
-    country: row.country,
-    source: row.source,
-    sourceId: row.source_id,
-    totalEpisodes: row.total_episodes,
-    totalSeasons: row.total_seasons,
+    type: row.type ?? row.media_type_code,
+    title: row.title ?? row.canonical_title,
+    overview: row.overview ?? row.synopsis ?? null,
+    posterPath: row.poster_path ?? row.poster_url ?? null,
+    backdropPath: row.backdrop_path ?? row.backdrop_url ?? null,
+    airStatus: row.air_status ?? row.status ?? "released",
+    runtimeMinutes: row.runtime_minutes ?? null,
+    releaseDate: row.release_date ?? null,
+    year: row.year ?? (row.release_date ? Number(row.release_date.slice(0, 4)) : null),
+    language: row.language ?? row.original_language ?? null,
+    country: row.country ?? row.primary_country ?? null,
+    source: row.source ?? row.canonical_provider_code ?? "unknown",
+    sourceId: row.source_id ?? row.canonical_provider_id ?? null,
+    totalEpisodes: row.total_episodes ?? null,
+    totalSeasons: row.total_seasons ?? null,
     extendedDataJson: row.extended_data_json ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -764,7 +911,7 @@ function mapEpisode(row: EpisodeRow): EpisodeRecord {
   };
 }
 
-function mapUserMedia(row: UserMediaRow): UserMediaRecord {
+function mapUserMedia(row: any): UserMediaRecord {
   return {
     id: row.id,
     userId: row.user_id,
@@ -773,30 +920,30 @@ function mapUserMedia(row: UserMediaRow): UserMediaRecord {
     isFavorite: row.is_favorite === 1,
     rating: row.rating,
     notes: row.notes,
-    watchedAt: row.watched_at,
-    rewatchCount: row.rewatch_count,
-    progressEpisodes: row.progress_episodes,
-    progressValue: row.progress_value,
-    progressTotal: row.progress_total,
-    progressUnit: row.progress_unit,
-    platform: row.platform,
+    watchedAt: row.watched_at ?? row.completed_at ?? null,
+    rewatchCount: row.rewatch_count ?? 0,
+    progressEpisodes: row.progress_episodes ?? 0,
+    progressValue: row.progress_value ?? null,
+    progressTotal: row.progress_total ?? null,
+    progressUnit: row.progress_unit ?? null,
+    platform: row.platform ?? null,
     startedAt: row.started_at ?? null,
     purchaseLibrary: row.purchase_library ?? null,
-    visibility: row.visibility,
+    visibility: row.visibility ?? "private",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function mapEpisodeActivity(row: EpisodeActivityRow): EpisodeActivityRecord {
+function mapEpisodeActivity(row: any): EpisodeActivityRecord {
   return {
     id: row.id,
     userId: row.user_id,
     episodeId: row.episode_id,
     mediaId: row.media_id,
     watched: row.watched === 1,
-    watchedAt: row.watched_at,
-    rewatchCount: row.rewatch_count,
+    watchedAt: row.watched_at ?? row.last_watched_at ?? null,
+    rewatchCount: row.rewatch_count ?? row.watched_count ?? 0,
     rating: row.rating,
     notes: row.notes,
     createdAt: row.created_at,
@@ -839,10 +986,34 @@ function mapDashboardRow(row: DashboardRow): DashboardEntry {
   };
 }
 
-function mapMediaUnit(row: MediaUnitRow): MediaUnitRecord {
-  return { id: row.id, mediaId: row.media_id, parentId: row.parent_id, kind: row.kind, position: row.position, title: row.title, overview: row.overview, imagePath: row.image_path, releaseDate: row.release_date, externalId: row.external_id, createdAt: row.created_at, updatedAt: row.updated_at };
+function mapMediaUnit(row: any): MediaUnitRecord {
+  return {
+    id: row.id,
+    mediaId: row.media_id,
+    parentId: row.parent_id ?? null,
+    kind: row.kind ?? row.unit_kind ?? "chapter",
+    position: row.position ?? 1,
+    title: row.title ?? "",
+    overview: row.overview ?? row.synopsis ?? null,
+    imagePath: row.image_path ?? row.image_url ?? null,
+    releaseDate: row.release_date ?? null,
+    externalId: row.external_id ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function mapUnitActivity(row: UnitActivityRow): UnitActivityRecord {
-  return { id: row.id, userId: row.user_id, unitId: row.unit_id, mediaId: row.media_id, completed: row.completed === 1, completedAt: row.completed_at, rating: row.rating, notes: row.notes, createdAt: row.created_at, updatedAt: row.updated_at };
+function mapUnitActivity(row: any): UnitActivityRecord {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    unitId: row.unit_id,
+    mediaId: row.media_id ?? "",
+    completed: row.completed === 1 || (row.completed_count != null && row.completed_count > 0),
+    completedAt: row.completed_at ?? row.last_completed_at ?? null,
+    rating: row.rating,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { theme } from '../constants/theme';
 import { useAppTheme } from '../context/ThemeContext';
-import { api, DashboardEntry } from '../services/api';
+import { api, ExploreResult } from '../services/api';
 import { BottomSheet } from './BottomSheet';
 
 interface CreateMediaModalProps {
@@ -30,7 +30,7 @@ export function CreateMediaModal({
 }: CreateMediaModalProps) {
   const { colors, isDark } = useAppTheme();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<DashboardEntry[]>([]);
+  const [results, setResults] = useState<ExploreResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [addingId, setAddingId] = useState<string | null>(null);
 
@@ -51,10 +51,16 @@ export function CreateMediaModal({
     }
   };
 
-  const handleAdd = async (item: DashboardEntry) => {
-    setAddingId(item.mediaId);
+  const handleAdd = async (item: ExploreResult) => {
+    const id = item.localMediaId || item.mediaId;
+    const addKey = item.providerId || item.mediaId || item.id || '';
+    setAddingId(addKey);
     try {
-      await api.addToLibrary(item.mediaId, 'watching');
+      if (id) {
+        await api.addToLibrary(id);
+      } else {
+        await api.addExploreResult(item);
+      }
       onMediaAdded?.();
       onClose();
     } catch (e) {
@@ -98,13 +104,13 @@ export function CreateMediaModal({
         <View style={{ maxHeight: 300 }}>
           <FlatList
             data={results}
-            keyExtractor={(item) => item.mediaId}
+            keyExtractor={(item, index) => `${item.provider || 'item'}:${item.providerId || item.mediaId || item.id || index}:${index}`}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => {
               const poster = item.posterPath
                 ? (item.posterPath.startsWith('http') ? item.posterPath : `https://tmdb-image-prod.b-cdn.net/t/p/w185${item.posterPath}`)
                 : null;
-              const isAdding = addingId === item.mediaId;
+              const isAdding = addingId === (item.providerId || item.mediaId || item.id);
 
               return (
                 <View

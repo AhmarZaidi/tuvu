@@ -82,6 +82,14 @@ const ALL_NAV_ITEMS = [
   { id: 'explore', label: 'Explore', icon: 'compass-outline' },
 ];
 
+const GRADIENT_INTENSITY_PRESETS = [
+  { label: 'Off', value: 0 },
+  { label: 'Subtle', value: 0.1 },
+  { label: 'Default', value: 0.2 },
+  { label: 'Vibrant', value: 0.35 },
+  { label: 'Intense', value: 0.5 },
+];
+
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B';
   if (bytes < 1024) return `${bytes} B`;
@@ -94,7 +102,7 @@ export default function TabSettingsScreen() {
   const router = useRouter();
   useSubpageBack('/(tabs)/profile', true);
   const queryClient = useQueryClient();
-  const { colors, mode, setMode, isDark, theme } = useAppTheme();
+  const { colors, mode, setMode, isDark, theme, gradientIntensity, setGradientIntensity } = useAppTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('account');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -171,7 +179,8 @@ export default function TabSettingsScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: false,
+        allowsEditing: true,
+        aspect: kind === 'avatar' ? [1, 1] : [16, 7],
         quality: 0.85,
       });
 
@@ -182,8 +191,23 @@ export default function TabSettingsScreen() {
         queryClient.invalidateQueries({ queryKey: ['me'] });
         showFeedback(`${kind.charAt(0).toUpperCase() + kind.slice(1)} uploaded successfully.`);
       }
-    } catch (e: any) {
-      showFeedback(e?.message || 'Could not upload image.');
+    } catch (err: any) {
+      try {
+        const fallbackResult = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.85,
+        });
+        if (!fallbackResult.canceled && fallbackResult.assets && fallbackResult.assets[0]?.uri) {
+          const asset = fallbackResult.assets[0];
+          await api.uploadProfileMedia(kind, asset.uri, asset.mimeType, asset.fileName ?? undefined);
+          await refetchMe();
+          queryClient.invalidateQueries({ queryKey: ['me'] });
+          showFeedback(`${kind.charAt(0).toUpperCase() + kind.slice(1)} uploaded successfully.`);
+        }
+      } catch (e: any) {
+        showFeedback(e?.message || 'Could not upload image.');
+      }
     }
   };
 
@@ -717,6 +741,42 @@ export default function TabSettingsScreen() {
                     </Text>
                   </Pressable>
                 ))}
+              </View>
+            </View>
+
+            {/* Golden Gradient Intensity Setting */}
+            <View style={styles.formGroup}>
+              <Text style={[styles.label, { color: colors.textStrong }]}>Golden Glow Intensity</Text>
+              <Text style={{ fontSize: 12, lineHeight: 17, color: colors.textMuted, marginBottom: 8 }}>
+                Controls the intensity of the golden ambient gradient radiating from the top left corner.
+              </Text>
+              <View style={[styles.pillGroup, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                {GRADIENT_INTENSITY_PRESETS.map((preset) => {
+                  const isSelected = Math.abs((gradientIntensity ?? 0.2) - preset.value) < 0.04;
+                  return (
+                    <Pressable
+                      key={preset.label}
+                      style={[
+                        styles.pillOption,
+                        isSelected && { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(34, 31, 25, 0.1)' },
+                      ]}
+                      onPress={async () => {
+                        await setGradientIntensity(preset.value);
+                        showFeedback(`Gradient intensity set to ${preset.label}.`);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.pillOptionText,
+                          { color: colors.textMuted },
+                          isSelected && { color: colors.textStrong, fontWeight: '800' },
+                        ]}
+                      >
+                        {preset.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
 

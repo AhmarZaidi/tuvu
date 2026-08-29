@@ -4,18 +4,27 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAppTheme } from '../context/ThemeContext';
 
 export function GoldenGlow() {
-  const { colors, isDark } = useAppTheme();
+  const { isDark, gradientIntensity = 0.2 } = useAppTheme();
+
+  if (gradientIntensity <= 0) return null;
+
+  // Scale golden corner glow with gradientIntensity (relative to default 0.2)
+  const factor = gradientIntensity / 0.2;
+  const goldDark = Math.min(1, Math.max(0.01, 0.15 * factor)).toFixed(3);
+  const midDark = Math.min(1, Math.max(0.01, 0.08 * factor)).toFixed(3);
+  const goldLight = Math.min(1, Math.max(0.01, 0.22 * factor)).toFixed(3);
+  const midLight = Math.min(1, Math.max(0.01, 0.60 * factor)).toFixed(3);
 
   const gradientColors = isDark
     ? [
-        'rgba(255, 191, 71, 0.15)',
-        'rgba(53, 85, 109, 0.08)',
+        `rgba(255, 191, 71, ${goldDark})`,
+        `rgba(53, 85, 109, ${midDark})`,
         'rgba(23, 24, 25, 0.45)',
         'rgba(16, 17, 18, 0.92)',
       ]
     : [
-        'rgba(255, 191, 71, 0.22)',
-        'rgba(247, 241, 228, 0.6)',
+        `rgba(255, 191, 71, ${goldLight})`,
+        `rgba(247, 241, 228, ${midLight})`,
         '#f5eee1',
         '#eee5d4',
       ];

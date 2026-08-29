@@ -12,6 +12,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAppTheme } from '../context/ThemeContext';
 import { api, MeResponse } from '../services/api';
 import { BottomSheet } from './BottomSheet';
@@ -24,6 +25,7 @@ interface ProfileHeroCardProps {
 }
 
 export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: ProfileHeroCardProps) {
+  const queryClient = useQueryClient();
   const { colors, isDark } = useAppTheme();
   const [uploadingKind, setUploadingKind] = useState<'avatar' | 'banner' | null>(null);
 
@@ -71,7 +73,8 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: false,
+        allowsEditing: true,
+        aspect: kind === 'avatar' ? [1, 1] : [16, 7],
         quality: 0.85,
       });
 
@@ -80,7 +83,20 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
         await uploadImage(kind, asset.uri, asset.mimeType, asset.fileName ?? undefined);
       }
     } catch (err: any) {
-      showToast(err?.message || 'Could not open image picker.');
+      // Graceful fallback if native cropper reports an issue on specific devices
+      try {
+        const fallbackResult = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.85,
+        });
+        if (!fallbackResult.canceled && fallbackResult.assets && fallbackResult.assets[0]?.uri) {
+          const asset = fallbackResult.assets[0];
+          await uploadImage(kind, asset.uri, asset.mimeType, asset.fileName ?? undefined);
+        }
+      } catch (fallbackErr: any) {
+        showToast(fallbackErr?.message || 'Could not open image picker.');
+      }
     }
   };
 
@@ -96,6 +112,7 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
     setUploadingKind(activeMediaKind);
     try {
       await api.removeProfileMedia(activeMediaKind);
+      queryClient.invalidateQueries({ queryKey: ['me'] });
       if (onRefresh) onRefresh();
       showToast(`${activeMediaKind === 'avatar' ? 'Avatar' : 'Banner'} removed.`);
     } catch (e: any) {
@@ -109,6 +126,7 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
     setUploadingKind(kind);
     try {
       await api.uploadProfileMedia(kind, uri, mimeType, fileName);
+      queryClient.invalidateQueries({ queryKey: ['me'] });
       if (onRefresh) onRefresh();
       showToast(`${kind.charAt(0).toUpperCase() + kind.slice(1)} image updated.`);
     } catch (e: any) {

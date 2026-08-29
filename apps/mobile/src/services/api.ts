@@ -443,14 +443,14 @@ export const api = {
     });
   },
 
-  async getAppearanceSettings(): Promise<{ appearance: { theme: 'light' | 'dark' | 'system' } }> {
-    return apiRequest<{ appearance: { theme: 'light' | 'dark' | 'system' } }>('/api/settings/appearance');
+  async getAppearanceSettings(): Promise<{ appearance: { theme: 'light' | 'dark' | 'system'; gradientIntensity?: number } }> {
+    return apiRequest<{ appearance: { theme: 'light' | 'dark' | 'system'; gradientIntensity?: number } }>('/api/settings/appearance');
   },
 
-  async updateAppearanceSettings(theme: 'light' | 'dark' | 'system'): Promise<any> {
+  async updateAppearanceSettings(theme: 'light' | 'dark' | 'system', gradientIntensity?: number): Promise<any> {
     return apiRequest<any>('/api/settings/appearance', {
       method: 'PUT',
-      body: JSON.stringify({ theme }),
+      body: JSON.stringify({ theme, ...(gradientIntensity !== undefined ? { gradientIntensity } : {}) }),
     });
   },
 

@@ -4,7 +4,9 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQuery } from '@tanstack/react-query';
 import { useAppTheme } from '../context/ThemeContext';
+import { api } from '../services/api';
 
 interface TopBarProps {
   onSearchPress?: () => void;
@@ -13,7 +15,15 @@ interface TopBarProps {
 export function TopBar({ onSearchPress }: TopBarProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, theme } = useAppTheme();
+  const { colors, isDark, theme } = useAppTheme();
+
+  const { data: meData } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.getMe(),
+  });
+
+  const avatarUrl = meData?.profile?.avatarUrl;
+  const initial = (meData?.user?.displayName || meData?.user?.username || 'T')[0].toUpperCase();
 
   return (
     <View
@@ -21,7 +31,7 @@ export function TopBar({ onSearchPress }: TopBarProps) {
         styles.topbar,
         {
           paddingTop: Math.max(insets.top + 10, 22),
-          backgroundColor: colors.isDark ? colors.background : colors.backgroundPanel,
+          backgroundColor: isDark ? colors.background : colors.backgroundPanel,
           borderBottomColor: colors.border,
         },
       ]}
@@ -44,7 +54,7 @@ export function TopBar({ onSearchPress }: TopBarProps) {
         style={[
           styles.searchPill,
           {
-            backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.055)' : 'rgba(34, 31, 25, 0.05)',
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.055)' : 'rgba(34, 31, 25, 0.05)',
             borderColor: colors.border,
             borderRadius: theme.borderRadius.pill,
           },
@@ -56,19 +66,31 @@ export function TopBar({ onSearchPress }: TopBarProps) {
       </Pressable>
 
       {/* Profile Avatar Button */}
-      <Pressable style={styles.profileButton} onPress={() => router.push('/profile' as any)}>
+      <Pressable style={styles.profileButton} onPress={() => router.push('/profile' as any)} hitSlop={4}>
         <View
           style={[
             styles.avatarCircle,
             {
-              backgroundColor: colors.isDark ? 'rgba(255, 207, 92, 0.15)' : 'rgba(240, 168, 36, 0.2)',
+              backgroundColor: isDark ? 'rgba(255, 207, 92, 0.15)' : 'rgba(240, 168, 36, 0.2)',
               borderColor: colors.accent,
             },
           ]}
         >
-          <Text style={[styles.avatarInitial, { color: colors.isDark ? colors.accent : colors.accentContrast }]}>T</Text>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
+          ) : (
+            <Text style={[styles.avatarInitial, { color: isDark ? colors.accent : colors.accentContrast }]}>{initial}</Text>
+          )}
         </View>
-        <View style={[styles.notificationDot, { backgroundColor: colors.notification, borderColor: colors.background }]} />
+        <View
+          style={[
+            styles.notificationDot,
+            {
+              borderColor: isDark ? '#c4c4c4' : '#888888',
+              backgroundColor: 'transparent',
+            },
+          ]}
+        />
       </Pressable>
     </View>
   );
@@ -125,8 +147,13 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     borderWidth: 1,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarInitial: {
     fontSize: 14,

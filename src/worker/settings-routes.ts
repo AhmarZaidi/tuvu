@@ -16,6 +16,7 @@ const navigationSchema = z.object({
 
 const appearanceSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),
+  gradientIntensity: z.number().min(0).max(1).optional(),
 });
 
 type ProviderCredentialRow = {
@@ -101,7 +102,7 @@ export function createSettingsRoutes() {
 
   router.get("/appearance", requireAuth(), async (c) => {
     const stored = await readUserSetting(c.env.DB, c.get("auth").user.id, "appearance");
-    const appearance = stored ? { theme: "system", ...stored } : { theme: "system" };
+    const appearance = stored ? { theme: "system", gradientIntensity: 0.2, ...stored } : { theme: "system", gradientIntensity: 0.2 };
     return c.json(apiSuccess({ appearance }));
   });
 

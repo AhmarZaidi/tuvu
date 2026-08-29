@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAppTheme } from '../context/ThemeContext';
+import { useSnackbar } from '../context/SnackbarContext';
 import { api, MeResponse } from '../services/api';
 import { BottomSheet } from './BottomSheet';
 
@@ -27,16 +28,15 @@ interface ProfileHeroCardProps {
 export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: ProfileHeroCardProps) {
   const queryClient = useQueryClient();
   const { colors, isDark } = useAppTheme();
+  const { showNotice } = useSnackbar();
   const [uploadingKind, setUploadingKind] = useState<'avatar' | 'banner' | null>(null);
 
   // BottomSheet state
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [activeMediaKind, setActiveMediaKind] = useState<'avatar' | 'banner'>('avatar');
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setFeedbackMessage(msg);
-    setTimeout(() => setFeedbackMessage(null), 3000);
+  const showToast = (msg: string, tone: 'info' | 'success' | 'error' = 'info') => {
+    showNotice(msg, tone);
   };
 
   const displayName = meData?.user?.displayName || 'Tuvu User';
@@ -147,14 +147,6 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
         style,
       ]}
     >
-      {/* Toast banner inside hero card */}
-      {feedbackMessage && (
-        <View style={[styles.inlineToast, { backgroundColor: isDark ? '#1d1911' : '#fff7e0', borderColor: colors.accent }]}>
-          <Ionicons name="information-circle" size={15} color={colors.accent} />
-          <Text style={[styles.inlineToastText, { color: colors.textStrong }]}>{feedbackMessage}</Text>
-        </View>
-      )}
-
       {/* Banner Section */}
       <View style={styles.banner}>
         {meData?.profile?.bannerUrl ? (
@@ -277,27 +269,8 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
 const styles = StyleSheet.create({
   heroCard: {
     borderRadius: 10,
-    borderWidth: 1,
+    borderWidth: 1.5,
     overflow: 'hidden',
-  },
-  inlineToast: {
-    position: 'absolute',
-    top: 8,
-    left: 8,
-    right: 8,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    zIndex: 50,
-  },
-  inlineToastText: {
-    fontSize: 12,
-    fontWeight: '700',
-    flex: 1,
   },
   banner: {
     height: 125,

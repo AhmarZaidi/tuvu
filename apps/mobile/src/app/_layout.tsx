@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useAppTheme } from '../context/ThemeContext';
+import { SnackbarProvider } from '../context/SnackbarContext';
 import { BackButton } from '../components/BackButton';
 
 const queryClient = new QueryClient({
@@ -89,7 +90,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <RootNavigation />
+          <SnackbarProvider>
+            <RootNavigation />
+          </SnackbarProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </SafeAreaProvider>

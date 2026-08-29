@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery } from '@tanstack/react-query';
@@ -14,8 +14,11 @@ interface TopBarProps {
 
 export function TopBar({ onSearchPress }: TopBarProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const insets = useSafeAreaInsets();
   const { colors, isDark, theme } = useAppTheme();
+
+  const isProfile = pathname ? pathname.includes('profile') : false;
 
   const { data: meData } = useQuery({
     queryKey: ['me'],
@@ -73,6 +76,7 @@ export function TopBar({ onSearchPress }: TopBarProps) {
             {
               backgroundColor: isDark ? 'rgba(255, 207, 92, 0.15)' : 'rgba(240, 168, 36, 0.2)',
               borderColor: colors.accent,
+              borderWidth: isProfile ? 2.5 : 1,
             },
           ]}
         >

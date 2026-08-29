@@ -18,12 +18,14 @@ import { ProfileHeroCard } from '../../components/ProfileHeroCard';
 import { BottomSheet } from '../../components/BottomSheet';
 import { BackButton } from '../../components/BackButton';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
+import { useSnackbar } from '../../context/SnackbarContext';
 
 export default function ProfileScreen() {
   const router = useRouter();
   useSubpageBack('/(tabs)', true);
   const queryClient = useQueryClient();
   const { colors, isDark } = useAppTheme();
+  const { showNotice } = useSnackbar();
 
   // BottomSheet states
   const [showNotificationsSheet, setShowNotificationsSheet] = useState(false);
@@ -31,11 +33,9 @@ export default function ProfileScreen() {
   const [showMessagesSheet, setShowMessagesSheet] = useState(false);
   const [showLogoutSheet, setShowLogoutSheet] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+  const showToast = (msg: string, tone: 'info' | 'success' | 'error' = 'info') => {
+    showNotice(msg, tone);
   };
 
   // Fetch Session / User info
@@ -70,14 +70,6 @@ export default function ProfileScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <GoldenGlow />
       <TopBar />
-
-      {/* Floating toast notification */}
-      {toastMessage && (
-        <View style={[styles.floatingToast, { backgroundColor: isDark ? '#1d1911' : '#fff7e0', borderColor: colors.accent }]}>
-          <Ionicons name="checkmark-circle" size={16} color={colors.accent} />
-          <Text style={[styles.floatingToastText, { color: colors.textStrong }]}>{toastMessage}</Text>
-        </View>
-      )}
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* Page Heading matching web */}
@@ -359,23 +351,6 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  floatingToast: {
-    position: 'absolute',
-    top: 100,
-    left: 16,
-    right: 16,
-    borderWidth: 1,
-    borderRadius: 6,
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    zIndex: 100,
-  },
-  floatingToastText: {
-    fontSize: 12,
-    fontWeight: '700',
   },
   content: {
     padding: 14,

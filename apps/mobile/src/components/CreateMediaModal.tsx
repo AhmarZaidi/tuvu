@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   TextInput,
   FlatList,
   Pressable,
@@ -12,7 +11,9 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { api, DashboardEntry } from '../services/api';
+import { BottomSheet } from './BottomSheet';
 
 interface CreateMediaModalProps {
   open: boolean;
@@ -27,6 +28,7 @@ export function CreateMediaModal({
   defaultType = 'show',
   onMediaAdded,
 }: CreateMediaModalProps) {
+  const { colors, isDark } = useAppTheme();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<DashboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -63,93 +65,100 @@ export function CreateMediaModal({
   };
 
   return (
-    <Modal visible={open} transparent animationType="slide">
-      <View style={styles.overlay}>
-        <View style={styles.content}>
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>Add {defaultType.toUpperCase()}</Text>
-            <Pressable onPress={onClose} hitSlop={10}>
-              <Ionicons name="close" size={22} color={theme.colors.textSubtle} />
-            </Pressable>
-          </View>
-
-          {/* Search Box */}
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={16} color={theme.colors.textSubtle} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.input}
-              placeholder={`Search ${defaultType} by title...`}
-              placeholderTextColor={theme.colors.textSubtle}
-              value={query}
-              onChangeText={handleSearch}
-              autoFocus
-            />
-            {query.length > 0 && (
-              <Pressable onPress={() => handleSearch('')}>
-                <Ionicons name="close-circle" size={16} color={theme.colors.textSubtle} />
-              </Pressable>
-            )}
-          </View>
-
-          {/* Search Results */}
-          {loading ? (
-            <View style={styles.centerBox}>
-              <ActivityIndicator size="small" color={theme.colors.accent} />
-            </View>
-          ) : (
-            <FlatList
-              data={results}
-              keyExtractor={(item) => item.mediaId}
-              contentContainerStyle={styles.list}
-              renderItem={({ item }) => {
-                const poster = item.posterPath
-                  ? (item.posterPath.startsWith('http') ? item.posterPath : `https://image.tmdb.org/t/p/w185${item.posterPath}`)
-                  : null;
-                const isAdding = addingId === item.mediaId;
-
-                return (
-                  <View style={styles.resultItem}>
-                    <View style={styles.thumb}>
-                      {poster ? (
-                        <Image source={{ uri: poster }} style={styles.thumbImg} contentFit="cover" />
-                      ) : (
-                        <Ionicons name="film-outline" size={18} color={theme.colors.textSubtle} />
-                      )}
-                    </View>
-                    <View style={styles.resultMeta}>
-                      <Text style={styles.resultTitle} numberOfLines={1}>{item.title}</Text>
-                      {item.year && <Text style={styles.resultYear}>{item.year}</Text>}
-                    </View>
-                    <Pressable
-                      style={styles.addButton}
-                      onPress={() => handleAdd(item)}
-                      disabled={isAdding}
-                    >
-                      {isAdding ? (
-                        <ActivityIndicator size="small" color={theme.colors.accentContrast} />
-                      ) : (
-                        <>
-                          <Ionicons name="add" size={14} color={theme.colors.accentContrast} />
-                          <Text style={styles.addButtonText}>Add</Text>
-                        </>
-                      )}
-                    </Pressable>
-                  </View>
-                );
-              }}
-              ListEmptyComponent={
-                query.trim().length >= 2 ? (
-                  <View style={styles.centerBox}>
-                    <Text style={styles.emptyText}>No matching titles found.</Text>
-                  </View>
-                ) : null
-              }
-            />
-          )}
-        </View>
+    <BottomSheet
+      visible={open}
+      onClose={onClose}
+      title={`Add ${defaultType.toUpperCase()}`}
+      subtitle="Search catalog to add directly to your library"
+      icon="add-circle-outline"
+    >
+      {/* Search Box */}
+      <View style={[styles.searchBar, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+        <Ionicons name="search" size={16} color={colors.textSubtle} style={{ marginRight: 8 }} />
+        <TextInput
+          style={[styles.input, { color: colors.text }]}
+          placeholder={`Search ${defaultType} by title...`}
+          placeholderTextColor={colors.textSubtle}
+          value={query}
+          onChangeText={handleSearch}
+        />
+        {query.length > 0 && (
+          <Pressable onPress={() => handleSearch('')} hitSlop={6}>
+            <Ionicons name="close-circle" size={16} color={colors.textSubtle} />
+          </Pressable>
+        )}
       </View>
-    </Modal>
+
+      {/* Search Results */}
+      {loading ? (
+        <View style={styles.centerBox}>
+          <ActivityIndicator size="small" color={colors.accent} />
+        </View>
+      ) : (
+        <View style={{ maxHeight: 300 }}>
+          <FlatList
+            data={results}
+            keyExtractor={(item) => item.mediaId}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => {
+              const poster = item.posterPath
+                ? (item.posterPath.startsWith('http') ? item.posterPath : `https://image.tmdb.org/t/p/w185${item.posterPath}`)
+                : null;
+              const isAdding = addingId === item.mediaId;
+
+              return (
+                <View
+                  style={[
+                    styles.resultItem,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)',
+                      borderColor: colors.border,
+                    },
+                  ]}
+                >
+                  <View style={[styles.thumb, { backgroundColor: isDark ? '#1c1d1e' : '#e2ded5' }]}>
+                    {poster ? (
+                      <Image source={{ uri: poster }} style={styles.thumbImg} contentFit="cover" />
+                    ) : (
+                      <Ionicons name="film-outline" size={18} color={colors.textSubtle} />
+                    )}
+                  </View>
+                  <View style={styles.resultMeta}>
+                    <Text style={[styles.resultTitle, { color: colors.textStrong }]} numberOfLines={1}>{item.title}</Text>
+                    {item.year && <Text style={[styles.resultYear, { color: colors.textMuted }]}>{item.year}</Text>}
+                  </View>
+                  <Pressable
+                    style={[styles.addButton, { backgroundColor: colors.accent }]}
+                    onPress={() => handleAdd(item)}
+                    disabled={isAdding}
+                  >
+                    {isAdding ? (
+                      <ActivityIndicator size="small" color={colors.accentContrast} />
+                    ) : (
+                      <>
+                        <Ionicons name="add" size={14} color={colors.accentContrast} />
+                        <Text style={[styles.addButtonText, { color: colors.accentContrast }]}>Add</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              query.trim().length >= 2 ? (
+                <View style={styles.centerBox}>
+                  <Text style={[styles.emptyText, { color: colors.textMuted }]}>No matching titles found.</Text>
+                </View>
+              ) : null
+            }
+          />
+        </View>
+      )}
+
+      <Pressable style={[styles.cancelBtn, { borderColor: colors.border }]} onPress={onClose}>
+        <Text style={[styles.cancelBtnText, { color: colors.textMuted }]}>Cancel</Text>
+      </Pressable>
+    </BottomSheet>
   );
 }
 
@@ -254,5 +263,17 @@ const styles = StyleSheet.create({
   emptyText: {
     color: theme.colors.textSubtle,
     fontSize: 13,
+  },
+  cancelBtn: {
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  cancelBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

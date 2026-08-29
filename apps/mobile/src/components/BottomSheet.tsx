@@ -151,14 +151,6 @@ export function BottomSheet({
                   {subtitle && <Text style={[styles.subtitle, { color: colors.textMuted }]}>{subtitle}</Text>}
                 </View>
               </View>
-
-              <Pressable
-                style={[styles.closeBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }]}
-                onPress={handleBackdropOrClose}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={18} color={colors.textMuted} />
-              </Pressable>
             </View>
           )}
 
@@ -230,14 +222,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
     lineHeight: 16,
-  },
-  closeBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 10,
   },
   bodyContent: {
     gap: 12,

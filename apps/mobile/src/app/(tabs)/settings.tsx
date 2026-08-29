@@ -7,14 +7,13 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
-  Alert,
-  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useAppTheme } from '../../context/ThemeContext';
+import { useSnackbar } from '../../context/SnackbarContext';
 import { config, getDefaultApiBase } from '../../constants/config';
 import {
   api,
@@ -103,12 +102,11 @@ export default function TabSettingsScreen() {
   useSubpageBack('/(tabs)/profile', true);
   const queryClient = useQueryClient();
   const { colors, mode, setMode, isDark, theme, gradientIntensity, setGradientIntensity } = useAppTheme();
+  const { showNotice } = useSnackbar();
   const [activeTab, setActiveTab] = useState<SettingsTab>('account');
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  const showFeedback = (msg: string) => {
-    setStatusMessage(msg);
-    setTimeout(() => setStatusMessage(null), 3000);
+  const showFeedback = (msg: string, tone: 'info' | 'success' | 'error' = 'success') => {
+    showNotice(msg, tone);
   };
 
   // ──────────────────────────────────────────────
@@ -125,7 +123,7 @@ export default function TabSettingsScreen() {
   const [visibility, setVisibility] = useState<'private' | 'connections' | 'public'>('private');
   const [savingAccount, setSavingAccount] = useState(false);
 
-  // Delete Account Modal State
+  // Delete Account State
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
@@ -147,7 +145,7 @@ export default function TabSettingsScreen() {
       queryClient.invalidateQueries({ queryKey: ['me'] });
       showFeedback('Profile saved successfully.');
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not save profile.');
+      showFeedback(e?.message || 'Could not save profile.', 'error');
     } finally {
       setSavingAccount(false);
     }
@@ -281,7 +279,7 @@ export default function TabSettingsScreen() {
 
   const toggleNavItem = (id: string) => {
     if (id === 'explore') {
-      Alert.alert('Always Present', 'Explore is always included in the bottom navigation bar.');
+      showFeedback('Explore is always included in the bottom navigation bar.', 'info');
       return;
     }
     if (navItems.includes(id)) {
@@ -309,7 +307,7 @@ export default function TabSettingsScreen() {
       queryClient.invalidateQueries({ queryKey: ['navigationSettings'] });
       showFeedback('Navigation settings saved.');
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not save navigation.');
+      showFeedback(e?.message || 'Could not save navigation.', 'error');
     } finally {
       setSavingNav(false);
     }
@@ -345,7 +343,7 @@ export default function TabSettingsScreen() {
       await loadProviders();
       showFeedback(`${activeProviderConfig.label} saved successfully.`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to save provider credentials.');
+      showFeedback(e?.message || 'Failed to save provider credentials.', 'error');
     } finally {
       setSavingProvider(false);
     }
@@ -358,7 +356,7 @@ export default function TabSettingsScreen() {
       await loadProviders();
       showFeedback(`${activeProviderConfig.label} disabled.`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to disable provider.');
+      showFeedback(e?.message || 'Failed to disable provider.', 'error');
     } finally {
       setSavingProvider(false);
     }
@@ -388,7 +386,7 @@ export default function TabSettingsScreen() {
       await loadBackups();
       showFeedback('Backup created successfully.');
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to create backup.');
+      showFeedback(e?.message || 'Failed to create backup.', 'error');
     } finally {
       setCreatingBackup(false);
     }
@@ -397,12 +395,9 @@ export default function TabSettingsScreen() {
   const handleExportBackup = async (id: string) => {
     try {
       const res = await api.exportBackup(id);
-      Alert.alert(
-        'Backup Exported',
-        `Backup ID: ${res.backup.id}\nSize: ${formatBytes(res.backup.byteSize)}\nPayload ready for offline archive.`
-      );
+      showFeedback(`Backup ${res.backup.id.slice(0, 8)} exported (${formatBytes(res.backup.byteSize)}).`, 'success');
     } catch (e: any) {
-      Alert.alert('Export Error', e?.message || 'Could not export backup.');
+      showFeedback(e?.message || 'Could not export backup.', 'error');
     }
   };
 
@@ -558,14 +553,6 @@ export default function TabSettingsScreen() {
           <Text style={[styles.tabText, { color: colors.textMuted }, activeTab === 'connection' && { color: colors.accent, fontWeight: '900' }]}>Server</Text>
         </Pressable>
       </ScrollView>
-
-      {/* Floating Status Notification */}
-      {statusMessage && (
-        <View style={[styles.floatingBanner, { backgroundColor: colors.isDark ? '#1d1911' : '#fff7e0', borderColor: colors.accent }]}>
-          <Ionicons name="checkmark-circle" size={16} color={colors.accent} />
-          <Text style={[styles.floatingBannerText, { color: colors.textStrong }]}>{statusMessage}</Text>
-        </View>
-      )}
 
       <ScrollView contentContainerStyle={styles.content}>
         {/* ────────────────────────────────────────────── */}

@@ -4,14 +4,15 @@ import {
   Text,
   StyleSheet,
   Pressable,
-  Modal,
   TextInput,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { api, MediaDetailData } from '../services/api';
 import { StatusBadge, StatusTone } from './StatusBadge';
+import { BottomSheet } from './BottomSheet';
 
 interface TrackingPanelProps {
   mediaId: string;
@@ -29,6 +30,7 @@ const STATUS_OPTIONS = [
 ];
 
 export function TrackingPanel({ mediaId, mediaType, userMedia, onUpdated }: TrackingPanelProps) {
+  const { colors, isDark } = useAppTheme();
   const [statusModalOpen, setStatusModalOpen] = useState(false);
   const [notesModalOpen, setNotesModalOpen] = useState(false);
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
@@ -136,90 +138,126 @@ export function TrackingPanel({ mediaId, mediaType, userMedia, onUpdated }: Trac
         </Pressable>
       </View>
 
-      {/* Status Picker Modal */}
-      <Modal visible={statusModalOpen} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setStatusModalOpen(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Status</Text>
-            {STATUS_OPTIONS.map((opt) => (
-              <Pressable
-                key={opt.value}
-                style={[styles.modalOption, currentStatus === opt.value && styles.modalOptionSelected]}
-                onPress={() => handleUpdateStatus(opt.value)}
-              >
-                <StatusBadge label={opt.label} tone={opt.tone} />
-                {currentStatus === opt.value && (
-                  <Ionicons name="checkmark" size={18} color={theme.colors.accent} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-        </Pressable>
-      </Modal>
-
-      {/* Rating Picker Modal */}
-      <Modal visible={ratingModalOpen} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setRatingModalOpen(false)}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Rate Media (1 - 10)</Text>
-            <View style={styles.ratingGrid}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
-                <Pressable
-                  key={score}
-                  style={[styles.ratingScorePill, currentRating === score && styles.ratingScoreSelected]}
-                  onPress={() => handleSetRating(score)}
-                >
-                  <Text style={[styles.ratingScoreText, currentRating === score && styles.ratingScoreTextSelected]}>
-                    {score}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            {currentRating && (
-              <Pressable style={styles.clearRatingButton} onPress={() => handleSetRating(null)}>
-                <Text style={styles.clearRatingText}>Clear Rating</Text>
-              </Pressable>
+      {/* Status Picker BottomSheet */}
+      <BottomSheet
+        visible={statusModalOpen}
+        onClose={() => setStatusModalOpen(false)}
+        title="Select Status"
+        subtitle="Update your library tracking state"
+        icon="bookmarks-outline"
+      >
+        {STATUS_OPTIONS.map((opt) => (
+          <Pressable
+            key={opt.value}
+            style={[
+              styles.modalOption,
+              { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.04)', borderColor: colors.border },
+              currentStatus === opt.value && styles.modalOptionSelected,
+            ]}
+            onPress={() => handleUpdateStatus(opt.value)}
+          >
+            <StatusBadge label={opt.label} tone={opt.tone} />
+            {currentStatus === opt.value && (
+              <Ionicons name="checkmark" size={18} color={colors.accent} />
             )}
-          </View>
+          </Pressable>
+        ))}
+        <Pressable
+          style={[styles.sheetCancelBtn, { borderColor: colors.border }]}
+          onPress={() => setStatusModalOpen(false)}
+        >
+          <Text style={[styles.sheetCancelText, { color: colors.textMuted }]}>Cancel</Text>
         </Pressable>
-      </Modal>
+      </BottomSheet>
 
-      {/* Notes Editor Modal */}
-      <Modal visible={notesModalOpen} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.notesModalContent}>
-            <View style={styles.notesHeader}>
-              <Text style={styles.modalTitle}>Personal Notes</Text>
-              <Pressable onPress={() => setNotesModalOpen(false)} hitSlop={10}>
-                <Ionicons name="close" size={22} color={theme.colors.textSubtle} />
-              </Pressable>
-            </View>
-
-            <TextInput
-              style={styles.notesInput}
-              placeholder="Write your thoughts, reminders, or review..."
-              placeholderTextColor={theme.colors.textSubtle}
-              value={notes}
-              onChangeText={setNotes}
-              multiline
-              autoFocus
-            />
-
-            <View style={styles.notesActions}>
-              <Pressable style={styles.cancelButton} onPress={() => setNotesModalOpen(false)}>
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.saveButton} onPress={handleSaveNotes} disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator size="small" color={theme.colors.accentContrast} />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save Notes</Text>
-                )}
-              </Pressable>
-            </View>
-          </View>
+      {/* Rating Picker BottomSheet */}
+      <BottomSheet
+        visible={ratingModalOpen}
+        onClose={() => setRatingModalOpen(false)}
+        title="Rate Media"
+        subtitle="Choose a score from 1 to 10"
+        icon="star-outline"
+      >
+        <View style={styles.ratingGrid}>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
+            <Pressable
+              key={score}
+              style={[
+                styles.ratingScorePill,
+                { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)', borderColor: colors.border },
+                currentRating === score && { backgroundColor: colors.accent, borderColor: colors.accent },
+              ]}
+              onPress={() => handleSetRating(score)}
+            >
+              <Text
+                style={[
+                  styles.ratingScoreText,
+                  { color: colors.textStrong },
+                  currentRating === score && { color: colors.accentContrast },
+                ]}
+              >
+                {score}
+              </Text>
+            </Pressable>
+          ))}
         </View>
-      </Modal>
+        {currentRating && (
+          <Pressable style={styles.clearRatingButton} onPress={() => handleSetRating(null)}>
+            <Text style={styles.clearRatingText}>Clear Rating</Text>
+          </Pressable>
+        )}
+        <Pressable
+          style={[styles.sheetCancelBtn, { borderColor: colors.border }]}
+          onPress={() => setRatingModalOpen(false)}
+        >
+          <Text style={[styles.sheetCancelText, { color: colors.textMuted }]}>Cancel</Text>
+        </Pressable>
+      </BottomSheet>
+
+      {/* Notes Editor BottomSheet */}
+      <BottomSheet
+        visible={notesModalOpen}
+        onClose={() => setNotesModalOpen(false)}
+        title="Personal Notes"
+        subtitle="Keep your thoughts, reminders, or private review"
+        icon="create-outline"
+      >
+        <TextInput
+          style={[
+            styles.notesInput,
+            {
+              backgroundColor: colors.inputBg,
+              borderColor: colors.border,
+              color: colors.text,
+            },
+          ]}
+          placeholder="Write your thoughts, reminders, or review..."
+          placeholderTextColor={colors.textSubtle}
+          value={notes}
+          onChangeText={setNotes}
+          multiline
+        />
+
+        <View style={styles.notesActions}>
+          <Pressable
+            style={[styles.cancelButton, { borderColor: colors.border }]}
+            onPress={() => setNotesModalOpen(false)}
+          >
+            <Text style={[styles.cancelButtonText, { color: colors.textMuted }]}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.saveButton, { backgroundColor: colors.accent }]}
+            onPress={handleSaveNotes}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color={colors.accentContrast} />
+            ) : (
+              <Text style={[styles.saveButtonText, { color: colors.accentContrast }]}>Save Notes</Text>
+            )}
+          </Pressable>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -418,5 +456,17 @@ const styles = StyleSheet.create({
     color: theme.colors.accentContrast,
     fontSize: 13,
     fontWeight: '800',
+  },
+  sheetCancelBtn: {
+    paddingVertical: 12,
+    borderRadius: theme.borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  sheetCancelText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

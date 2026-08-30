@@ -187,6 +187,47 @@ export function createLibraryRoutes() {
     return c.json(apiSuccess({ ok: true, libraryVersion }));
   });
 
+  // PATCH /api/library/:mediaId — general update for user media (favorite, rating, status, notes)
+  router.patch("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
+    const body = await c.req.json().catch(() => null) as { isFavorite?: boolean; status?: string; rating?: number | null; notes?: string | null } | null;
+    if (!body || typeof body !== "object") {
+      return apiError(c, 400, "validation_failed", "Update payload is invalid.");
+    }
+    const mediaRepo = c.get("mediaRepository");
+    const auth = c.get("auth");
+    const mediaId = c.req.param("mediaId");
+
+    const existing = await mediaRepo.findUserMedia(auth.user.id, mediaId);
+    if (!existing) {
+      return apiError(c, 404, "not_found", "This item is not in your library.");
+    }
+
+    const now = new Date().toISOString();
+    const updated = await mediaRepo.upsertUserMedia({
+      ...existing,
+      isFavorite: body.isFavorite !== undefined ? Boolean(body.isFavorite) : existing.isFavorite,
+      status: body.status !== undefined ? body.status : existing.status,
+      rating: body.rating !== undefined ? body.rating : existing.rating,
+      notes: body.notes !== undefined ? body.notes : existing.notes,
+      updatedAt: now,
+    });
+
+    if (body.isFavorite !== undefined && body.isFavorite !== existing.isFavorite) {
+      await mediaRepo.createActivityEvent({
+        id: randomId("act"),
+        userId: auth.user.id,
+        type: "favorite_toggled",
+        mediaId,
+        episodeId: null,
+        dataJson: JSON.stringify({ isFavorite: Boolean(body.isFavorite) }),
+        createdAt: now,
+      });
+    }
+
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
+  });
+
   // PATCH /api/library/:mediaId/status
   router.patch("/:mediaId/status", requireAuth(), requireCsrf(), async (c) => {
     const body = updateStatusSchema.safeParse(await c.req.json().catch(() => null));

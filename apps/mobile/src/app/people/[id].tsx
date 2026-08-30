@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api, PersonCredit } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { GoldenGlow } from '../../components/GoldenGlow';
+import { TopBar } from '../../components/TopBar';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -103,6 +104,9 @@ export default function PersonDetailsScreen() {
   return (
     <View style={styles.container}>
       <GoldenGlow />
+
+      {/* TopBar matching mobile global navigation */}
+      <TopBar />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* 1. Circular Back Button */}

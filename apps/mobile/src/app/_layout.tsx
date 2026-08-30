@@ -57,15 +57,9 @@ function RootNavigation() {
         />
         <Stack.Screen
           name="media/[id]/episodes/[episodeId]"
-          options={({ route }: any) => ({
-            title: 'Episode Details',
-            headerLeft: () => (
-              <BackButton
-                fallbackRoute={route?.params?.id ? `/media/${route.params.id}` : '/(tabs)'}
-                style={{ marginRight: 10 }}
-              />
-            ),
-          })}
+          options={{
+            headerShown: false,
+          }}
         />
         <Stack.Screen
           name="library"

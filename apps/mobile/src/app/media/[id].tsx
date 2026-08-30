@@ -209,13 +209,26 @@ export default function MediaDetailsScreen() {
     }
   }, [id]);
 
-  // 6. User Tracking Interactions
   const handleToggleFavorite = async () => {
-    if (!id || !data?.userMedia) return;
+    if (!id) return;
+    if (!data?.userMedia) {
+      try {
+        await api.addToLibrary(id);
+        await api.updateMediaLibrary(id, { isFavorite: true });
+        handleUpdated();
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+      } catch (e) {
+        console.error('Failed to add and favorite', e);
+      }
+      return;
+    }
     const nextVal = !data.userMedia.isFavorite;
     try {
       await api.updateMediaLibrary(id, { isFavorite: nextVal });
       handleUpdated();
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
     } catch (e) {
       console.error('Failed to toggle favorite', e);
     }
@@ -415,17 +428,17 @@ export default function MediaDetailsScreen() {
     : null;
 
   const episodes = episodesData?.episodes || [];
-  const regularEpisodes = episodes.filter((ep) => !ep.isSpecial);
+  const regularEpisodes = episodes.filter((ep) => !ep.isSpecial && (ep.seasonNumber ?? 0) > 0);
   const totalRegularCount = regularEpisodes.length;
   const watchedRegularCount = regularEpisodes.filter((ep) => ep.activity?.watched).length;
   const progressPercent =
     totalRegularCount > 0 ? Math.round((watchedRegularCount / totalRegularCount) * 100) : 0;
 
-  // Up Next Episode
+  // Up Next Episode (Only main episodes, strictly excluding specials)
   const nextEpisode = regularEpisodes
     .slice()
     .sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0) || a.episodeNumber - b.episodeNumber)
-    .find((ep) => !ep.activity?.watched);
+    .find((ep) => !ep.activity?.watched && !ep.isSpecial && (ep.seasonNumber ?? 0) > 0);
 
   const mediaInitials = (media.title || 'TU').slice(0, 2).toUpperCase();
 

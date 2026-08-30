@@ -408,7 +408,7 @@ export const api = {
   },
 
   async updateMediaLibrary(mediaId: string, payload: { status?: string; rating?: number | null; isFavorite?: boolean; notes?: string | null }): Promise<any> {
-    return apiRequest<any>(`/api/media/${mediaId}/library`, {
+    return apiRequest<any>(`/api/library/${mediaId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });

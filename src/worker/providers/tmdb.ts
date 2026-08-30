@@ -100,11 +100,14 @@ function normalizeTmdb(item: unknown, mode: "movie" | "tv"): ProviderResult | nu
   const genreIds = Array.isArray(record.genre_ids) ? record.genre_ids.filter((id): id is number => typeof id === "number") : [];
   const classification = classifyMedia({ type: mode === "movie" ? "movie" : "tv", genreIds, originalLanguage: stringValue(record.original_language) });
   const type: MediaType = classification.suggestedType ?? (mode === "movie" ? "movie" : "show");
+  const origLang = stringValue(record.original_language);
   const extendedDataJson = classification.isAnime
-    ? JSON.stringify({ category: "anime", anime: { originalLanguage: stringValue(record.original_language) ?? null }, animeFormat: mode === "movie" ? "movie" : "series" })
+    ? JSON.stringify({ category: "anime", originalLanguage: origLang, anime: { originalLanguage: origLang }, animeFormat: mode === "movie" ? "movie" : "series" })
     : classification.isCartoon
-      ? JSON.stringify({ category: "cartoon" })
-      : null;
+      ? JSON.stringify({ category: "cartoon", originalLanguage: origLang })
+      : origLang
+        ? JSON.stringify({ originalLanguage: origLang })
+        : null;
   return {
     provider: "tmdb",
     providerId: id,

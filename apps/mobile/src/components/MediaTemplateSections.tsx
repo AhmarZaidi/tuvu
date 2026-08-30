@@ -14,8 +14,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { WebView } from 'react-native-webview';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import { theme } from '../constants/theme';
 import { api, MediaDetailData, MediaNewsArticle } from '../services/api';
+import { getLanguageName } from '../utils/language';
 
 interface MediaTemplateSectionsProps {
   media: MediaDetailData['media'];
@@ -56,6 +58,13 @@ export function MediaTemplateSections({
   const posters: string[] = ext.images?.posters || [];
   const galleryImages = [...backdrops, ...posters];
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<number | null>(null);
+
+  const rawOrigLang = ext.originalLanguage || (media as any).language || ext.anime?.originalLanguage || null;
+  const originalLanguageName = getLanguageName(rawOrigLang);
+  const spokenLanguages: Array<{ code: string; name: string }> = ext.spokenLanguages || [];
+  const availableLanguagesList = spokenLanguages.length > 0
+    ? spokenLanguages.map((l) => l.name || getLanguageName(l.code)).filter(Boolean)
+    : (ext.languages || []).map((code: string) => getLanguageName(code)).filter(Boolean);
 
   const [trackedIds, setTrackedIds] = useState<Set<string>>(() => {
     return new Set(
@@ -307,18 +316,28 @@ export function MediaTemplateSections({
               </Text>
             </View>
           ) : null}
-        </View>
 
-        {/* YouTube Trailer button */}
-        {trailer?.key && (
-          <Pressable
-            style={styles.trailerButton}
-            onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${trailer.key}`)}
-          >
-            <Ionicons name="logo-youtube" size={16} color="#ff4b4b" />
-            <Text style={styles.trailerButtonText}>Watch Official Trailer</Text>
-          </Pressable>
-        )}
+          {/* Primary Language */}
+          {originalLanguageName && (
+            <View style={styles.infoBadge}>
+              <Ionicons name="language-outline" size={14} color={theme.colors.accent} />
+              <Text style={styles.infoBadgeText} numberOfLines={1}>
+                Primary: {originalLanguageName}
+              </Text>
+            </View>
+          )}
+
+          {/* Available Languages */}
+          {availableLanguagesList.length > 0 && (
+            <View style={styles.infoBadge}>
+              <Ionicons name="globe-outline" size={14} color="#aeb1ac" />
+              <Text style={styles.infoBadgeText} numberOfLines={1}>
+                Available in: {availableLanguagesList.slice(0, 4).join(', ')}
+                {availableLanguagesList.length > 4 ? ` +${availableLanguagesList.length - 4}` : ''}
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* 4. CAST & CHARACTERS */}
@@ -363,9 +382,11 @@ export function MediaTemplateSections({
       {trailer && (
         <View style={styles.sectionCard}>
           <View style={styles.trailerHeaderRow}>
-            <View>
+            <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
               <Text style={styles.eyebrow}>TRAILER</Text>
-              <Text style={styles.sectionTitle}>{trailer.name || 'Official Trailer'}</Text>
+              <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">
+                {trailer.name || 'Official Trailer'}
+              </Text>
             </View>
             <Pressable
               style={styles.trailerExternalBtn}
@@ -379,13 +400,14 @@ export function MediaTemplateSections({
           </View>
 
           <View style={styles.videoPlayerContainer}>
-            <WebView
-              source={{ uri: `https://www.youtube.com/embed/${trailer.key}?playsinline=1&modestbranding=1&rel=0` }}
-              style={styles.videoWebView}
-              allowsFullscreenVideo
-              allowsInlineMediaPlayback
-              javaScriptEnabled
-              domStorageEnabled
+            <YoutubePlayer
+              height={205}
+              play={false}
+              videoId={trailer.key}
+              webViewProps={{
+                androidLayerType: 'hardware',
+                allowsInlineMediaPlayback: true,
+              }}
             />
           </View>
         </View>

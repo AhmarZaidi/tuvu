@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Modal,
   ScrollView,
   Pressable,
   ActivityIndicator,
@@ -12,6 +11,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { ConflictItem } from '../services/api';
+import { BottomSheet } from './BottomSheet';
 
 interface ConflictResolutionModalProps {
   open: boolean;
@@ -61,23 +61,18 @@ export function ConflictResolutionModal({
   const isImageSection = (section: string) => section === 'poster' || section === 'backdrop';
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.eyebrow}>METADATA SYNC</Text>
-              <Text style={styles.title}>Review Provider Differences</Text>
-            </View>
-            <Pressable style={styles.closeButton} onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={20} color="#aeb1ac" />
-            </Pressable>
-          </View>
-
-          <Text style={styles.description}>
-            Fresh details from TMDB conflict with values currently saved in your library.
-            Choose which information to keep or update for each section.
-          </Text>
+    <BottomSheet
+      visible={open}
+      onClose={onClose}
+      title="Review Provider Differences"
+      subtitle="Resolve fresh provider metadata differences"
+      icon="git-pull-request-outline"
+    >
+      <View style={styles.sheetContent}>
+        <Text style={styles.description}>
+          Fresh details from TMDB conflict with values currently saved in your library.
+          Choose which information to keep or update for each section.
+        </Text>
 
           <ScrollView style={styles.scrollArea} contentContainerStyle={styles.scrollContent}>
             {conflicts.map((item) => {
@@ -166,28 +161,15 @@ export function ConflictResolutionModal({
             </Pressable>
           </View>
         </View>
-      </View>
-    </Modal>
-  );
-}
+      </BottomSheet>
+    );
+  }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.72)',
-    justifyContent: 'flex-end',
-  },
-  sheet: {
-    backgroundColor: '#161819',
-    borderTopLeftRadius: theme.borderRadius.lg,
-    borderTopRightRadius: theme.borderRadius.lg,
-    paddingTop: theme.spacing.lg,
-    paddingHorizontal: theme.spacing.md,
-    paddingBottom: theme.spacing.xl,
-    maxHeight: '85%',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
+  const styles = StyleSheet.create({
+    sheetContent: {
+      paddingTop: 4,
+      maxHeight: 520,
+    },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',

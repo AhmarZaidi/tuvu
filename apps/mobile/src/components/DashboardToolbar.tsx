@@ -135,6 +135,8 @@ export function DashboardToolbar({
           value={search}
           onChangeText={onSearchChange}
           autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
         />
         {search.length > 0 && (
           <Pressable onPress={() => onSearchChange('')} hitSlop={8}>

@@ -92,19 +92,16 @@ export function SeasonAccordion({
 
       {progressComponent}
 
-      {episodes.length === 0 ? (
+      {episodes.length === 0 && !progressComponent && (
         <View style={styles.emptyGuideCard}>
-          {!progressComponent && (
-            <View style={styles.prepProgressBarTrack}>
-              <View style={styles.prepProgressBarFill} />
-            </View>
-          )}
-          <Text style={styles.emptyGuideTitle}>Episode guide is being prepared</Text>
+          <Text style={styles.emptyGuideTitle}>No episodes available</Text>
           <Text style={styles.emptyGuideSub}>
-            Episode details will appear here as provider data is loaded.
+            Episode details could not be found or have not been added yet.
           </Text>
         </View>
-      ) : (
+      )}
+
+      {episodes.length > 0 && (
         <View style={styles.seasonStack}>
           {sortedSeasons.map((seasonNumber) => {
             const seasonEpisodes = seasonsMap.get(seasonNumber) || [];

@@ -501,9 +501,35 @@ async function hydrationProgress(db: D1Database, mediaId: string) {
   const queuedJobs = counts.get("queued") ?? 0;
   const runningJobs = counts.get("running") ?? 0;
   const failedJobs = counts.get("failed") ?? 0;
+  const completeJobs = counts.get("complete") ?? 0;
   const activeJobs = queuedJobs + runningJobs;
-  const percent = totalEpisodes > 0 ? Math.round((hydratedEpisodes / totalEpisodes) * 100) : activeJobs > 0 ? 1 : 0;
-  const status = activeJobs > 0 ? "refreshing" : failedJobs > 0 ? "needs_retry" : totalEpisodes > 0 && hydratedEpisodes >= totalEpisodes ? "complete" : "idle";
+  const totalJobs = activeJobs + completeJobs + failedJobs;
+
+  const jobPercent = totalJobs > 0 ? Math.round((completeJobs / totalJobs) * 100) : 0;
+  const episodePercent = totalEpisodes > 0 ? Math.round((hydratedEpisodes / totalEpisodes) * 100) : 0;
+
+  let percent = 0;
+  let status = "idle";
+
+  if (activeJobs > 0) {
+    status = "refreshing";
+    if (totalEpisodes > 0 && hydratedEpisodes >= totalEpisodes) {
+      percent = Math.min(95, Math.max(10, jobPercent));
+    } else if (totalEpisodes > 0) {
+      percent = Math.min(99, Math.max(5, Math.max(jobPercent, episodePercent)));
+    } else {
+      percent = Math.min(95, Math.max(10, jobPercent || 15));
+    }
+  } else if (failedJobs > 0) {
+    status = "needs_retry";
+    percent = episodePercent;
+  } else if (totalEpisodes > 0 && hydratedEpisodes >= totalEpisodes) {
+    status = "complete";
+    percent = 100;
+  } else if (completeJobs > 0) {
+    status = "complete";
+    percent = 100;
+  }
 
   return {
     status,
@@ -514,6 +540,7 @@ async function hydrationProgress(db: D1Database, mediaId: string) {
     runningJobs,
     failedJobs,
     activeJobs,
+    lastError: failedJob?.last_error ?? null,
     lastUpdatedAt: failedJob?.updated_at ?? null,
   };
 }

@@ -79,9 +79,20 @@ export default function AllLibraryScreen() {
   }, [data]);
 
   const filteredEntries = useMemo(() => {
-    if (!search.trim()) return rawEntries;
-    const q = search.trim().toLowerCase();
-    return rawEntries.filter((e: DashboardEntry) => e.title.toLowerCase().includes(q));
+    let list = [...rawEntries];
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((e: DashboardEntry) => e.title.toLowerCase().includes(q));
+    }
+    const parseTime = (dateStr?: string | null) => {
+      if (!dateStr) return 0;
+      const str = String(dateStr);
+      const normalized = str.includes('T') ? str : str.replace(' ', 'T') + 'Z';
+      const t = new Date(normalized).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+    list.sort((a, b) => parseTime(b.updatedAt) - parseTime(a.updatedAt));
+    return list;
   }, [rawEntries, search]);
 
   return (

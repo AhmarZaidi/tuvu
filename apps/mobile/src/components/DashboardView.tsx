@@ -72,13 +72,20 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     queryFn: () => api.getDashboard(kind, { limit: 100 }),
   });
 
+  const parseEntryTime = (dateStr?: string | null) => {
+    if (!dateStr) return 0;
+    const str = String(dateStr);
+    const normalized = str.includes('T') ? str : str.replace(' ', 'T') + 'Z';
+    const t = new Date(normalized).getTime();
+    return isNaN(t) ? 0 : t;
+  };
+
   const sections = useMemo(() => {
     if (!data?.sections) return [];
-    const hasAll = data.sections.some((s) => s.id === 'all');
-    if (!hasAll && data.entries) {
-      return [{ id: 'all', label: `All ${title}`, entries: data.entries }, ...data.sections];
-    }
-    return data.sections;
+    const allSec = data.sections.find((s) => s.id === 'all');
+    const otherSecs = data.sections.filter((s) => s.id !== 'all');
+    const allTab = allSec || { id: 'all', label: `All ${title}`, entries: data?.entries || [] };
+    return [allTab, ...otherSecs];
   }, [data, title]);
 
   const currentSection = useMemo(() => {
@@ -105,7 +112,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     } else if (sortMode === 'progress') {
       list.sort((a, b) => (b.progressEpisodes || 0) - (a.progressEpisodes || 0));
     } else {
-      list.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+      list.sort((a, b) => parseEntryTime(b.updatedAt) - parseEntryTime(a.updatedAt));
     }
 
     return list;
@@ -130,7 +137,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
         } else if (sortMode === 'progress') {
           entries.sort((a, b) => (b.progressEpisodes || 0) - (a.progressEpisodes || 0));
         } else {
-          entries.sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
+          entries.sort((a, b) => parseEntryTime(b.updatedAt) - parseEntryTime(a.updatedAt));
         }
         return {
           ...sec,
@@ -138,7 +145,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
         };
       })
       .filter((sec) => sec.entries.length > 0);
-  }, [data?.sections, search, sortMode]);
+  }, [data, search, sortMode]);
 
   const cycleSort = () => {
     setSortMode((prev) => {
@@ -194,8 +201,8 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     );
   }
 
-  const renderHeader = () => (
-    <>
+  const headerContent = (
+    <View>
       {/* 2. Page Heading & + Add Media Action */}
       <PageHeader
         eyebrow="Library"
@@ -234,7 +241,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
           onSelectSection={setActiveSectionId}
         />
       )}
-    </>
+    </View>
   );
 
   const renderEmptyState = () => (
@@ -394,7 +401,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
               colors={[colors.accent]}
             />
           }
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={headerContent}
           renderItem={({ item }) => (
             <View style={styles.gridItem}>
               <MediaCard
@@ -422,7 +429,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
               colors={[colors.accent]}
             />
           }
-          ListHeaderComponent={renderHeader}
+          ListHeaderComponent={headerContent}
           renderItem={({ item: section }) => renderSectionCarousel(section)}
           ListEmptyComponent={renderEmptyState}
         />

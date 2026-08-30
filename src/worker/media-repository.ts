@@ -651,7 +651,28 @@ export class D1MediaRepository implements MediaRepository {
 
     const result = await this.db
       .prepare(
-        `SELECT um.*, mi.*
+        `SELECT
+           mi.*,
+           um.id AS user_media_id,
+           um.user_id AS user_media_user_id,
+           um.media_id AS user_media_media_id,
+           um.status,
+           um.is_favorite,
+           um.rating,
+           um.notes,
+           um.watched_at,
+           um.completed_at,
+           um.rewatch_count,
+           um.progress_episodes,
+           um.progress_value,
+           um.progress_total,
+           um.progress_unit,
+           um.platform,
+           um.started_at,
+           um.purchase_library,
+           um.visibility,
+           um.created_at AS user_media_created_at,
+           um.updated_at AS user_media_updated_at
          FROM user_media um
          INNER JOIN media_items mi ON mi.id = um.media_id
          WHERE ${where}
@@ -923,9 +944,9 @@ function mapEpisode(row: any): EpisodeRecord {
 
 function mapUserMedia(row: any): UserMediaRecord {
   return {
-    id: row.id,
-    userId: row.user_id,
-    mediaId: row.media_id,
+    id: row.user_media_id ?? row.id,
+    userId: row.user_media_user_id ?? row.user_id,
+    mediaId: row.user_media_media_id ?? row.media_id,
     status: row.status,
     isFavorite: row.is_favorite === 1,
     rating: row.rating,
@@ -940,8 +961,8 @@ function mapUserMedia(row: any): UserMediaRecord {
     startedAt: row.started_at ?? null,
     purchaseLibrary: row.purchase_library ?? null,
     visibility: row.visibility ?? "private",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: row.user_media_created_at ?? row.created_at,
+    updatedAt: row.user_media_updated_at ?? row.updated_at,
   };
 }
 

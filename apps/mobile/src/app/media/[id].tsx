@@ -139,16 +139,21 @@ export default function MediaDetailsScreen() {
           res.progress?.runningJobs > 0 ||
           res.progress?.queuedJobs > 0;
 
-        setHydrationProgress(isRefreshing ? res.progress : null);
+        const isFailed =
+          res.progress?.status === 'needs_retry' ||
+          (res.progress?.failedJobs > 0 && res.progress?.activeJobs === 0);
+
+        setHydrationProgress((isRefreshing || isFailed) ? res.progress : null);
 
         if (isRefreshing) {
           hydrationPollingRef.current = true;
-          setTimeout(pollProgress, 3000);
+          setTimeout(pollProgress, 2500);
         } else if (hydrationPollingRef.current) {
           hydrationPollingRef.current = false;
-          // Finished! Refresh details, episodes, and check for conflicts
-          handleUpdated();
-          void loadConflicts();
+          if (!isFailed) {
+            handleUpdated();
+            void loadConflicts();
+          }
         }
       } catch {
         // Ignored
@@ -579,7 +584,10 @@ export default function MediaDetailsScreen() {
             onEpisodesUpdated={handleUpdated}
             progressComponent={
               hydrationProgress ? (
-                <EpisodeGuideProgress progress={hydrationProgress} />
+                <EpisodeGuideProgress
+                  progress={hydrationProgress}
+                  onRetry={handleManualRefresh}
+                />
               ) : null
             }
           />

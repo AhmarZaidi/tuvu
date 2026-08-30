@@ -1,14 +1,40 @@
 import React from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { HydrationProgress } from '../services/api';
 
 interface EpisodeGuideProgressProps {
   progress: HydrationProgress;
+  onRetry?: () => void;
 }
 
-export function EpisodeGuideProgress({ progress }: EpisodeGuideProgressProps) {
+export function EpisodeGuideProgress({ progress, onRetry }: EpisodeGuideProgressProps) {
   const isRefreshing = progress.status === 'refreshing' || progress.activeJobs > 0;
+  const isFailed = progress.status === 'needs_retry' || (progress.failedJobs > 0 && progress.activeJobs === 0);
+
+  if (isFailed) {
+    return (
+      <View style={styles.errorContainer}>
+        <View style={styles.errorHeader}>
+          <View style={styles.labelRow}>
+            <Ionicons name="alert-circle-outline" size={18} color="#ff6b6b" style={styles.spinner} />
+            <Text style={styles.errorTitle}>Could not load episode details</Text>
+          </View>
+          {onRetry && (
+            <Pressable style={styles.retryButton} onPress={onRetry}>
+              <Ionicons name="refresh-outline" size={13} color={theme.colors.accent} style={{ marginRight: 4 }} />
+              <Text style={styles.retryText}>Retry</Text>
+            </Pressable>
+          )}
+        </View>
+        <Text style={styles.errorSub}>
+          {progress.lastError || 'Unable to retrieve complete episode information from provider.'}
+        </Text>
+      </View>
+    );
+  }
+
   if (!isRefreshing) return null;
 
   const label =
@@ -93,5 +119,46 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
     backgroundColor: theme.colors.accent,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(255, 107, 107, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 107, 0.25)',
+    borderRadius: theme.borderRadius.md,
+    padding: theme.spacing.md,
+    marginVertical: theme.spacing.sm,
+  },
+  errorHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  errorTitle: {
+    color: '#ff8585',
+    fontSize: 13,
+    fontWeight: '700',
+    flex: 1,
+  },
+  errorSub: {
+    color: '#aeb1ac',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 191, 71, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 191, 71, 0.3)',
+    borderRadius: theme.borderRadius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginLeft: 8,
+  },
+  retryText: {
+    color: theme.colors.accent,
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

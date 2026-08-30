@@ -133,6 +133,7 @@ export type HydrationProgress = {
   runningJobs: number;
   failedJobs: number;
   activeJobs: number;
+  lastError?: string | null;
   lastUpdatedAt?: string | null;
 };
 

@@ -102,7 +102,7 @@ async function hydrateTmdb(env: Env, job: any) {
 
   if (job.scope === "media") {
     const typePath = media.type === "movie" ? "movie" : "tv";
-    const data = await tmdbFetchMediaDetails(env, `${typePath}/${tmdbId}?append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos`);
+    const data = await tmdbFetchMediaDetails(env, `${typePath}/${tmdbId}?append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos,images`);
 
     const now = new Date();
 
@@ -113,7 +113,10 @@ async function hydrateTmdb(env: Env, job: any) {
     const creators = (data.created_by || []).map((c: any) => ({ id: c.id, name: c.name, job: "Creator", profilePath: tmdbImage(c.profile_path, "w185") }));
     const watchProviders = data["watch/providers"]?.results?.US?.flatrate?.map((p: any) => ({ name: p.provider_name, logoPath: tmdbImage(p.logo_path, "w92") })) || [];
     const related = [...(data.recommendations?.results || []), ...(data.similar?.results || [])].slice(0, 10).map((r: any) => ({ id: r.id, title: r.title || r.name, posterPath: tmdbImage(r.poster_path, "w342"), type: r.media_type || media.type }));
-    const videos = (data.videos?.results || []).filter((v: any) => v.site === "YouTube").slice(0, 3).map((v: any) => ({ name: v.name, key: v.key, type: v.type }));
+    const videos = (data.videos?.results || []).filter((v: any) => v.site === "YouTube").slice(0, 5).map((v: any) => ({ name: v.name, key: v.key, type: v.type }));
+    const backdrops = (data.images?.backdrops || []).slice(0, 16).map((b: any) => tmdbImage(b.file_path, "w780")).filter(Boolean);
+    const posters = (data.images?.posters || []).slice(0, 16).map((p: any) => tmdbImage(p.file_path, "w342")).filter(Boolean);
+    const images = { backdrops, posters };
     const releaseDate = media.type === "movie" ? data.release_date : data.first_air_date;
     const runtime = media.type === "movie" ? data.runtime : (data.episode_run_time?.[0] ?? null);
     
@@ -166,6 +169,7 @@ async function hydrateTmdb(env: Env, job: any) {
       watchProviders,
       related,
       videos,
+      images,
       externalIds: data.external_ids,
       rating: data.vote_average,
       voteCount: data.vote_count,

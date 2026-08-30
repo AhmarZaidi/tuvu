@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { mediaTypeSchema, type MediaType } from "@shared/media";
 import { searchableMediaTypes } from "@shared/media-config";
-import { addProviderResultToLibrary } from "./media-canonical-service";
+import { addProviderResultToLibrary, resolveOrCreateProviderCanonicalMedia } from "./media-canonical-service";
 import { apiError, apiSuccess } from "./http";
 import { bumpUserLibraryVersion } from "./library-version-service";
 import type { MediaItemRecord, MediaRepository } from "./media-repository";
@@ -76,6 +76,20 @@ export function createExploreRoutes() {
     const result = await addProviderResultToLibrary({ env: c.env, repo, userId: auth.user.id, result: body.data });
     const libraryVersion = result.alreadyTracked ? null : await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ ...result, libraryVersion }), result.alreadyTracked ? 200 : 201);
+  });
+
+  router.post("/resolve", requireAuth(), requireCsrf(), async (c) => {
+    const body = addProviderSchema.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) return apiError(c, 400, "validation_failed", "Provider result is invalid.", body.error.flatten());
+
+    const repo = c.get("mediaRepository");
+    const media = await resolveOrCreateProviderCanonicalMedia({
+      db: c.env.DB,
+      repo,
+      result: body.data,
+      now: new Date().toISOString(),
+    });
+    return c.json(apiSuccess({ media }));
   });
 
   return router;

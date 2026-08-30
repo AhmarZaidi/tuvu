@@ -8,12 +8,14 @@ import {
   Pressable,
   TextInput,
   Modal,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { api, ConflictItem, HydrationProgress, MediaNewsArticle } from '../../services/api';
+import { api, ConflictItem, EpisodeWithActivity, HydrationProgress, MediaNewsArticle } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
@@ -23,6 +25,7 @@ import { EpisodeGuideProgress } from '../../components/EpisodeGuideProgress';
 import { ConflictResolutionModal } from '../../components/ConflictResolutionModal';
 import { SeasonAccordion } from '../../components/SeasonAccordion';
 import { MediaTemplateSections } from '../../components/MediaTemplateSections';
+import { BottomSheet } from '../../components/BottomSheet';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
 
 export default function MediaDetailsScreen() {
@@ -40,6 +43,9 @@ export default function MediaDetailsScreen() {
   const [hydrationProgress, setHydrationProgress] = useState<HydrationProgress | null>(null);
   const [newsArticles, setNewsArticles] = useState<MediaNewsArticle[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [expandedOverview, setExpandedOverview] = useState(false);
+  const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
+  const [busyEpisodeId, setBusyEpisodeId] = useState<string | null>(null);
 
   const hydrationPollingRef = useRef<boolean>(false);
   const autoHydrateTriedRef = useRef<Set<string>>(new Set());
@@ -268,6 +274,108 @@ export default function MediaDetailsScreen() {
     }
   };
 
+  const handleQuickToggleUpNext = async (ep: EpisodeWithActivity) => {
+    setBusyEpisodeId(ep.id);
+    try {
+      const isWatched = Boolean(ep.activity?.watched);
+      await api.updateEpisodeAction(ep.id, isWatched ? 'not_watched' : 'watched_once');
+      handleUpdated();
+    } catch (e) {
+      console.error('Failed to toggle up next watched', e);
+    } finally {
+      setBusyEpisodeId(null);
+    }
+  };
+
+  const handleMarkAllWatched = async () => {
+    if (!data?.media) return;
+    setMenuOpen(false);
+    try {
+      const regularEpisodes = (episodesData?.episodes || []).filter((ep) => !ep.isSpecial);
+      const regularSeasons = Array.from(new Set(regularEpisodes.map((e) => e.seasonNumber ?? 1)));
+      await Promise.all(
+        regularSeasons.map((sn) => api.bulkMarkSeason(data.media.id, sn, true))
+      );
+      handleUpdated();
+    } catch (e) {
+      console.error('Failed to mark all watched', e);
+    }
+  };
+
+  const handleResetProgress = async () => {
+    if (!data?.media) return;
+    setMenuOpen(false);
+    try {
+      const regularEpisodes = (episodesData?.episodes || []).filter((ep) => !ep.isSpecial);
+      const regularSeasons = Array.from(new Set(regularEpisodes.map((e) => e.seasonNumber ?? 1)));
+      await Promise.all(
+        regularSeasons.map((sn) => api.updateSeasonAction(data.media.id, sn, 'not_watched'))
+      );
+      handleUpdated();
+    } catch (e) {
+      console.error('Failed to reset progress', e);
+    }
+  };
+
+  const handleRemoveFromLibrary = async () => {
+    if (!id) return;
+    setMenuOpen(false);
+    try {
+      await api.removeFromLibrary(id);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+      router.back();
+    } catch (e) {
+      console.error('Failed to remove from library', e);
+    }
+  };
+
+  const [isChangingType, setIsChangingType] = useState(false);
+
+  const handleChangeMediaType = async (newType: string) => {
+    if (!data?.media || data.media.type === newType) return;
+    setIsChangingType(true);
+    try {
+      await api.updateMediaType(data.media.id, newType);
+      handleUpdated();
+      queryClient.invalidateQueries({ queryKey: ['media', id] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+    } catch (e) {
+      console.error('Failed to change media type', e);
+      Alert.alert('Error', 'Failed to update media type.');
+    } finally {
+      setIsChangingType(false);
+    }
+  };
+
+  const handleToggleAnimeClassification = async () => {
+    if (!data?.media) return;
+    setMenuOpen(false);
+    try {
+      const currentAnime = data.media.type === 'anime';
+      await api.updateMediaClassification(data.media.id, !currentAnime);
+      handleUpdated();
+    } catch (e) {
+      console.error('Failed to toggle classification', e);
+    }
+  };
+
+  const handleAddToLibrary = async () => {
+    if (!id) return;
+    setIsAddingToLibrary(true);
+    try {
+      await api.addToLibrary(id);
+      handleUpdated();
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+    } catch (e) {
+      console.error('Failed to add to library', e);
+    } finally {
+      setIsAddingToLibrary(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
@@ -321,25 +429,30 @@ export default function MediaDetailsScreen() {
 
   const mediaInitials = (media.title || 'TU').slice(0, 2).toUpperCase();
 
-  const releaseYear = media.year || (media.releaseDate ? new Date(media.releaseDate).getFullYear() : null);
-  const formattedReleaseDate = media.releaseDate
-    ? new Date(media.releaseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-    : releaseYear ? String(releaseYear) : null;
+  const formattedReleaseDate = formatMediaDateRange(media, regularEpisodes);
 
   return (
     <View style={styles.container}>
       <GoldenGlow />
 
-      {/* Atmospheric Background using poster image with heavy dark gradient */}
+      {/* Atmospheric Background with vibrant portrait poster image covering full screen */}
       {(posterUrl || backdropUrl) && (
         <View style={styles.atmosphericBackdropContainer} pointerEvents="none">
           <Image
             source={{ uri: (posterUrl || backdropUrl) as string }}
             style={styles.atmosphericBackdrop}
             contentFit="cover"
-            blurRadius={18}
+            blurRadius={12}
           />
-          <View style={styles.atmosphericBackdropOverlay} />
+          <LinearGradient
+            colors={[
+              'rgba(16, 17, 18, 0.3)',
+              'rgba(16, 17, 18, 0.75)',
+              '#101112',
+            ]}
+            locations={[0, 0.45, 0.9]}
+            style={StyleSheet.absoluteFill}
+          />
         </View>
       )}
 
@@ -354,12 +467,29 @@ export default function MediaDetailsScreen() {
           </Pressable>
         </View>
 
-        {/* 1. Header Information (matching Screenshot 1) */}
+        {/* 1. Header Information */}
         <View style={styles.headerInfoSection}>
           <Text style={styles.mediaTypeEyebrow}>{media.type.toUpperCase()}</Text>
           <Text style={styles.mediaTitle}>{media.title}</Text>
           {media.overview ? (
-            <Text style={styles.mediaOverview}>{media.overview}</Text>
+            <View style={styles.overviewContainer}>
+              <Text style={styles.mediaOverview}>
+                {media.overview.length > 260 && !expandedOverview
+                  ? `${media.overview.slice(0, 260)}...`
+                  : media.overview}
+              </Text>
+              {media.overview.length > 260 && (
+                <Pressable
+                  onPress={() => setExpandedOverview(!expandedOverview)}
+                  style={styles.readMoreBtn}
+                  hitSlop={6}
+                >
+                  <Text style={styles.readMoreText}>
+                    {expandedOverview ? 'Collapse' : '...Read More'}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
           ) : null}
         </View>
 
@@ -408,28 +538,60 @@ export default function MediaDetailsScreen() {
           </Pressable>
         )}
 
-        {/* 3. Metadata & Tracking Status Card (matching Screenshot 2) */}
-        <View style={styles.trackingCard}>
-          {/* Metadata Row: Calendar Date, Language, TMDB source */}
-          <View style={styles.metaRow}>
-            {formattedReleaseDate && (
-              <View style={styles.metaItem}>
-                <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
-                <Text style={styles.metaItemText}>{formattedReleaseDate}</Text>
-              </View>
-            )}
-            {media.language && (
-              <Text style={styles.metaItemText}>{media.language.toUpperCase()}</Text>
-            )}
-            <Text style={styles.metaItemText}>
-              {media.source ? media.source.toUpperCase() : 'TMDB'}
-            </Text>
-          </View>
+        {/* 3. Metadata & Tracking Status Card */}
+        {!userMedia ? (
+          <View style={styles.untrackedCard}>
+            <View style={styles.metaRow}>
+              {formattedReleaseDate && (
+                <View style={styles.metaItem}>
+                  <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
+                  <Text style={styles.metaItemText}>{formattedReleaseDate}</Text>
+                </View>
+              )}
+              {media.language && (
+                <Text style={styles.metaItemText}>{media.language.toUpperCase()}</Text>
+              )}
+              <Text style={styles.metaItemText}>
+                {media.source ? media.source.toUpperCase() : 'TMDB'}
+              </Text>
+            </View>
 
-          {/* MANUAL STATUS & Favorite Heart */}
-          <View style={styles.statusHeaderRow}>
-            <Text style={styles.sectionEyebrow}>MANUAL STATUS</Text>
-            {userMedia && (
+            <Pressable
+              style={styles.addToLibraryPrimaryBtn}
+              onPress={handleAddToLibrary}
+              disabled={isAddingToLibrary}
+            >
+              {isAddingToLibrary ? (
+                <ActivityIndicator size="small" color="#101112" />
+              ) : (
+                <>
+                  <Ionicons name="add" size={20} color="#101112" />
+                  <Text style={styles.addToLibraryPrimaryText}>Add to library</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.trackingCard}>
+            {/* Metadata Row: Calendar Date, Language, TMDB source */}
+            <View style={styles.metaRow}>
+              {formattedReleaseDate && (
+                <View style={styles.metaItem}>
+                  <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
+                  <Text style={styles.metaItemText}>{formattedReleaseDate}</Text>
+                </View>
+              )}
+              {media.language && (
+                <Text style={styles.metaItemText}>{media.language.toUpperCase()}</Text>
+              )}
+              <Text style={styles.metaItemText}>
+                {media.source ? media.source.toUpperCase() : 'TMDB'}
+              </Text>
+            </View>
+
+            {/* MANUAL STATUS & Favorite Heart */}
+            <View style={styles.statusHeaderRow}>
+              <Text style={styles.sectionEyebrow}>MANUAL STATUS</Text>
               <Pressable
                 style={[
                   styles.favoriteButton,
@@ -444,136 +606,158 @@ export default function MediaDetailsScreen() {
                   color={userMedia.isFavorite ? '#ff4b4b' : '#aeb1ac'}
                 />
               </Pressable>
-            )}
-          </View>
-
-          {/* Status Buttons: Watch Later, Stopped */}
-          <View style={styles.statusButtonsRow}>
-            <Pressable
-              style={[
-                styles.statusPill,
-                userMedia?.status === 'watch_later' && styles.statusPillActive,
-              ]}
-              onPress={() => handleManualStatus('watch_later')}
-            >
-              <Ionicons
-                name="time-outline"
-                size={14}
-                color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
-              />
-              <Text
-                style={[
-                  styles.statusPillText,
-                  userMedia?.status === 'watch_later' && styles.statusPillTextActive,
-                ]}
-              >
-                Watch Later
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={[
-                styles.statusPill,
-                userMedia?.status === 'stopped' && styles.statusPillActive,
-              ]}
-              onPress={() => handleManualStatus('stopped')}
-            >
-              <Ionicons
-                name="square-outline"
-                size={14}
-                color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
-              />
-              <Text
-                style={[
-                  styles.statusPillText,
-                  userMedia?.status === 'stopped' && styles.statusPillTextActive,
-                ]}
-              >
-                Stopped
-              </Text>
-            </Pressable>
-          </View>
-
-          {/* Your rating with 5 Emojis */}
-          <EmojiRating
-            value={userMedia?.rating ?? null}
-            onChange={handleRating}
-            label="Your rating"
-          />
-
-          {/* Progress Header & Bar (for Series) */}
-          {isSeries && (
-            <View style={styles.progressSection}>
-              <View style={styles.progressHeaderRow}>
-                <Text style={styles.progressLabel}>Progress</Text>
-                <Text style={styles.progressCountText}>
-                  {watchedRegularCount} / {totalRegularCount} available episodes ({progressPercent}%)
-                </Text>
-              </View>
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
-              </View>
             </View>
-          )}
 
-          {/* UP NEXT Card (matching Screenshot 2) */}
-          {isSeries && nextEpisode && (
-            <View style={styles.upNextCard}>
-              <Text style={styles.upNextEyebrow}>UP NEXT</Text>
+            {/* Status Buttons: Watch Later, Stopped */}
+            <View style={styles.statusButtonsRow}>
               <Pressable
-                style={styles.upNextRow}
-                onPress={() => router.push(`/media/${id}/episodes/${nextEpisode.id}` as any)}
+                style={[
+                  styles.statusPill,
+                  userMedia?.status === 'watch_later' && styles.statusPillActive,
+                ]}
+                onPress={() => handleManualStatus('watch_later')}
               >
-                {/* Initials / Still Box */}
-                {nextEpisode.stillPath ? (
-                  <Image
-                    source={{ uri: nextEpisode.stillPath }}
-                    style={styles.upNextThumb}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <View style={styles.upNextInitialsBox}>
-                    <Text style={styles.upNextInitialsText}>{mediaInitials}</Text>
-                  </View>
-                )}
+                <Ionicons
+                  name="time-outline"
+                  size={14}
+                  color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
+                />
+                <Text
+                  style={[
+                    styles.statusPillText,
+                    userMedia?.status === 'watch_later' && styles.statusPillTextActive,
+                  ]}
+                >
+                  Watch Later
+                </Text>
+              </Pressable>
 
-                {/* Details */}
-                <View style={styles.upNextMeta}>
-                  <Text style={styles.upNextCode}>
-                    S{String(nextEpisode.seasonNumber ?? 0).padStart(2, '0')}xE{String(
-                      nextEpisode.episodeNumber
-                    ).padStart(2, '0')}
-                  </Text>
-                  <Text style={styles.upNextTitle} numberOfLines={1}>
-                    {nextEpisode.title || `Episode ${nextEpisode.episodeNumber}`}
-                  </Text>
-                </View>
-
-                {/* Air Date / TBA Chip */}
-                <View style={styles.tbaChip}>
-                  <Text style={styles.tbaChipText}>
-                    {nextEpisode.airDate ? nextEpisode.airDate.slice(0, 4) : 'TBA'}
-                  </Text>
-                </View>
+              <Pressable
+                style={[
+                  styles.statusPill,
+                  userMedia?.status === 'stopped' && styles.statusPillActive,
+                ]}
+                onPress={() => handleManualStatus('stopped')}
+              >
+                <Ionicons
+                  name="square-outline"
+                  size={14}
+                  color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
+                />
+                <Text
+                  style={[
+                    styles.statusPillText,
+                    userMedia?.status === 'stopped' && styles.statusPillTextActive,
+                  ]}
+                >
+                  Stopped
+                </Text>
               </Pressable>
             </View>
-          )}
 
-          {/* PRIVATE NOTES (matching Screenshot 2) */}
-          <View style={styles.notesSection}>
-            <Text style={styles.sectionEyebrow}>PRIVATE NOTES</Text>
-            <TextInput
-              style={styles.notesInput}
-              multiline
-              numberOfLines={4}
-              placeholder="Add your private notes or review here. Auto-saves on blur."
-              placeholderTextColor="#8b8e89"
-              value={notesText}
-              onChangeText={setNotesText}
-              onBlur={handleSaveNotes}
+            {/* Your rating with 5 Emojis */}
+            <EmojiRating
+              value={userMedia?.rating ?? null}
+              onChange={handleRating}
+              label="Your rating"
             />
+
+            {/* Progress Header & Bar (for Series) */}
+            {isSeries && (
+              <View style={styles.progressSection}>
+                <View style={styles.progressHeaderRow}>
+                  <Text style={styles.progressLabel}>Progress</Text>
+                  <Text style={styles.progressCountText}>
+                    {watchedRegularCount} / {totalRegularCount} available episodes ({progressPercent}%)
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
+                </View>
+              </View>
+            )}
+
+            {/* UP NEXT Card */}
+            {isSeries && nextEpisode && (
+              <View style={styles.upNextCard}>
+                <Text style={styles.upNextEyebrow}>UP NEXT</Text>
+                <Pressable
+                  style={styles.upNextRow}
+                  onPress={() => router.push(`/media/${id}/episodes/${nextEpisode.id}` as any)}
+                >
+                  {/* Initials / Still Box */}
+                  {nextEpisode.stillPath ? (
+                    <Image
+                      source={{ uri: nextEpisode.stillPath }}
+                      style={styles.upNextThumb}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.upNextInitialsBox}>
+                      <Text style={styles.upNextInitialsText}>{mediaInitials}</Text>
+                    </View>
+                  )}
+
+                  {/* Details */}
+                  <View style={styles.upNextMeta}>
+                    <Text style={styles.upNextCode}>
+                      S{String(nextEpisode.seasonNumber ?? 0).padStart(2, '0')}xE{String(
+                        nextEpisode.episodeNumber
+                      ).padStart(2, '0')}
+                    </Text>
+                    <Text style={styles.upNextTitle} numberOfLines={1} ellipsizeMode="tail">
+                      {nextEpisode.title || `Episode ${nextEpisode.episodeNumber}`}
+                    </Text>
+                  </View>
+
+                  {/* One-tap checkmark or rewatch badge button */}
+                  <Pressable
+                    style={[
+                      styles.upNextCheckButton,
+                      nextEpisode.activity?.watched && styles.upNextCheckButtonWatched,
+                    ]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      void handleQuickToggleUpNext(nextEpisode);
+                    }}
+                    hitSlop={8}
+                    disabled={busyEpisodeId === nextEpisode.id}
+                  >
+                    {busyEpisodeId === nextEpisode.id ? (
+                      <ActivityIndicator size="small" color="#101112" />
+                    ) : nextEpisode.activity?.watched ? (
+                      (nextEpisode.activity.rewatchCount ?? 0) > 0 ? (
+                        <Text style={styles.rewatchMarkText}>
+                          x{1 + (nextEpisode.activity.rewatchCount ?? 0)}
+                        </Text>
+                      ) : (
+                        <Ionicons name="checkmark" size={18} color="#101112" />
+                      )
+                    ) : (
+                      <Ionicons name="checkmark" size={18} color="#8b8e89" />
+                    )}
+                  </Pressable>
+                </Pressable>
+              </View>
+            )}
+
+            {/* PRIVATE NOTES */}
+            <View style={styles.notesSection}>
+              <Text style={styles.sectionEyebrow}>PRIVATE NOTES</Text>
+              <TextInput
+                style={styles.notesInput}
+                multiline
+                numberOfLines={4}
+                placeholder="Add your private notes or review here. Auto-saves on blur."
+                placeholderTextColor="#8b8e89"
+                value={notesText}
+                onChangeText={setNotesText}
+                onBlur={handleSaveNotes}
+                editable={!savingNotes}
+              />
+            </View>
           </View>
-        </View>
+        )}
 
         {/* 4. Episode Guide Section (matching Screenshot 3) */}
         {isSeries && (
@@ -620,37 +804,139 @@ export default function MediaDetailsScreen() {
       </ScrollView>
 
       {/* Options Menu Bottom Sheet */}
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
-        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
-          <View style={styles.menuSheet}>
-            <Text style={styles.menuTitle}>{media.title}</Text>
+      <BottomSheet
+        visible={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        title={media.title}
+        subtitle="Manage media details & classification"
+        icon="options-outline"
+      >
+        <View style={styles.sheetContent}>
+          {/* Media Type Selection Chips */}
+          <View style={styles.typeSection}>
+            <Text style={styles.typeSectionLabel}>MEDIA TYPE</Text>
+            <View style={styles.typeChipsRow}>
+              {(['show', 'anime', 'movie'] as const).map((typeKey) => {
+                const isSelected = media.type === typeKey;
+                const label = typeKey === 'show' ? 'TV Show' : typeKey === 'anime' ? 'Anime' : 'Movie';
+                const iconName =
+                  typeKey === 'show'
+                    ? 'tv-outline'
+                    : typeKey === 'anime'
+                    ? 'sparkles-outline'
+                    : 'film-outline';
 
-            <Pressable style={styles.menuItem} onPress={handleManualRefresh}>
+                return (
+                  <Pressable
+                    key={typeKey}
+                    style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                    onPress={() => void handleChangeMediaType(typeKey)}
+                    disabled={isChangingType}
+                  >
+                    <Ionicons
+                      name={isSelected ? 'checkmark' : iconName}
+                      size={14}
+                      color={isSelected ? '#101112' : '#dcded9'}
+                    />
+                    <Text style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Action Items List */}
+          <View style={styles.actionsList}>
+            {/* Refresh Show Details */}
+            <Pressable style={styles.sheetActionItem} onPress={handleManualRefresh}>
               <Ionicons name="refresh-outline" size={18} color="#f8f7f2" />
-              <Text style={styles.menuItemText}>Refresh Extra Details</Text>
+              <Text style={styles.sheetActionItemText}>Refresh Show Details</Text>
             </Pressable>
 
+            {/* Mark All Seasons Watched */}
+            {isSeries && userMedia && (
+              <Pressable
+                style={styles.sheetActionItem}
+                onPress={() => {
+                  Alert.alert(
+                    'Mark All as Watched',
+                    `Mark all regular episodes of "${media.title}" as watched?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Mark All Watched', onPress: () => void handleMarkAllWatched() },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="checkmark-done-outline" size={18} color="#f8f7f2" />
+                <Text style={styles.sheetActionItemText}>Mark All Seasons Watched</Text>
+              </Pressable>
+            )}
+
+            {/* Reset Watch Progress */}
+            {isSeries && userMedia && (
+              <Pressable
+                style={styles.sheetActionItem}
+                onPress={() => {
+                  Alert.alert(
+                    'Reset Watch Progress',
+                    `Unmark all watched episodes for "${media.title}"?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Reset Progress', style: 'destructive', onPress: () => void handleResetProgress() },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="refresh-circle-outline" size={18} color="#ff8585" />
+                <Text style={[styles.sheetActionItemText, { color: '#ff8585' }]}>
+                  Reset Watch Progress
+                </Text>
+              </Pressable>
+            )}
+
+            {/* Review Metadata Differences */}
             {conflicts.length > 0 && (
               <Pressable
-                style={styles.menuItem}
+                style={styles.sheetActionItem}
                 onPress={() => {
                   setMenuOpen(false);
                   setConflictModalOpen(true);
                 }}
               >
                 <Ionicons name="git-pull-request-outline" size={18} color={theme.colors.accent} />
-                <Text style={[styles.menuItemText, { color: theme.colors.accent }]}>
+                <Text style={[styles.sheetActionItemText, { color: theme.colors.accent }]}>
                   Review Metadata Differences ({conflicts.length})
                 </Text>
               </Pressable>
             )}
 
-            <Pressable style={[styles.menuItem, styles.menuCancel]} onPress={() => setMenuOpen(false)}>
-              <Text style={styles.menuCancelText}>Cancel</Text>
-            </Pressable>
+            {/* Remove from Library */}
+            {userMedia && (
+              <Pressable
+                style={[styles.sheetActionItem, styles.sheetActionItemDanger]}
+                onPress={() => {
+                  Alert.alert(
+                    'Remove from Library',
+                    `Are you sure you want to remove "${media.title}" from your library?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { text: 'Remove', style: 'destructive', onPress: () => void handleRemoveFromLibrary() },
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="trash-outline" size={18} color="#ff6b6b" />
+                <Text style={[styles.sheetActionItemText, { color: '#ff6b6b' }]}>
+                  Remove from Library
+                </Text>
+              </Pressable>
+            )}
           </View>
-        </Pressable>
-      </Modal>
+        </View>
+      </BottomSheet>
 
       {/* Conflict Resolution Modal */}
       <ConflictResolutionModal
@@ -709,17 +995,13 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 480,
+    bottom: 0,
     overflow: 'hidden',
   },
   atmosphericBackdrop: {
     width: '100%',
     height: '100%',
-    opacity: 0.28,
-  },
-  atmosphericBackdropOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(16, 17, 18, 0.85)',
+    opacity: 0.38,
   },
   content: {
     paddingHorizontal: theme.spacing.md,
@@ -755,10 +1037,22 @@ const styles = StyleSheet.create({
     lineHeight: 34,
     marginBottom: 10,
   },
+  overviewContainer: {
+    marginTop: 2,
+  },
   mediaOverview: {
     fontSize: 13,
     lineHeight: 20,
     color: '#dcded9',
+  },
+  readMoreBtn: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
+  },
+  readMoreText: {
+    color: theme.colors.accent,
+    fontSize: 13,
+    fontWeight: '700',
   },
   // 16:9 Banner Card
   bannerContainer: {
@@ -820,6 +1114,29 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#dcded9',
     marginTop: 2,
+  },
+  // Untracked Card (When userMedia is null)
+  untrackedCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+    padding: 16,
+    gap: 14,
+  },
+  addToLibraryPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: theme.colors.accent,
+    borderRadius: 8,
+    paddingVertical: 13,
+  },
+  addToLibraryPrimaryText: {
+    color: '#101112',
+    fontSize: 14,
+    fontWeight: '700',
   },
   // Tracking Card
   trackingCard: {
@@ -970,6 +1287,8 @@ const styles = StyleSheet.create({
   },
   upNextMeta: {
     flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
   },
   upNextCode: {
     fontSize: 11,
@@ -980,17 +1299,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#f8f7f2',
+    maxWidth: '100%',
   },
-  tbaChip: {
+  upNextCheckButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
   },
-  tbaChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#aeb1ac',
+  upNextCheckButtonWatched: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
+  },
+  rewatchMarkText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#101112',
   },
   // Notes
   notesSection: {
@@ -1043,49 +1372,109 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#f8f7f2',
   },
-  // Menu Modal
-  menuBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
-    justifyContent: 'flex-end',
+  // Sheet Styles
+  sheetContent: {
+    paddingTop: 4,
+    gap: 16,
   },
-  menuSheet: {
-    backgroundColor: '#161819',
-    borderTopLeftRadius: theme.borderRadius.md,
-    borderTopRightRadius: theme.borderRadius.md,
-    padding: 16,
+  typeSection: {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: theme.borderRadius.sm,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  typeSectionLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    color: theme.colors.accent,
+    marginBottom: 8,
+  },
+  typeChipsRow: {
+    flexDirection: 'row',
     gap: 8,
+  },
+  typeChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
-  menuTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#f8f7f2',
-    marginBottom: 8,
+  typeChipSelected: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
   },
-  menuItem: {
+  typeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#dcded9',
+  },
+  typeChipTextSelected: {
+    color: '#101112',
+    fontWeight: '800',
+  },
+  actionsList: {
+    gap: 8,
+  },
+  sheetActionItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     paddingVertical: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
   },
-  menuItemText: {
+  sheetActionItemDanger: {
+    backgroundColor: 'rgba(255, 107, 107, 0.08)',
+  },
+  sheetActionItemText: {
     fontSize: 13,
     fontWeight: '600',
     color: '#f8f7f2',
   },
-  menuCancel: {
-    marginTop: 6,
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  menuCancelText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#8b8e89',
-  },
 });
+
+function latestEpisodeAirDate(episodes: EpisodeWithActivity[]): string | null {
+  const dates = episodes
+    .map((ep) => ep.airDate)
+    .filter((d): d is string => Boolean(d))
+    .sort();
+  return dates[dates.length - 1] ?? null;
+}
+
+function formatMediaDateRange(
+  media: { releaseDate?: string | null; year?: number | null; airStatus?: string | null; type: string },
+  episodes: EpisodeWithActivity[]
+): string | null {
+  const start = media.releaseDate
+    ? new Date(media.releaseDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : media.year
+    ? String(media.year)
+    : null;
+
+  if (!start) return 'Release TBA';
+  if (media.type === 'movie') return start;
+
+  if (media.airStatus === 'ended' || media.airStatus === 'released') {
+    const endRaw = latestEpisodeAirDate(episodes) ?? media.releaseDate;
+    if (!endRaw) return start;
+    const end = new Date(endRaw).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return end === start ? start : `${start} – ${end}`;
+  }
+
+  if (media.airStatus === 'continuing' || media.airStatus === 'upcoming') {
+    return `${start} – Present`;
+  }
+
+  return start;
+}
+

@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
 import { EpisodeWithActivity, api } from '../services/api';
+import { BottomSheet } from './BottomSheet';
 
 interface SeasonAccordionProps {
   mediaId: string;
@@ -29,13 +30,18 @@ export function SeasonAccordion({
 }: SeasonAccordionProps) {
   const router = useRouter();
   // Collapsed by default: expandedSeasons starts empty
-  const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set());
+  const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set([1]));
   const [busyEpisodeId, setBusyEpisodeId] = useState<string | null>(null);
+  const [watchActionTarget, setWatchActionTarget] = useState<
+    | { type: 'episode'; episode: EpisodeWithActivity }
+    | { type: 'season'; seasonNumber: number; seasonName: string }
+    | null
+  >(null);
 
   const seasonsMap = useMemo(() => {
     const map = new Map<number, EpisodeWithActivity[]>();
     for (const ep of episodes) {
-      const s = ep.seasonNumber ?? 1;
+      const s = ep.seasonNumber ?? 0;
       if (!map.has(s)) map.set(s, []);
       map.get(s)!.push(ep);
     }
@@ -58,25 +64,44 @@ export function SeasonAccordion({
     });
   };
 
-  const handleToggleWatched = async (ep: EpisodeWithActivity) => {
+  const handlePressEpisodeCheck = (ep: EpisodeWithActivity) => {
     const isWatched = Boolean(ep.activity?.watched);
-    setBusyEpisodeId(ep.id);
-    try {
-      await api.updateEpisodeActivity(ep.id, { watched: !isWatched });
-      onEpisodesUpdated();
-    } catch (e) {
-      console.error('Failed to toggle episode watched', e);
-    } finally {
-      setBusyEpisodeId(null);
+    if (isWatched) {
+      setWatchActionTarget({ type: 'episode', episode: ep });
+    } else {
+      void applyEpisodeAction(ep, 'watched_once');
     }
   };
 
-  const handleMarkSeasonWatched = async (seasonNumber: number, watched = true) => {
+  const handlePressSeasonCheck = (seasonNumber: number, seasonName: string, allWatched: boolean) => {
+    if (allWatched) {
+      setWatchActionTarget({ type: 'season', seasonNumber, seasonName });
+    } else {
+      void applySeasonAction(seasonNumber, 'watched_once');
+    }
+  };
+
+  const applyEpisodeAction = async (ep: EpisodeWithActivity, action: 'not_watched' | 'rewatched' | 'watched_once') => {
+    setBusyEpisodeId(ep.id);
     try {
-      await api.bulkMarkSeason(mediaId, seasonNumber, watched);
+      await api.updateEpisodeAction(ep.id, action, ep.activity?.rewatchCount ?? 0);
       onEpisodesUpdated();
     } catch (e) {
-      console.error('Failed to bulk mark season', e);
+      console.error('Failed to apply episode action', e);
+    } finally {
+      setBusyEpisodeId(null);
+      setWatchActionTarget(null);
+    }
+  };
+
+  const applySeasonAction = async (seasonNumber: number, action: 'not_watched' | 'rewatched' | 'watched_once') => {
+    try {
+      await api.updateSeasonAction(mediaId, seasonNumber, action);
+      onEpisodesUpdated();
+    } catch (e) {
+      console.error('Failed to apply season action', e);
+    } finally {
+      setWatchActionTarget(null);
     }
   };
 
@@ -109,6 +134,8 @@ export function SeasonAccordion({
             const watchedCount = seasonEpisodes.filter((e) => e.activity?.watched).length;
             const totalCount = seasonEpisodes.length;
             const allWatched = watchedCount === totalCount && totalCount > 0;
+            const seasonProgress = totalCount > 0 ? Math.round((watchedCount / totalCount) * 100) : 0;
+            const seasonName = seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`;
 
             return (
               <View key={seasonNumber} style={styles.seasonCard}>
@@ -124,7 +151,7 @@ export function SeasonAccordion({
                       color="#f8f7f2"
                     />
                     <Text style={styles.seasonName}>
-                      {seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`}
+                      {seasonName}
                     </Text>
                     <Text style={styles.seasonCount}>
                       {watchedCount}/{totalCount}
@@ -132,24 +159,44 @@ export function SeasonAccordion({
                   </View>
 
                   {/* Bulk Season Checkmark Button */}
-                  <Pressable
-                    style={[styles.seasonCheckCircle, allWatched && styles.seasonCheckCircleWatched]}
-                    onPress={() => handleMarkSeasonWatched(seasonNumber, !allWatched)}
-                    hitSlop={8}
-                  >
-                    <Ionicons
-                      name="checkmark"
-                      size={16}
-                      color={allWatched ? '#101112' : '#8b8e89'}
-                    />
-                  </Pressable>
+                  {(() => {
+                    const seasonWatchCounts = seasonEpisodes.map((e) =>
+                      e.activity?.watched ? 1 + (e.activity.rewatchCount ?? 0) : 0
+                    );
+                    const minSeasonWatch =
+                      seasonEpisodes.length > 0 ? Math.min(...seasonWatchCounts) : 0;
+
+                    return (
+                      <Pressable
+                        style={[styles.seasonCheckCircle, allWatched && styles.seasonCheckCircleWatched]}
+                        onPress={() => handlePressSeasonCheck(seasonNumber, seasonName, allWatched)}
+                        hitSlop={8}
+                      >
+                        {allWatched && minSeasonWatch > 1 ? (
+                          <Text style={styles.rewatchBadgeText}>x{minSeasonWatch}</Text>
+                        ) : (
+                          <Ionicons
+                            name="checkmark"
+                            size={16}
+                            color={allWatched ? '#101112' : '#8b8e89'}
+                          />
+                        )}
+                      </Pressable>
+                    );
+                  })()}
                 </Pressable>
+
+                {/* Season Progress Bar along bottom of header */}
+                <View style={styles.seasonProgressTrack}>
+                  <View style={[styles.seasonProgressFill, { width: `${seasonProgress}%` }]} />
+                </View>
 
                 {/* Episodes List */}
                 {isExpanded && (
                   <View style={styles.episodesList}>
                     {seasonEpisodes.map((ep) => {
                       const isWatched = Boolean(ep.activity?.watched);
+                      const epWatchCount = isWatched ? 1 + (ep.activity?.rewatchCount ?? 0) : 0;
                       const isBusy = busyEpisodeId === ep.id;
                       const stillUrl = ep.stillPath
                         ? ep.stillPath.startsWith('http')
@@ -179,20 +226,26 @@ export function SeasonAccordion({
                           {/* Title & Code */}
                           <View style={styles.episodeMeta}>
                             <Text style={styles.episodeCode}>{epCode}</Text>
-                            <Text style={styles.episodeTitle} numberOfLines={1}>
+                            <Text
+                              style={styles.episodeTitle}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
                               {ep.title || `Episode ${ep.episodeNumber}`}
                             </Text>
                           </View>
 
-                          {/* Watched Toggle Circle */}
+                          {/* Watched Toggle Circle with x2/x3 badge support */}
                           <Pressable
                             style={[styles.episodeCheckCircle, isWatched && styles.episodeCheckCircleWatched]}
-                            onPress={() => handleToggleWatched(ep)}
+                            onPress={() => handlePressEpisodeCheck(ep)}
                             disabled={isBusy}
                             hitSlop={6}
                           >
                             {isBusy ? (
                               <ActivityIndicator size="small" color="#101112" />
+                            ) : epWatchCount > 1 ? (
+                              <Text style={styles.rewatchBadgeText}>x{epWatchCount}</Text>
                             ) : (
                               <Ionicons
                                 name="checkmark"
@@ -203,7 +256,12 @@ export function SeasonAccordion({
                           </Pressable>
 
                           {/* Navigation Chevron */}
-                          <Ionicons name="chevron-forward" size={16} color="#8b8e89" style={styles.chevron} />
+                          <Ionicons
+                            name="chevron-forward"
+                            size={16}
+                            color="#8b8e89"
+                            style={styles.chevron}
+                          />
                         </Pressable>
                       );
                     })}
@@ -214,6 +272,79 @@ export function SeasonAccordion({
           })}
         </View>
       )}
+
+      {/* Watch Action Bottom Sheet */}
+      <BottomSheet
+        visible={Boolean(watchActionTarget)}
+        onClose={() => setWatchActionTarget(null)}
+        title={
+          watchActionTarget?.type === 'season'
+            ? `${watchActionTarget.seasonName}`
+            : (watchActionTarget?.episode.title || `Episode ${watchActionTarget?.episode.episodeNumber}`)
+        }
+        subtitle={
+          watchActionTarget?.type === 'season'
+            ? 'Bulk update season watch status'
+            : 'Update episode watch activity'
+        }
+        icon="checkmark-circle-outline"
+      >
+        <View style={styles.sheetContent}>
+          {/* Watched once */}
+          <Pressable
+            style={styles.sheetActionItem}
+            onPress={() => {
+              if (watchActionTarget?.type === 'season') {
+                void applySeasonAction(watchActionTarget.seasonNumber, 'watched_once');
+              } else if (watchActionTarget?.episode) {
+                void applyEpisodeAction(watchActionTarget.episode, 'watched_once');
+              }
+            }}
+          >
+            <Ionicons name="checkmark-circle-outline" size={22} color={theme.colors.accent} />
+            <View style={styles.sheetActionCopy}>
+              <Text style={styles.sheetActionText}>Watched once</Text>
+              <Text style={styles.sheetActionSub}>Reset rewatch count back to standard watched (1x)</Text>
+            </View>
+          </Pressable>
+
+          {/* Rewatched */}
+          <Pressable
+            style={styles.sheetActionItem}
+            onPress={() => {
+              if (watchActionTarget?.type === 'season') {
+                void applySeasonAction(watchActionTarget.seasonNumber, 'rewatched');
+              } else if (watchActionTarget?.episode) {
+                void applyEpisodeAction(watchActionTarget.episode, 'rewatched');
+              }
+            }}
+          >
+            <Ionicons name="repeat-outline" size={22} color="#f8f7f2" />
+            <View style={styles.sheetActionCopy}>
+              <Text style={styles.sheetActionText}>Rewatched</Text>
+              <Text style={styles.sheetActionSub}>Add to rewatch count and keep watched (+1)</Text>
+            </View>
+          </Pressable>
+
+          {/* Not watched */}
+          <Pressable
+            style={styles.sheetActionItem}
+            onPress={() => {
+              if (watchActionTarget?.type === 'season') {
+                void applySeasonAction(watchActionTarget.seasonNumber, 'not_watched');
+              } else if (watchActionTarget?.episode) {
+                void applyEpisodeAction(watchActionTarget.episode, 'not_watched');
+              }
+            }}
+          >
+            <Ionicons name="close-circle-outline" size={22} color="#ff6b6b" />
+            <View style={styles.sheetActionCopy}>
+              <Text style={[styles.sheetActionText, { color: '#ff6b6b' }]}>Not watched</Text>
+              <Text style={styles.sheetActionSub}>Unmark and reset watch status</Text>
+            </View>
+          </Pressable>
+        </View>
+      </BottomSheet>
     </View>
   );
 }
@@ -356,6 +487,8 @@ const styles = StyleSheet.create({
   },
   episodeMeta: {
     flex: 1,
+    minWidth: 0,
+    overflow: 'hidden',
   },
   episodeCode: {
     fontSize: 11,
@@ -367,6 +500,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: '#f8f7f2',
+    textAlign: 'left',
+  },
+  rewatchBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#101112',
   },
   episodeCheckCircle: {
     width: 32,
@@ -384,5 +523,38 @@ const styles = StyleSheet.create({
   },
   chevron: {
     marginLeft: 2,
+  },
+  seasonProgressTrack: {
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    width: '100%',
+  },
+  seasonProgressFill: {
+    height: '100%',
+    backgroundColor: theme.colors.accent,
+  },
+  sheetContent: {
+    paddingTop: 6,
+  },
+  sheetActionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  sheetActionCopy: {
+    flex: 1,
+  },
+  sheetActionText: {
+    color: '#f8f7f2',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  sheetActionSub: {
+    color: '#8b8e89',
+    fontSize: 12,
   },
 });

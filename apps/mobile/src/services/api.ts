@@ -137,6 +137,31 @@ export type HydrationProgress = {
   lastUpdatedAt?: string | null;
 };
 
+export type PersonCredit = {
+  id: string;
+  type: 'movie' | 'show';
+  title: string;
+  character: string | null;
+  posterPath: string | null;
+  year: number | null;
+};
+
+export type PersonProfilePayload = {
+  id: string;
+  name: string;
+  biography: string | null;
+  profilePath: string | null;
+  images?: string[];
+  birthday: string | null;
+  deathday: string | null;
+  placeOfBirth: string | null;
+  knownForDepartment: string | null;
+  alsoKnownAs?: string[];
+  imdbId?: string | null;
+  homepage?: string | null;
+  credits: PersonCredit[];
+};
+
 export type ConflictItem = {
   section: string;
   label: string;
@@ -411,6 +436,83 @@ export const api = {
 
   async getExploreTypeData(type: string): Promise<{ results: ExploreResult[]; rows?: ExploreRow[] }> {
     return apiRequest<{ results: ExploreResult[]; rows?: ExploreRow[] }>(`/api/explore/type/${type}`);
+  },
+
+  async getPerson(id: string): Promise<PersonProfilePayload> {
+    return apiRequest<PersonProfilePayload>(`/api/people/${id}`);
+  },
+
+  async resolveMedia(item: any): Promise<{ media: { id: string; type: string } }> {
+    return apiRequest<{ media: { id: string; type: string } }>('/api/explore/resolve', {
+      method: 'POST',
+      body: JSON.stringify(item),
+    });
+  },
+
+  async removeFromLibrary(mediaId: string): Promise<void> {
+    return apiRequest<void>(`/api/library/${mediaId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async updateMediaClassification(mediaId: string, isAnime: boolean): Promise<any> {
+    return apiRequest<any>(`/api/media/${mediaId}/classification`, {
+      method: 'PATCH',
+      body: JSON.stringify({ anime: isAnime }),
+    });
+  },
+
+  async updateMediaType(mediaId: string, type: string): Promise<any> {
+    return apiRequest<any>(`/api/media/${mediaId}/classification`, {
+      method: 'PATCH',
+      body: JSON.stringify({ type }),
+    });
+  },
+
+  async updateEpisodeAction(
+    episodeId: string,
+    action: 'not_watched' | 'rewatched' | 'watched_once',
+    currentRewatchCount = 0
+  ): Promise<any> {
+    if (action === 'not_watched') {
+      return apiRequest<any>(`/api/episodes/${episodeId}/activity`, {
+        method: 'PATCH',
+        body: JSON.stringify({ watched: false, rewatchCount: 0 }),
+      });
+    }
+    if (action === 'rewatched') {
+      return apiRequest<any>(`/api/episodes/${episodeId}/activity`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          watched: true,
+          rewatchCount: currentRewatchCount + 1,
+          watchedAt: new Date().toISOString(),
+        }),
+      });
+    }
+    return apiRequest<any>(`/api/episodes/${episodeId}/activity`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        watched: true,
+        rewatchCount: 0,
+        watchedAt: new Date().toISOString(),
+      }),
+    });
+  },
+
+  async updateSeasonAction(
+    mediaId: string,
+    seasonNumber: number,
+    mode: 'not_watched' | 'rewatched' | 'watched_once'
+  ): Promise<any> {
+    return apiRequest<any>(`/api/episodes/media/${mediaId}/seasons/${seasonNumber}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        watched: mode !== 'not_watched',
+        mode,
+        watchedAt: new Date().toISOString(),
+      }),
+    });
   },
 
   async addExploreResult(item: any): Promise<{ media: { id: string; type: string }; alreadyTracked: boolean }> {

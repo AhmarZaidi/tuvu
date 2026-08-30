@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,15 @@ import {
   Pressable,
   Linking,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { WebView } from 'react-native-webview';
 import { theme } from '../constants/theme';
-import { MediaDetailData, MediaNewsArticle } from '../services/api';
+import { api, MediaDetailData, MediaNewsArticle } from '../services/api';
 
 interface MediaTemplateSectionsProps {
   media: MediaDetailData['media'];
@@ -30,8 +33,9 @@ export function MediaTemplateSections({
   dateRangeLabel,
 }: MediaTemplateSectionsProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
 
-  let ext: any = {};
+  let ext: Record<string, any> = {};
   try {
     ext = media.extendedDataJson ? JSON.parse(media.extendedDataJson) : {};
   } catch {
@@ -43,6 +47,82 @@ export function MediaTemplateSections({
   const creators: any[] = ext.creators || [];
   const watchProviders: any[] = ext.watchProviders || [];
   const related: any[] = ext.related || [];
+  const videos: any[] = ext.videos || [];
+  const trailer = videos.find((v: any) => v.type === 'Trailer' && v.key) || videos.find((v: any) => v.key) || null;
+  const networks: any[] = ext.networks || [];
+  const networkName = networks[0]?.name || ext.network || null;
+
+  const backdrops: string[] = ext.images?.backdrops || [];
+  const posters: string[] = ext.images?.posters || [];
+  const galleryImages = [...backdrops, ...posters];
+  const [activeGalleryIndex, setActiveGalleryIndex] = useState<number | null>(null);
+
+  const [trackedIds, setTrackedIds] = useState<Set<string>>(() => {
+    return new Set(
+      related
+        .filter((r: any) => r.alreadyTracked)
+        .map((r: any) => String(r.id || r.providerId || r.localMediaId))
+    );
+  });
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  const handleQuickAddRelated = async (item: any) => {
+    const key = String(item.id || item.providerId);
+    setAddingId(key);
+    try {
+      if (item.localMediaId) {
+        await api.addToLibrary(item.localMediaId);
+      } else {
+        await api.addExploreResult({
+          provider: item.provider ?? 'tmdb',
+          providerId: key,
+          type: item.type || media.type,
+          title: item.title,
+          posterPath: item.posterPath,
+          year: item.year,
+        });
+      }
+      setTrackedIds((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        if (item.id) next.add(String(item.id));
+        if (item.providerId) next.add(String(item.providerId));
+        if (item.localMediaId) next.add(String(item.localMediaId));
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['allLibrary'] });
+    } catch (e) {
+      console.error('Failed to add related media', e);
+    } finally {
+      setAddingId(null);
+    }
+  };
+
+  const handleOpenRelated = async (item: any) => {
+    if (item.localMediaId) {
+      router.push(`/media/${item.localMediaId}` as any);
+      return;
+    }
+    const key = String(item.id || item.providerId);
+    setResolvingId(key);
+    try {
+      const res = await api.resolveMedia({
+        provider: item.provider ?? 'tmdb',
+        providerId: key,
+        type: item.type || media.type,
+        title: item.title,
+        posterPath: item.posterPath,
+        year: item.year,
+      });
+      router.push(`/media/${res.media.id}` as any);
+    } catch {
+      router.push(`/media/${item.id}` as any);
+    } finally {
+      setResolvingId(null);
+    }
+  };
   const genres: any[] = ext.genres || [];
   const rating = ext.rating;
   const voteCount = ext.voteCount;
@@ -217,7 +297,28 @@ export function MediaTemplateSections({
               </Text>
             </View>
           )}
+
+          {/* Network / Platform */}
+          {networkName ? (
+            <View style={styles.infoBadge}>
+              <Ionicons name="tv-outline" size={14} color="#aeb1ac" />
+              <Text style={styles.infoBadgeText} numberOfLines={1}>
+                {networkName}
+              </Text>
+            </View>
+          ) : null}
         </View>
+
+        {/* YouTube Trailer button */}
+        {trailer?.key && (
+          <Pressable
+            style={styles.trailerButton}
+            onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${trailer.key}`)}
+          >
+            <Ionicons name="logo-youtube" size={16} color="#ff4b4b" />
+            <Text style={styles.trailerButtonText}>Watch Official Trailer</Text>
+          </Pressable>
+        )}
       </View>
 
       {/* 4. CAST & CHARACTERS */}
@@ -232,7 +333,11 @@ export function MediaTemplateSections({
             contentContainerStyle={styles.horizontalScroll}
           >
             {cast.map((actor: any, idx: number) => (
-              <View key={`${actor.id ?? actor.name}-${idx}`} style={styles.castCard}>
+              <Pressable
+                key={`${actor.id ?? actor.name}-${idx}`}
+                style={styles.castCard}
+                onPress={() => actor.id && router.push(`/people/${actor.id}` as any)}
+              >
                 {actor.profilePath ? (
                   <Image source={{ uri: actor.profilePath }} style={styles.castPortrait} contentFit="cover" />
                 ) : (
@@ -246,7 +351,7 @@ export function MediaTemplateSections({
                 <Text style={styles.castRole} numberOfLines={1}>
                   {actor.role || 'Cast'}
                 </Text>
-              </View>
+              </Pressable>
             ))}
           </ScrollView>
         ) : (
@@ -254,7 +359,39 @@ export function MediaTemplateSections({
         )}
       </View>
 
-      {/* 5. RELATED MEDIA */}
+      {/* 5. TRAILER EMBEDDED PLAYER */}
+      {trailer && (
+        <View style={styles.sectionCard}>
+          <View style={styles.trailerHeaderRow}>
+            <View>
+              <Text style={styles.eyebrow}>TRAILER</Text>
+              <Text style={styles.sectionTitle}>{trailer.name || 'Official Trailer'}</Text>
+            </View>
+            <Pressable
+              style={styles.trailerExternalBtn}
+              onPress={() => {
+                Linking.openURL(`https://www.youtube.com/watch?v=${trailer.key}`).catch(() => {});
+              }}
+              hitSlop={6}
+            >
+              <Ionicons name="open-outline" size={16} color="#aeb1ac" />
+            </Pressable>
+          </View>
+
+          <View style={styles.videoPlayerContainer}>
+            <WebView
+              source={{ uri: `https://www.youtube.com/embed/${trailer.key}?playsinline=1&modestbranding=1&rel=0` }}
+              style={styles.videoWebView}
+              allowsFullscreenVideo
+              allowsInlineMediaPlayback
+              javaScriptEnabled
+              domStorageEnabled
+            />
+          </View>
+        </View>
+      )}
+
+      {/* 6. RELATED MEDIA */}
       <View style={styles.sectionCard}>
         <Text style={styles.eyebrow}>RELATED</Text>
         <Text style={styles.sectionTitle}>Related media</Text>
@@ -265,31 +402,151 @@ export function MediaTemplateSections({
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.horizontalScroll}
           >
-            {related.map((item: any, idx: number) => (
-              <Pressable
-                key={`${item.id}-${idx}`}
-                style={styles.relatedCard}
-                onPress={() => item.id && router.push(`/media/${item.id}` as any)}
-              >
-                {item.posterPath ? (
-                  <Image source={{ uri: item.posterPath }} style={styles.relatedPoster} contentFit="cover" />
-                ) : (
-                  <View style={styles.relatedPosterPlaceholder}>
-                    <Text style={styles.relatedInitials}>{(item.title || 'M').slice(0, 2)}</Text>
-                  </View>
-                )}
-                <Text style={styles.relatedTitle} numberOfLines={2}>
-                  {item.title}
-                </Text>
-              </Pressable>
-            ))}
+            {related.map((item: any, idx: number) => {
+              const key = String(item.id || item.providerId);
+              const isTracked =
+                Boolean(item.alreadyTracked) ||
+                trackedIds.has(key) ||
+                (item.id && trackedIds.has(String(item.id))) ||
+                (item.providerId && trackedIds.has(String(item.providerId))) ||
+                Boolean(item.localMediaId && trackedIds.has(String(item.localMediaId)));
+              const isResolving = resolvingId === key;
+              const isAdding = addingId === key;
+
+              return (
+                <Pressable
+                  key={`${item.id}-${idx}`}
+                  style={styles.relatedCard}
+                  onPress={() => handleOpenRelated(item)}
+                  disabled={isResolving}
+                >
+                  {item.posterPath ? (
+                    <Image source={{ uri: item.posterPath }} style={styles.relatedPoster} contentFit="cover" />
+                  ) : (
+                    <View style={styles.relatedPosterPlaceholder}>
+                      <Text style={styles.relatedInitials}>{(item.title || 'M').slice(0, 2)}</Text>
+                    </View>
+                  )}
+
+                  {isResolving && (
+                    <View style={styles.relatedLoadingOverlay}>
+                      <ActivityIndicator size="small" color={theme.colors.accent} />
+                    </View>
+                  )}
+
+                  {/* Tick badge if tracked, otherwise + button to quick add */}
+                  {isTracked ? (
+                    <View style={styles.relatedTrackedBadge}>
+                      <Ionicons name="checkmark" size={13} color="#101112" />
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={styles.relatedAddButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        void handleQuickAddRelated(item);
+                      }}
+                      hitSlop={6}
+                      disabled={isAdding}
+                    >
+                      {isAdding ? (
+                        <ActivityIndicator size="small" color="#101112" />
+                      ) : (
+                        <Ionicons name="add" size={13} color="#f8f7f2" />
+                      )}
+                    </Pressable>
+                  )}
+                </Pressable>
+              );
+            })}
           </ScrollView>
         ) : (
           <Text style={styles.mutedText}>Related media will appear after provider hydration.</Text>
         )}
       </View>
 
-      {/* 6. EXTERNAL RATINGS */}
+      {/* 7. MEDIA GALLERY */}
+      {galleryImages.length > 0 && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.eyebrow}>MEDIA GALLERY</Text>
+          <Text style={styles.sectionTitle}>Backdrops & Posters ({galleryImages.length})</Text>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.horizontalScroll}
+          >
+            {galleryImages.slice(0, 16).map((imgUrl, idx) => {
+              const isBackdrop = idx < backdrops.length;
+              return (
+                <Pressable
+                  key={`${imgUrl}-${idx}`}
+                  style={[
+                    styles.galleryThumbCard,
+                    isBackdrop ? styles.galleryBackdropCard : styles.galleryPosterCard,
+                  ]}
+                  onPress={() => setActiveGalleryIndex(idx)}
+                >
+                  <Image source={{ uri: imgUrl }} style={styles.galleryThumbImage} contentFit="cover" />
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Fullscreen Image Gallery Modal */}
+      <Modal
+        visible={activeGalleryIndex !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setActiveGalleryIndex(null)}
+      >
+        <View style={styles.galleryModalBackdrop}>
+          <Pressable
+            style={styles.galleryCloseBtn}
+            onPress={() => setActiveGalleryIndex(null)}
+            hitSlop={10}
+          >
+            <Ionicons name="close" size={24} color="#f8f7f2" />
+          </Pressable>
+
+          {activeGalleryIndex !== null && galleryImages[activeGalleryIndex] && (
+            <View style={styles.galleryModalContent}>
+              <Image
+                source={{ uri: galleryImages[activeGalleryIndex] }}
+                style={styles.galleryFullImage}
+                contentFit="contain"
+              />
+              <Text style={styles.galleryCounterText}>
+                {activeGalleryIndex + 1} / {galleryImages.length}
+              </Text>
+
+              <View style={styles.galleryNavRow}>
+                <Pressable
+                  style={[styles.galleryNavBtn, activeGalleryIndex === 0 && styles.galleryNavBtnDisabled]}
+                  disabled={activeGalleryIndex === 0}
+                  onPress={() => setActiveGalleryIndex(activeGalleryIndex - 1)}
+                >
+                  <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.galleryNavBtn,
+                    activeGalleryIndex === galleryImages.length - 1 && styles.galleryNavBtnDisabled,
+                  ]}
+                  disabled={activeGalleryIndex === galleryImages.length - 1}
+                  onPress={() => setActiveGalleryIndex(activeGalleryIndex + 1)}
+                >
+                  <Ionicons name="arrow-forward" size={20} color="#f8f7f2" />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
+
+      {/* 8. EXTERNAL RATINGS */}
       <View style={styles.sectionCard}>
         <Text style={styles.eyebrow}>RATINGS</Text>
         <Text style={styles.sectionTitle}>External ratings</Text>
@@ -474,22 +731,41 @@ const styles = StyleSheet.create({
     color: '#dcded9',
     fontWeight: '500',
   },
+  trailerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 75, 75, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 75, 75, 0.3)',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  trailerButtonText: {
+    color: '#ff8585',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   // Cast
   castCard: {
-    width: 90,
+    width: 82,
     alignItems: 'center',
   },
   castPortrait: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 82,
+    height: 110,
+    borderRadius: 8,
+    backgroundColor: '#202326',
     marginBottom: 6,
   },
   castPortraitPlaceholder: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    width: 82,
+    height: 110,
+    borderRadius: 8,
+    backgroundColor: '#202326',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
@@ -512,33 +788,157 @@ const styles = StyleSheet.create({
   },
   // Related
   relatedCard: {
-    width: 95,
+    width: 96,
+    height: 144,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
   },
   relatedPoster: {
-    width: 95,
-    height: 142,
-    borderRadius: 6,
-    marginBottom: 4,
+    width: 96,
+    height: 144,
+    borderRadius: 8,
   },
   relatedPosterPlaceholder: {
-    width: 95,
-    height: 142,
-    borderRadius: 6,
+    width: 96,
+    height: 144,
+    borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
   },
   relatedInitials: {
     fontSize: 16,
     fontWeight: '700',
     color: theme.colors.accent,
   },
-  relatedTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#f8f7f2',
-    lineHeight: 14,
+  relatedAddButton: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  relatedAddButtonTracked: {
+    backgroundColor: theme.colors.accent,
+    borderColor: theme.colors.accent,
+  },
+  relatedTrackedBadge: {
+    position: 'absolute',
+    bottom: 6,
+    right: 6,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: theme.colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  relatedLoadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Trailer Player
+  trailerHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  trailerExternalBtn: {
+    padding: 6,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  videoPlayerContainer: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+  },
+  videoWebView: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  // Gallery
+  galleryThumbCard: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  galleryBackdropCard: {
+    width: 180,
+    height: 101,
+  },
+  galleryPosterCard: {
+    width: 80,
+    height: 120,
+  },
+  galleryThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  galleryModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  galleryCloseBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  galleryModalContent: {
+    width: '100%',
+    height: '75%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryFullImage: {
+    width: '100%',
+    height: '85%',
+  },
+  galleryCounterText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#aeb1ac',
+    marginTop: 12,
+  },
+  galleryNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 30,
+    marginTop: 16,
+  },
+  galleryNavBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  galleryNavBtnDisabled: {
+    opacity: 0.3,
   },
   // Ratings
   ratingsRow: {

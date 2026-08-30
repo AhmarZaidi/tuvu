@@ -50,6 +50,12 @@ function RootNavigation() {
           }}
         />
         <Stack.Screen
+          name="people/[id]"
+          options={{
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
           name="media/[id]/episodes/[episodeId]"
           options={({ route }: any) => ({
             title: 'Episode Details',

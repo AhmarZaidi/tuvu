@@ -84,18 +84,34 @@ export function createMediaRoutes() {
 
   // GET /api/media/:id — get media detail
   router.patch("/:id/classification", requireAuth(), requireCsrf(), async (c) => {
-    const body = await c.req.json().catch(() => null) as { anime?: unknown } | null;
-    if (!body || typeof body.anime !== "boolean") return apiError(c, 400, "validation_failed", "Classification update is invalid.");
+    const body = await c.req.json().catch(() => null) as { anime?: boolean; type?: string } | null;
+    if (!body || (body.anime === undefined && !body.type)) return apiError(c, 400, "validation_failed", "Classification update is invalid.");
     const mediaRepo = c.get("mediaRepository");
     const media = await mediaRepo.findMediaById(c.req.param("id"));
     if (!media) return apiError(c, 404, "not_found", "Media item not found.");
-    if (media.type !== "show" && media.type !== "movie" && media.type !== "anime") return apiError(c, 400, "bad_request", "Anime classification is available for shows and movies.");
+
+    const validTypes = ["movie", "show", "anime", "book", "game"];
+    let targetType = media.type;
+    if (body.type && validTypes.includes(body.type)) {
+      targetType = body.type;
+    } else if (typeof body.anime === "boolean") {
+      targetType = body.anime ? "anime" : (media.type === "anime" ? "show" : media.type);
+    }
+    const isAnime = targetType === "anime" || body.anime === true;
+
     const now = new Date().toISOString();
-    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, body.anime, media.type);
-    await mediaRepo.updateMediaExtendedData(media.id, extendedDataJson, now);
+    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, isAnime, targetType);
+
+    if (c.env.DB) {
+      await c.env.DB.prepare("UPDATE media_items SET type = ?, extended_data_json = ?, updated_at = ? WHERE id = ?")
+        .bind(targetType, extendedDataJson, now, media.id)
+        .run();
+    } else {
+      await mediaRepo.updateMediaExtendedData(media.id, extendedDataJson, now);
+    }
     const updated = await mediaRepo.findMediaById(media.id);
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, c.get("auth").user.id);
-    return c.json(apiSuccess({ media: updated ?? { ...media, extendedDataJson }, libraryVersion }));
+    return c.json(apiSuccess({ media: updated ?? { ...media, type: targetType, extendedDataJson }, libraryVersion }));
   });
 
   router.get("/:id", requireAuth(), async (c) => {

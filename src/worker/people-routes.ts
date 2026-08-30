@@ -10,10 +10,14 @@ type PersonPayload = {
   name: string;
   biography: string | null;
   profilePath: string | null;
+  images: string[];
   birthday: string | null;
   deathday: string | null;
   placeOfBirth: string | null;
   knownForDepartment: string | null;
+  alsoKnownAs?: string[];
+  imdbId?: string | null;
+  homepage?: string | null;
   credits: Array<{ id: string; type: "movie" | "show"; title: string; character: string | null; posterPath: string | null; year: number | null }>;
 };
 
@@ -41,22 +45,35 @@ export function createPeopleRoutes() {
       }
 
       const response = await tmdbFetch(c.env, `person/${encodeURIComponent(id)}`, key, {
-        append_to_response: "combined_credits,external_ids",
+        append_to_response: "combined_credits,external_ids,images",
       }, c.get("user")?.id);
       if (!response.ok) {
         if (cached) return c.json(apiSuccess(JSON.parse(cached.response_json) as PersonPayload));
         return apiError(c, 503, "server_error", "Person details could not be refreshed right now.");
       }
       const data = await response.json() as any;
+      const primaryProfile = tmdbImage(data.profile_path, "h632") || tmdbImage(data.profile_path, "w342");
+      const profileImages: string[] = (data.images?.profiles || [])
+        .slice(0, 12)
+        .map((img: any) => tmdbImage(img.file_path, "h632") || tmdbImage(img.file_path, "w342"))
+        .filter((url: string | null): url is string => Boolean(url));
+      if (primaryProfile && !profileImages.includes(primaryProfile)) {
+        profileImages.unshift(primaryProfile);
+      }
+
       const payload: PersonPayload = {
         id: String(data.id),
         name: data.name ?? "Unknown person",
         biography: data.biography || null,
-        profilePath: tmdbImage(data.profile_path, "w342"),
+        profilePath: primaryProfile || profileImages[0] || null,
+        images: profileImages,
         birthday: data.birthday || null,
         deathday: data.deathday || null,
         placeOfBirth: data.place_of_birth || null,
         knownForDepartment: data.known_for_department || null,
+        alsoKnownAs: data.also_known_as || [],
+        imdbId: data.imdb_id || data.external_ids?.imdb_id || null,
+        homepage: data.homepage || null,
         credits: (data.combined_credits?.cast || [])
           .filter((credit: any) => credit.media_type === "movie" || credit.media_type === "tv")
           .slice(0, 24)

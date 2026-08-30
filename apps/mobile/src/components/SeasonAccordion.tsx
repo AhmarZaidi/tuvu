@@ -94,7 +94,11 @@ export function SeasonAccordion({
 
       {episodes.length === 0 ? (
         <View style={styles.emptyGuideCard}>
-          <ActivityIndicator size="small" color={theme.colors.accent} style={{ marginBottom: 8 }} />
+          {!progressComponent && (
+            <View style={styles.prepProgressBarTrack}>
+              <View style={styles.prepProgressBarFill} />
+            </View>
+          )}
           <Text style={styles.emptyGuideTitle}>Episode guide is being prepared</Text>
           <Text style={styles.emptyGuideSub}>
             Episode details will appear here as provider data is loaded.
@@ -259,6 +263,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8b8e89',
     textAlign: 'center',
+  },
+  prepProgressBarTrack: {
+    width: '100%',
+    height: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  prepProgressBarFill: {
+    width: '45%',
+    height: '100%',
+    backgroundColor: theme.colors.accent,
+    borderRadius: 2,
   },
   seasonStack: {
     gap: 8,

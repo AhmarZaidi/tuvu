@@ -313,11 +313,33 @@ async function findMediaByProviderResult(repo: Pick<CanonicalMediaRepository, "s
 }
 
 async function enqueueMetadataRefresh(db: D1Database, mediaId: string, provider: string, now: string) {
+  const safeProvider = provider || "tmdb";
+  const dedupeKey = `${mediaId}:media:${safeProvider}`;
   try {
-    await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
-      .bind(randomId("mrj"), mediaId, provider, now, now)
+    await db.prepare(`INSERT INTO metadata_refresh_jobs
+      (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'media', ?, ?, 100, 'queued', 0, NULL, '{}', ?, ?)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        status = 'queued',
+        attempts = 0,
+        last_error = NULL,
+        run_after = excluded.run_after,
+        updated_at = excluded.updated_at`)
+      .bind(randomId("mrj"), mediaId, safeProvider, safeProvider, dedupeKey, now, now, now)
       .run();
-  } catch {}
+  } catch {
+    try {
+      await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
+        .bind(randomId("mrj"), mediaId, safeProvider, now, now)
+        .run();
+    } catch {
+      try {
+        await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?, NULL)")
+          .bind(randomId("mrj"), mediaId, safeProvider, now, now)
+          .run();
+      } catch {}
+    }
+  }
 }
 
 function mapMediaItemRow(row: any): MediaItemRecord {

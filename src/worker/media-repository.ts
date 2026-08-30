@@ -48,8 +48,11 @@ export type EpisodeRecord = {
   seasonNumber: number;
   episodeNumber: number;
   name: string | null;
+  title?: string | null;
   overview: string | null;
+  synopsis?: string | null;
   stillPath: string | null;
+  stillUrl?: string | null;
   airDate: string | null;
   runtimeMinutes: number | null;
   isSpecial: boolean;
@@ -891,20 +894,27 @@ function mapSeason(row: SeasonRow): SeasonRecord {
   };
 }
 
-function mapEpisode(row: EpisodeRow): EpisodeRecord {
+function mapEpisode(row: any): EpisodeRecord {
+  const title = row.title ?? row.name ?? (row.episode_number != null ? `Episode ${row.episode_number}` : null);
+  const overview = row.overview ?? row.synopsis ?? null;
+  const stillPath = row.still_path ?? row.still_url ?? null;
+  const airDate = row.air_date ?? row.release_date ?? null;
   return {
     id: row.id,
     mediaId: row.media_id,
     seasonId: row.season_id,
     seasonNumber: row.season_number,
     episodeNumber: row.episode_number,
-    name: row.name,
-    overview: row.overview,
-    stillPath: row.still_path,
-    airDate: row.air_date,
-    runtimeMinutes: row.runtime_minutes,
+    name: title,
+    title: title,
+    overview,
+    synopsis: overview,
+    stillPath,
+    stillUrl: stillPath,
+    airDate,
+    runtimeMinutes: row.runtime_minutes ?? null,
     isSpecial: row.is_special === 1,
-    externalId: row.external_id,
+    externalId: row.external_id ?? null,
     extendedDataJson: row.extended_data_json ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -62,15 +62,16 @@ async function claimAndRunJob(env: Env, job: any) {
     .run());
   if (!claim.meta?.changes) return false;
   try {
-    if (job.provider === "tmdb") {
+    const provider = job.provider || job.provider_code;
+    if (provider === "tmdb") {
       await hydrateTmdb(env, job);
-    } else if (job.provider === "igdb") {
+    } else if (provider === "igdb") {
       await hydrateIgdb(env, job);
-    } else if (job.provider === "openlibrary") {
+    } else if (provider === "openlibrary") {
       await hydrateOpenLibrary(env, job);
-    } else if (job.provider === "jikan") {
+    } else if (provider === "jikan") {
       await hydrateJikan(env, job);
-    } else if (job.provider === "rawg") {
+    } else if (provider === "rawg") {
       await hydrateRawg(env, job);
     }
     await runD1("mark hydration job complete", db.prepare(`UPDATE metadata_refresh_jobs
@@ -91,8 +92,12 @@ async function hydrateTmdb(env: Env, job: any) {
   const media = await runD1("load media for hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
   if (!media) throw new Error("Media not found");
 
-  const externalIdRow = await runD1("load TMDB id for hydration", db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb'").bind(job.media_id).first<{ external_id: string }>());
-  const tmdbId = externalIdRow?.external_id;
+  let tmdbId = (media.canonical_provider_code === "tmdb" || media.source === "tmdb") ? (media.canonical_provider_id || media.source_id) : null;
+  if (!tmdbId) {
+    const extRows = await runD1("load TMDB id for hydration", db.prepare("SELECT * FROM media_external_ids WHERE media_id = ?").bind(job.media_id).all<any>());
+    const match = (extRows.results ?? []).find((r) => r.source === "tmdb" || r.namespace === "tmdb" || r.provider_code === "tmdb");
+    tmdbId = match?.external_id;
+  }
   if (!tmdbId) throw new Error("No TMDB ID for media");
 
   if (job.scope === "media") {
@@ -168,6 +173,7 @@ async function hydrateTmdb(env: Env, job: any) {
       genres: data.genres || [],
       homepage: data.homepage || null,
       pendingConflicts,
+      hydratedAt: now.toISOString(),
     };
 
     const compactCache = {
@@ -269,11 +275,25 @@ async function hydrateTmdb(env: Env, job: any) {
     let seasonId = seasonRow?.id;
     if (!seasonId) {
       seasonId = randomId("sea");
-      await runD1("insert hydrated season", db.prepare("INSERT INTO seasons (id, media_id, season_number, name, overview, poster_path, episode_count, air_date, is_special, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, seasonNum === 0 ? 1 : 0, now, now).run());
+      try {
+        await runD1("insert hydrated season", db.prepare(`INSERT INTO seasons
+          (id, media_id, season_number, title, synopsis, poster_url, episode_count, release_date, name, overview, poster_path, air_date, is_special, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.air_date, seasonNum === 0 ? 1 : 0, now, now).run());
+      } catch {
+        await runD1("fallback insert hydrated season", db.prepare(`INSERT INTO seasons
+          (id, media_id, season_number, title, synopsis, poster_url, episode_count, release_date, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, now).run());
+      }
     } else {
-      await runD1("update hydrated season", db.prepare("UPDATE seasons SET name = ?, overview = ?, poster_path = ?, episode_count = ?, air_date = ?, updated_at = ? WHERE id = ?")
-        .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, seasonId).run());
+      try {
+        await runD1("update hydrated season", db.prepare("UPDATE seasons SET title = ?, synopsis = ?, poster_url = ?, name = ?, overview = ?, poster_path = ?, episode_count = ?, air_date = ?, release_date = ?, updated_at = ? WHERE id = ?")
+          .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, data.air_date, now, seasonId).run());
+      } catch {
+        await runD1("fallback update hydrated season", db.prepare("UPDATE seasons SET title = ?, synopsis = ?, poster_url = ?, episode_count = ?, release_date = ?, updated_at = ? WHERE id = ?")
+          .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, seasonId).run());
+      }
     }
 
     const episodes = data.episodes || [];
@@ -289,11 +309,21 @@ async function hydrateTmdb(env: Env, job: any) {
 
       const existingEpisodeId = existingByNumber.get(ep.episode_number);
       if (existingEpisodeId) {
-        await runD1("update hydrated episode", db.prepare("UPDATE episodes SET name = ?, overview = ?, still_path = ?, air_date = ?, runtime_minutes = ?, external_id = COALESCE(external_id, ?), extended_data_json = ?, updated_at = ? WHERE id = ?")
-          .bind(ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, String(ep.id ?? ""), JSON.stringify(extendedData), now, existingEpisodeId).run());
+        try {
+          await runD1("update hydrated episode", db.prepare("UPDATE episodes SET name = ?, overview = ?, title = ?, synopsis = ?, still_path = ?, still_url = ?, air_date = ?, release_date = ?, runtime_minutes = ?, external_id = COALESCE(external_id, ?), extended_data_json = ?, updated_at = ? WHERE id = ?")
+            .bind(ep.name, ep.overview, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), tmdbImage(ep.still_path, "w300"), ep.air_date, ep.air_date, ep.runtime, String(ep.id ?? ""), JSON.stringify(extendedData), now, existingEpisodeId).run());
+        } catch {
+          await runD1("fallback update hydrated episode", db.prepare("UPDATE episodes SET title = ?, synopsis = ?, still_url = ?, release_date = ?, runtime_minutes = ?, updated_at = ? WHERE id = ?")
+            .bind(ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, now, existingEpisodeId).run());
+        }
       } else {
-        await runD1("insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, name, overview, still_path, air_date, runtime_minutes, is_special, external_id, extended_data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, seasonNum === 0 ? 1 : 0, String(ep.id ?? ""), JSON.stringify(extendedData), now, now).run());
+        try {
+          await runD1("insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, name, overview, title, synopsis, still_path, still_url, air_date, release_date, runtime_minutes, is_special, external_id, extended_data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), tmdbImage(ep.still_path, "w300"), ep.air_date, ep.air_date, ep.runtime, seasonNum === 0 ? 1 : 0, String(ep.id ?? ""), JSON.stringify(extendedData), now, now).run());
+        } catch {
+          await runD1("fallback insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, title, synopsis, still_url, release_date, runtime_minutes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, now, now).run());
+        }
       }
     }
     const nextOffset = episodeOffset + episodeChunk.length;
@@ -317,36 +347,88 @@ async function runD1<T>(label: string, operation: Promise<T>) {
 }
 
 async function enqueueHydrationJob(db: D1Database, mediaId: string, provider: string, scope: string, now: string, contextJson: string | null = null) {
+  const safeProvider = provider || "tmdb";
+  const dedupeKey = `${mediaId}:${scope}:${safeProvider}:${contextJson ?? ""}`;
   const existing = await runD1("find existing hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = ? AND COALESCE(context_json, '') = COALESCE(?, '')
+    WHERE media_id = ? AND (provider = ? OR provider_code = ?) AND scope = ? AND COALESCE(context_json, '') = COALESCE(?, '')
       AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
-    .bind(mediaId, provider, scope, contextJson)
+    .bind(mediaId, safeProvider, safeProvider, scope, contextJson)
     .first<{ id: string }>());
   if (existing) return existing.id;
   const id = randomId("mrj");
-  await runD1("insert hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)")
-    .bind(id, mediaId, provider, scope, now, now, contextJson)
-    .run());
+  try {
+    await runD1("insert hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+      (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 100, 'queued', 0, NULL, ?, ?, ?)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        status = 'queued',
+        attempts = 0,
+        last_error = NULL,
+        run_after = excluded.run_after,
+        updated_at = excluded.updated_at`)
+      .bind(id, mediaId, safeProvider, safeProvider, scope, dedupeKey, now, contextJson ?? "{}", now, now)
+      .run());
+  } catch {
+    try {
+      await runD1("fallback insert hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+        VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)`)
+        .bind(id, mediaId, safeProvider, scope, now, now, contextJson)
+        .run());
+    } catch {
+      await runD1("fallback insert hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+        VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)`)
+        .bind(id, mediaId, safeProvider, scope, now, now, contextJson)
+        .run());
+    }
+  }
   return id;
 }
 
 async function enqueueSeasonHydrationJobs(db: D1Database, mediaId: string, provider: string, now: string, seasonNumbers: Array<number | null | undefined>) {
   const uniqueSeasonNumbers = [...new Set(seasonNumbers.filter((seasonNumber): seasonNumber is number => Number.isFinite(seasonNumber)))];
   if (uniqueSeasonNumbers.length === 0) return;
+  const safeProvider = provider || "tmdb";
 
   const existing = await runD1("load queued season hydration jobs", db.prepare(`SELECT context_json FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = 'season' AND status IN ('queued', 'running', 'stale')`)
-    .bind(mediaId, provider)
+    WHERE media_id = ? AND (provider = ? OR provider_code = ?) AND scope = 'season' AND status IN ('queued', 'running', 'stale')`)
+    .bind(mediaId, safeProvider, safeProvider)
     .all<{ context_json: string | null }>());
   const existingKeys = new Set((existing.results || []).map((row) => row.context_json ?? ""));
 
   for (const seasonNumber of uniqueSeasonNumbers) {
     const contextJson = JSON.stringify({ seasonNumber });
     if (existingKeys.has(contextJson)) continue;
-    await runD1("insert season hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)")
-      .bind(randomId("mrj"), mediaId, provider, now, now, contextJson)
-      .run());
+    const dedupeKey = `${mediaId}:season:${seasonNumber}:${safeProvider}`;
+    try {
+      await runD1("insert season hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'season', ?, ?, 100, 'queued', 0, NULL, ?, ?, ?)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+          status = 'queued',
+          attempts = 0,
+          last_error = NULL,
+          run_after = excluded.run_after,
+          updated_at = excluded.updated_at`)
+        .bind(randomId("mrj"), mediaId, safeProvider, safeProvider, dedupeKey, now, contextJson, now, now)
+        .run());
+    } catch {
+      try {
+        await runD1("fallback insert season hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)`)
+          .bind(randomId("mrj"), mediaId, safeProvider, now, now, contextJson)
+          .run());
+      } catch {
+        await runD1("fallback insert season hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)`)
+          .bind(randomId("mrj"), mediaId, safeProvider, now, now, contextJson)
+          .run());
+      }
+    }
   }
 }
 
@@ -369,9 +451,34 @@ export async function maybeEnqueueStaleMediaRefresh(env: Env, media: { id: strin
 
     const now = new Date().toISOString();
     const id = randomId("mrj");
-    await runD1("insert stale hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)")
-      .bind(id, media.id, provider, now, now)
-      .run());
+    const dedupeKey = `${media.id}:media:${provider}`;
+    try {
+      await runD1("insert stale hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'media', ?, ?, 100, 'stale', 0, NULL, '{}', ?, ?)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+          status = 'stale',
+          attempts = 0,
+          last_error = NULL,
+          run_after = excluded.run_after,
+          updated_at = excluded.updated_at`)
+        .bind(id, media.id, provider, provider, dedupeKey, now, now, now)
+        .run());
+    } catch {
+      try {
+        await runD1("fallback insert stale hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)`)
+          .bind(id, media.id, provider, now, now)
+          .run());
+      } catch {
+        await runD1("fallback insert stale hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)`)
+          .bind(id, media.id, provider, now, now)
+          .run());
+      }
+    }
     return id;
   } catch (err) {
     return null;

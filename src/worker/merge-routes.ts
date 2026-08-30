@@ -178,13 +178,18 @@ export function createMergeRoutes() {
     const media = await getMedia(c.env.DB, c.req.param("mediaId"));
     if (!media) return apiError(c, 404, "not_found", "Media not found.");
     const now = new Date().toISOString();
-    let provider = (media as any).source || (media as any).provider;
+    let provider = (media as any).source || (media as any).provider || (media as any).canonical_provider_code;
+    const extRows = await c.env.DB.prepare("SELECT * FROM media_external_ids WHERE media_id = ?")
+      .bind(media.id)
+      .all<any>();
+    const extList = extRows.results ?? [];
+    const tmdbRow = extList.find((r) => r.source === "tmdb" || r.namespace === "tmdb" || r.provider_code === "tmdb");
+
     if (provider === "tv_time" || !provider) {
-      const extId = await c.env.DB.prepare("SELECT source, external_id FROM media_external_ids WHERE media_id = ?")
-        .bind(media.id)
-        .first<{ source: string; external_id: string }>();
-      if (extId?.source) {
-        provider = extId.source;
+      if (tmdbRow) {
+        provider = "tmdb";
+      } else if (extList.length > 0) {
+        provider = extList[0].source || extList[0].namespace || extList[0].provider_code;
       }
     }
     if (!provider) {
@@ -192,10 +197,8 @@ export function createMergeRoutes() {
     }
 
     if (provider === "tmdb") {
-      const tmdbId = await c.env.DB.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb'")
-        .bind(media.id)
-        .first<{ external_id: string }>();
-      if (!tmdbId?.external_id) {
+      const tmdbId = tmdbRow?.external_id || ((media as any).canonical_provider_code === "tmdb" ? (media as any).canonical_provider_id : null);
+      if (!tmdbId) {
         return apiError(c, 409, "conflict", "This item needs a TMDB match before metadata can be refreshed. Open Merge media and accept or choose a match first.");
       }
     }
@@ -424,16 +427,41 @@ async function mergeMedia(db: D1Database, userId: string, sourceMediaId: string,
 
 async function enqueueMediaRefreshJob(db: D1Database, mediaId: string, provider: string, now: string) {
   const safeProvider = provider || "tmdb";
+  const dedupeKey = `${mediaId}:media:${safeProvider}`;
   const existing = await db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
+    WHERE media_id = ? AND (provider = ? OR provider_code = ?) AND scope = 'media' AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
-    .bind(mediaId, safeProvider)
+    .bind(mediaId, safeProvider, safeProvider)
     .first<{ id: string }>();
   if (existing) return existing.id;
   const id = randomId("mrj");
-  await db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at) VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?)")
-    .bind(id, mediaId, safeProvider, now, now)
-    .run();
+  try {
+    await db.prepare(`INSERT INTO metadata_refresh_jobs
+      (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'media', ?, ?, 100, 'queued', 0, NULL, '{}', ?, ?)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        status = 'queued',
+        attempts = 0,
+        last_error = NULL,
+        run_after = excluded.run_after,
+        updated_at = excluded.updated_at`)
+      .bind(id, mediaId, safeProvider, safeProvider, dedupeKey, now, now, now)
+      .run();
+  } catch {
+    try {
+      await db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at)
+        VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?)`)
+        .bind(id, mediaId, safeProvider, now, now)
+        .run();
+    } catch {
+      await db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at)
+        VALUES (?, ?, ?, 'media', 'queued', 0, NULL, ?, ?)`)
+        .bind(id, mediaId, safeProvider, now, now)
+        .run();
+    }
+  }
   return id;
 }
 
@@ -442,7 +470,7 @@ async function hydrationProgress(db: D1Database, mediaId: string) {
     db.prepare("SELECT * FROM media_items WHERE id = ?").bind(mediaId).first<any>(),
     db.prepare(`SELECT
         COUNT(*) AS episode_count,
-        SUM(CASE WHEN still_path IS NOT NULL OR overview IS NOT NULL OR air_date IS NOT NULL OR runtime_minutes IS NOT NULL OR external_id IS NOT NULL OR extended_data_json IS NOT NULL THEN 1 ELSE 0 END) AS hydrated_count
+        SUM(CASE WHEN still_path IS NOT NULL OR still_url IS NOT NULL OR overview IS NOT NULL OR synopsis IS NOT NULL OR air_date IS NOT NULL OR release_date IS NOT NULL OR runtime_minutes IS NOT NULL THEN 1 ELSE 0 END) AS hydrated_count
       FROM episodes
       WHERE media_id = ? AND is_special = 0`)
       .bind(mediaId)

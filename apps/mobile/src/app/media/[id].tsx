@@ -121,12 +121,11 @@ export default function MediaDetailsScreen() {
       }
     })();
 
-    const missingDetails =
-      !data.media.overview ||
-      !data.media.posterPath ||
-      !data.media.backdropPath ||
-      !ext.cast?.length ||
-      !ext.watchProviders;
+    const hydratedAt = ext.hydratedAt ? new Date(ext.hydratedAt).getTime() : 0;
+    const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+    const isStale = hydratedAt > 0 && Date.now() - hydratedAt > SEVEN_DAYS_MS;
+    const hasHydratedDetails = Boolean(hydratedAt) || Boolean(ext.cast?.length);
+
     // Polling for hydration progress
     const pollProgress = async () => {
       if (cancelled) return;
@@ -156,8 +155,9 @@ export default function MediaDetailsScreen() {
       }
     };
 
+    // Hydrate only if never hydrated, episodes are missing for series, or TTL expired
     const missingEpisodes = isSeries && (!episodesData?.episodes || episodesData.episodes.length === 0);
-    const shouldHydrate = missingDetails || missingEpisodes;
+    const shouldHydrate = !hasHydratedDetails || missingEpisodes || isStale;
 
     if (shouldHydrate && !autoHydrateTriedRef.current.has(id)) {
       autoHydrateTriedRef.current.add(id);

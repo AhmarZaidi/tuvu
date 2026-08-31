@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,7 +44,9 @@ export default function CharacterDetailsScreen() {
         title: mediaItem.title,
         posterPath: mediaItem.posterPath,
       });
-      router.push(`/media/${res.media.id}` as any);
+      if (res?.media?.id) {
+        router.push(`/media/${res.media.id}` as any);
+      }
     } catch {
       router.push(`/media/${mediaItem.id}` as any);
     } finally {
@@ -54,11 +56,12 @@ export default function CharacterDetailsScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <TopBar />
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <GoldenGlow />
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={theme.colors.accent} />
-          <Text style={styles.loadingText}>Loading character profile...</Text>
+          <Text style={styles.loadingText}>Loading character details...</Text>
         </View>
       </View>
     );
@@ -66,16 +69,14 @@ export default function CharacterDetailsScreen() {
 
   if (isError || !character) {
     return (
-      <View style={styles.loadingContainer}>
-        <TopBar />
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <GoldenGlow />
         <View style={styles.centerContent}>
-          <Ionicons name="alert-circle-outline" size={48} color="#ef4444" />
-          <Text style={styles.errorTitle}>Character Unavailable</Text>
-          <Text style={styles.errorSubtitle}>
-            Could not load details for this character.
-          </Text>
+          <Text style={styles.errorTitle}>Could not load character</Text>
+          <Text style={styles.errorSubtitle}>Character details not found.</Text>
           <Pressable style={styles.retryButton} onPress={() => refetch()}>
-            <Text style={styles.retryButtonText}>Try Again</Text>
+            <Text style={styles.retryButtonText}>Retry</Text>
           </Pressable>
         </View>
       </View>
@@ -84,6 +85,7 @@ export default function CharacterDetailsScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
       <GoldenGlow />
       <TopBar />
 

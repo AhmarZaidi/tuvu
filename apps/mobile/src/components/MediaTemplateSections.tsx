@@ -449,6 +449,40 @@ export function MediaTemplateSections({
         </View>
       )}
 
+      {/* ANIME DUB & AUDIO INFO */}
+      {isAnime && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.eyebrow}>AUDIO & DUBBING</Text>
+          <Text style={styles.sectionTitle}>Languages & Availability</Text>
+          <View style={styles.titlesList}>
+            <View style={styles.titleRow}>
+              <Text style={styles.titleRowLabel}>Original Audio</Text>
+              <Text style={styles.titleRowVal}>Japanese</Text>
+            </View>
+            <View style={styles.titleRow}>
+              <Text style={styles.titleRowLabel}>Dubbing</Text>
+              <Text style={[styles.titleRowVal, { color: hasDub ? '#22c55e' : '#aeb1ac', fontWeight: '700' }]}>
+                {hasDub ? 'English Dub Available' : 'Japanese Audio (Subtitled)'}
+              </Text>
+            </View>
+            {hasDub && (
+              <View style={styles.titleRow}>
+                <Text style={styles.titleRowLabel}>Simuldub / Release</Text>
+                <Text style={styles.titleRowVal}>Simuldub Tracked (Sub & Dub)</Text>
+              </View>
+            )}
+            {availableLanguagesList.length > 0 && (
+              <View style={styles.titleRow}>
+                <Text style={styles.titleRowLabel}>Audio Tracks</Text>
+                <Text style={styles.titleRowVal} numberOfLines={2}>
+                  {availableLanguagesList.join(', ')}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
       {/* 4. CAST & VOICES */}
       <View style={styles.sectionCard}>
         <View style={styles.castHeaderRow}>
@@ -458,7 +492,7 @@ export function MediaTemplateSections({
           </View>
 
           {/* Anime Sub vs Dub Switcher */}
-          {isAnime && (japaneseCast.length > 0 || dubCast.length > 0) && (
+          {isAnime && (
             <View style={styles.voiceTabSwitcher}>
               <Pressable
                 style={[styles.voiceTab, voiceCastTab === 'sub' && styles.voiceTabActive]}
@@ -481,11 +515,33 @@ export function MediaTemplateSections({
         </View>
 
         {(() => {
+          const activeDubCast = dubCast.length > 0
+            ? dubCast
+            : characters
+                .filter((c: any) => c.dubVoiceActor)
+                .map((c: any) => ({
+                  id: c.dubVoiceActor.id,
+                  name: c.dubVoiceActor.name,
+                  role: c.name,
+                  profilePath: c.dubVoiceActor.image,
+                }));
+
+          const activeJpCast = japaneseCast.length > 0
+            ? japaneseCast
+            : characters
+                .filter((c: any) => c.subVoiceActor)
+                .map((c: any) => ({
+                  id: c.subVoiceActor.id,
+                  name: c.subVoiceActor.name,
+                  role: c.name,
+                  profilePath: c.subVoiceActor.image,
+                }));
+
           const currentCast = isAnime
-            ? voiceCastTab === 'dub' && dubCast.length > 0
-              ? dubCast
-              : japaneseCast.length > 0
-              ? japaneseCast
+            ? voiceCastTab === 'dub'
+              ? activeDubCast
+              : activeJpCast.length > 0
+              ? activeJpCast
               : cast
             : cast;
 

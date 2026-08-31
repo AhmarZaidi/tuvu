@@ -984,18 +984,34 @@ function mapEpisodeActivity(row: any): EpisodeActivityRecord {
 
 function mapDashboardRow(row: any): DashboardEntry {
   let animeFormat: "movie" | "series" | null = null;
+  const hasZeroEpisodes = row.total_regular_episodes === 0 || row.total_regular_episodes === null;
+  const isMovieType = row.type === "movie";
+
   if (row.extended_data_json) {
     try {
       const ext = JSON.parse(row.extended_data_json);
-      if (ext.animeFormat === "movie" || (ext.category === "anime" && row.type === "movie")) {
+      if (
+        ext.animeFormat === "movie" ||
+        ext.anime?.format === "MOVIE" ||
+        ext.format === "MOVIE" ||
+        (ext.category === "anime" && isMovieType) ||
+        (row.type === "anime" && (ext.format === "MOVIE" || ext.anime?.format === "MOVIE"))
+      ) {
         animeFormat = "movie";
-      } else if (ext.animeFormat === "series" || ext.category === "anime" || row.type === "anime") {
+      } else if (ext.animeFormat === "series") {
         animeFormat = "series";
+      } else if (isMovieType) {
+        animeFormat = "movie";
       }
     } catch {}
   }
-  if (!animeFormat && row.type === "anime") {
-    animeFormat = "series";
+
+  if (!animeFormat) {
+    if (isMovieType) {
+      animeFormat = "movie";
+    } else if (row.type === "anime") {
+      animeFormat = (hasZeroEpisodes && !row.next_episode_id) ? "movie" : "series";
+    }
   }
 
   return {

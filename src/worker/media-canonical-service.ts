@@ -114,11 +114,79 @@ export async function resolveOrCreateProviderCanonicalMedia(input: {
     if (local) return local;
   }
 
-  const existing = input.db
+  let existing = input.db
     ? await findMediaByExternalId(input.db, input.result.provider, input.result.providerId)
     : await findMediaByProviderResult(input.repo, input.result.provider, input.result.providerId, input.result.title, input.result.type);
+
+  if (!existing && input.db && input.result.provider !== "local") {
+    let ext: any = {};
+    try {
+      if (input.result.extendedDataJson) ext = JSON.parse(input.result.extendedDataJson);
+    } catch {}
+
+    const malId = ext?.anime?.malId;
+    const anilistId = ext?.anime?.anilistId;
+    if (malId) {
+      existing = await findMediaByExternalId(input.db, "mal", String(malId));
+      if (!existing) existing = await findMediaByExternalId(input.db, "jikan", String(malId));
+    }
+    if (!existing && anilistId) {
+      existing = await findMediaByExternalId(input.db, "anilist", String(anilistId));
+    }
+
+    if (!existing) {
+      try {
+        const normTitle = input.result.title.trim().toLowerCase();
+        const baseTitle = input.result.title
+          .replace(/[:\-–—]\s*(the\s+)?final\s+(season|chapters|act).*$/i, "")
+          .replace(/[:\-–—]\s*(\d+(st|nd|rd|th)|second|third|fourth|fifth|final)\s+season.*$/i, "")
+          .replace(/\s+season\s+\d+.*$/i, "")
+          .replace(/\s+\d+(st|nd|rd|th)\s+season.*$/i, "")
+          .replace(/[:\-–—]?\s*part\s+\d+.*$/i, "")
+          .replace(/[:\-–—]?\s*cour\s+\d+.*$/i, "")
+          .replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/i, "")
+          .trim().toLowerCase();
+
+        const matchRows = await input.db.prepare(
+          `SELECT * FROM media_items WHERE (LOWER(title) = ? OR LOWER(title) = ?) AND (type = ? OR type IN ('show', 'anime')) LIMIT 1`
+        )
+          .bind(normTitle, baseTitle, input.result.type)
+          .all<MediaItemRow>();
+
+        if (matchRows.results && matchRows.results.length > 0) {
+          existing = mapMediaItemRow(matchRows.results[0]);
+        }
+      } catch {}
+    }
+  }
+
   if (existing) {
-    if (input.db && input.result.provider !== "local") await attachExternalId(input.db, existing.id, input.result.provider, input.result.providerId, now);
+    if (input.db && input.result.provider !== "local") {
+      await attachExternalId(input.db, existing.id, input.result.provider, input.result.providerId, now);
+      if (input.result.extendedDataJson) {
+        try {
+          const currentExt = JSON.parse(existing.extendedDataJson || "{}");
+          const incomingExt = JSON.parse(input.result.extendedDataJson);
+          const merged = {
+            ...currentExt,
+            ...incomingExt,
+            category: currentExt.category || incomingExt.category,
+            hasDub: currentExt.hasDub || incomingExt.hasDub,
+            anime: {
+              ...(currentExt.anime || {}),
+              ...(incomingExt.anime || {}),
+              characters: currentExt.anime?.characters?.length ? currentExt.anime.characters : incomingExt.anime?.characters || [],
+              japaneseCast: currentExt.anime?.japaneseCast?.length ? currentExt.anime.japaneseCast : incomingExt.anime?.japaneseCast || [],
+              dubCast: currentExt.anime?.dubCast?.length ? currentExt.anime.dubCast : incomingExt.anime?.dubCast || [],
+              studios: currentExt.anime?.studios?.length ? currentExt.anime.studios : incomingExt.anime?.studios || [],
+            },
+          };
+          await input.db.prepare("UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?")
+            .bind(JSON.stringify(merged), now, existing.id)
+            .run();
+        } catch {}
+      }
+    }
     return existing;
   }
 

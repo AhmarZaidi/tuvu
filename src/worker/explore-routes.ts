@@ -63,8 +63,7 @@ export function createExploreRoutes() {
     const remote = await providerSearch(c.env, query.data.q, types, 8, auth.user.id);
     const combined = dedupeResults([...local, ...remote]);
     const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, combined)) : combined;
-    const untracked = marked.filter((result) => !result.alreadyTracked);
-    return c.json(apiSuccess({ query: query.data.q, results: untracked.slice(0, 40) }));
+    return c.json(apiSuccess({ query: query.data.q, results: marked.slice(0, 40) }));
   });
 
   router.post("/add", requireAuth(), requireCsrf(), async (c) => {
@@ -121,6 +120,20 @@ function localProviderResult(media: MediaItemRecord): ProviderResult {
   };
 }
 
+export function extractCanonicalAnimeBaseTitle(rawTitle: string): string {
+  let t = rawTitle.trim();
+  t = t.replace(/[:\-–—]\s*(the\s+)?final\s+(season|chapters|act).*$/i, "");
+  t = t.replace(/[:\-–—]\s*(\d+(st|nd|rd|th)|second|third|fourth|fifth|final)\s+season.*$/i, "");
+  t = t.replace(/\s+season\s+\d+.*$/i, "");
+  t = t.replace(/\s+\d+(st|nd|rd|th)\s+season.*$/i, "");
+  t = t.replace(/[:\-–—]?\s*part\s+\d+.*$/i, "");
+  t = t.replace(/[:\-–—]?\s*cour\s+\d+.*$/i, "");
+  t = t.replace(/[:\-–—]?\s*(mugen train|entertainment district|swordsmith village|hashira training|thousand-year blood war).*$/i, "");
+  t = t.replace(/\s+(ii|iii|iv|v|vi|vii|viii|ix|x)$/i, "");
+  t = t.replace(/[?!\.\s]+$/, "").trim();
+  return t || rawTitle;
+}
+
 function normalizeTitleForDedupe(str: string): string {
   return str
     .toLowerCase()
@@ -129,10 +142,19 @@ function normalizeTitleForDedupe(str: string): string {
     .trim();
 }
 
+function areMediaTypesCompatible(t1: string, t2: string): boolean {
+  if (t1 === t2) return true;
+  if ((t1 === "show" || t1 === "anime") && (t2 === "show" || t2 === "anime")) return true;
+  if ((t1 === "movie" || t1 === "anime") && (t2 === "movie" || t2 === "anime")) return true;
+  return false;
+}
+
 function dedupeResults(results: ProviderResult[]) {
   const seenProviderKeys = new Set<string>();
   const titleIndexes = new Map<string, number>();
+  const baseTitleIndexes = new Map<string, number>();
   const malIdIndexes = new Map<number, number>();
+  const anilistIdIndexes = new Map<number, number>();
   const output: ProviderResult[] = [];
 
   for (const result of results) {
@@ -146,10 +168,13 @@ function dedupeResults(results: ProviderResult[]) {
     } catch {}
 
     const malId = ext?.anime?.malId || (result.provider === "jikan" ? Number(result.providerId) : null);
+    const anilistId = ext?.anime?.anilistId || (result.provider === "anilist" ? Number(result.providerId) : null);
     const normTitle = normalizeTitleForDedupe(result.title);
-    const titleKey = `${result.type}:${normTitle}:${result.year ?? ""}`;
-    const altEngKey = ext?.anime?.titles?.english ? `${result.type}:${normalizeTitleForDedupe(ext.anime.titles.english)}:${result.year ?? ""}` : null;
-    const altRomajiKey = ext?.anime?.titles?.romaji ? `${result.type}:${normalizeTitleForDedupe(ext.anime.titles.romaji)}:${result.year ?? ""}` : null;
+    const baseTitle = normalizeTitleForDedupe(extractCanonicalAnimeBaseTitle(result.title));
+
+    const titleKey = `${normTitle}:${result.year ?? ""}`;
+    const altEngKey = ext?.anime?.titles?.english ? `${normalizeTitleForDedupe(ext.anime.titles.english)}:${result.year ?? ""}` : null;
+    const altRomajiKey = ext?.anime?.titles?.romaji ? `${normalizeTitleForDedupe(ext.anime.titles.romaji)}:${result.year ?? ""}` : null;
 
     let existingIndex: number | undefined = titleIndexes.get(titleKey);
     if (existingIndex === undefined && altEngKey) existingIndex = titleIndexes.get(altEngKey);
@@ -157,43 +182,67 @@ function dedupeResults(results: ProviderResult[]) {
     if (existingIndex === undefined && malId && malIdIndexes.has(malId)) {
       existingIndex = malIdIndexes.get(malId);
     }
+    if (existingIndex === undefined && anilistId && anilistIdIndexes.has(anilistId)) {
+      existingIndex = anilistIdIndexes.get(anilistId);
+    }
+    // Also check base title match if it's an anime / show
+    if (existingIndex === undefined && (result.type === "anime" || result.type === "show")) {
+      existingIndex = baseTitleIndexes.get(baseTitle);
+    }
 
     if (existingIndex !== undefined) {
       const existing = output[existingIndex];
-      let existingExt: any = {};
-      try {
-        if (existing.extendedDataJson) existingExt = JSON.parse(existing.extendedDataJson);
-      } catch {}
+      if (areMediaTypesCompatible(existing.type, result.type)) {
+        let existingExt: any = {};
+        try {
+          if (existing.extendedDataJson) existingExt = JSON.parse(existing.extendedDataJson);
+        } catch {}
 
-      const mergedExt = {
-        ...existingExt,
-        ...ext,
-        anime: {
-          ...(existingExt.anime || {}),
-          ...(ext.anime || {}),
-          titles: {
-            ...(existingExt.anime?.titles || {}),
-            ...(ext.anime?.titles || {}),
+        const mergedExt = {
+          ...existingExt,
+          ...ext,
+          category: existingExt.category || ext.category || (result.type === "anime" || existing.type === "anime" ? "anime" : undefined),
+          hasDub: existingExt.hasDub || ext.hasDub || Boolean(existingExt.anime?.dubCast?.length || ext.anime?.dubCast?.length),
+          anime: {
+            ...(existingExt.anime || {}),
+            ...(ext.anime || {}),
+            characters: existingExt.anime?.characters?.length ? existingExt.anime.characters : ext.anime?.characters || [],
+            japaneseCast: existingExt.anime?.japaneseCast?.length ? existingExt.anime.japaneseCast : ext.anime?.japaneseCast || [],
+            dubCast: existingExt.anime?.dubCast?.length ? existingExt.anime.dubCast : ext.anime?.dubCast || [],
+            studios: existingExt.anime?.studios?.length ? existingExt.anime.studios : ext.anime?.studios || [],
+            titles: {
+              ...(existingExt.anime?.titles || {}),
+              ...(ext.anime?.titles || {}),
+            },
           },
-        },
-      };
+        };
 
-      output[existingIndex] = {
-        ...existing,
-        posterPath: existing.posterPath || result.posterPath,
-        backdropPath: existing.backdropPath || result.backdropPath,
-        overview: existing.overview || result.overview,
-        extendedDataJson: JSON.stringify(mergedExt),
-        localMediaId: existing.localMediaId || result.localMediaId,
-      };
-      continue;
+        // Prefer local or tmdb as the primary result identity
+        const isExistingPrimary = existing.provider === "local" || existing.provider === "tmdb";
+        const primary = isExistingPrimary ? existing : result;
+
+        output[existingIndex] = {
+          ...primary,
+          title: isExistingPrimary ? existing.title : extractCanonicalAnimeBaseTitle(result.title),
+          posterPath: primary.posterPath || existing.posterPath || result.posterPath,
+          backdropPath: primary.backdropPath || existing.backdropPath || result.backdropPath,
+          overview: primary.overview || existing.overview || result.overview,
+          releaseDate: primary.releaseDate || existing.releaseDate || result.releaseDate,
+          year: primary.year || existing.year || result.year,
+          extendedDataJson: JSON.stringify(mergedExt),
+          localMediaId: existing.localMediaId || result.localMediaId,
+        };
+        continue;
+      }
     }
 
     const idx = output.length;
     titleIndexes.set(titleKey, idx);
     if (altEngKey) titleIndexes.set(altEngKey, idx);
     if (altRomajiKey) titleIndexes.set(altRomajiKey, idx);
+    if (baseTitle) baseTitleIndexes.set(baseTitle, idx);
     if (malId) malIdIndexes.set(malId, idx);
+    if (anilistId) anilistIdIndexes.set(anilistId, idx);
     output.push(result);
   }
   return output;
@@ -230,7 +279,7 @@ async function markTrackedResults(db: D1Database, userId: string, results: Provi
     }
   }
 
-  for (const provider of ["tmdb", "igdb", "rawg", "openlibrary", "jikan"] as const) {
+  for (const provider of ["tmdb", "igdb", "rawg", "openlibrary", "jikan", "anilist"] as const) {
     const providerResults = results.filter((result) => result.provider === provider);
     const ids = [...new Set(providerResults.map((result) => result.providerId))];
     if (ids.length === 0) continue;

@@ -1,7 +1,16 @@
 import type { MediaType } from "@shared/media";
 import { externalApiEndpoints } from "@shared/constants";
 import { randomId } from "./crypto";
-import { jikanSearchAnime, jikanAnimeCharacters, jikanAnimeEpisodes, igdbFetchDetails, openLibraryFetchDetails, rawgFetchDetails } from "./providers";
+import {
+  jikanSearchAnime,
+  jikanAnimeCharacters,
+  jikanAnimeEpisodes,
+  anilistSearchAnime,
+  anilistFetchMediaByIdMal,
+  igdbFetchDetails,
+  openLibraryFetchDetails,
+  rawgFetchDetails,
+} from "./providers";
 import { writeProviderCache } from "./providers/provider-cache-service";
 import { providerTtls } from "./providers/provider-ttls";
 import { tmdbFetchMediaDetails } from "./providers/tmdb";
@@ -44,11 +53,16 @@ export async function rehydrateMediaDirectly(env: Env, mediaId: string) {
   };
   if (provider === "tmdb") {
     await hydrateTmdb(env, job);
+    if (media.type === "anime" || media.original_language === "ja" || media.subtype === "anime_series") {
+      try {
+        await hydrateJikan(env, { ...job, provider: "jikan", provider_code: "jikan" });
+      } catch {}
+    }
   } else if (provider === "igdb") {
     await hydrateIgdb(env, job);
   } else if (provider === "openlibrary") {
     await hydrateOpenLibrary(env, job);
-  } else if (provider === "jikan") {
+  } else if (provider === "jikan" || provider === "anilist") {
     await hydrateJikan(env, job);
   } else if (provider === "rawg") {
     await hydrateRawg(env, job);
@@ -678,80 +692,152 @@ async function hydrateJikan(env: Env, job: any) {
   if (!media) throw new Error("Media not found");
 
   const results = await jikanSearchAnime(env, media.title, 1);
-  if (!results || results.length === 0) return;
-  const anime = results[0];
-  const malId = anime.mal_id;
+  const anime = results && results.length > 0 ? results[0] : null;
+  const malId = anime?.mal_id ?? null;
 
-  const characters = await jikanAnimeCharacters(env, malId);
-  const episodes = await jikanAnimeEpisodes(env, malId);
+  // Attempt to fetch AniList data for richer multi-language voice cast
+  let anilistMedia: any = null;
+  if (malId) {
+    try {
+      anilistMedia = await anilistFetchMediaByIdMal(env, malId);
+    } catch {}
+  }
+  if (!anilistMedia) {
+    try {
+      const anilistResults = await anilistSearchAnime(env, media.title, 1);
+      anilistMedia = anilistResults[0] ?? null;
+    } catch {}
+  }
+
+  const [characters, episodes] = await Promise.all([
+    malId ? jikanAnimeCharacters(env, malId).catch(() => []) : Promise.resolve([]),
+    malId ? jikanAnimeEpisodes(env, malId).catch(() => []) : Promise.resolve([]),
+  ]);
 
   // Extract details
-  const studios = (anime.studios || []).map((s: any) => ({ name: s.name, url: s.url }));
-  const jikanRating = anime.score;
-  const broadcast = anime.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
-  const status = anime.status;
+  const studios = (anime?.studios || anilistMedia?.studios?.nodes || []).map((s: any) => ({ name: s.name, url: s.url }));
+  const jikanRating = anime?.score || (anilistMedia?.averageScore ? anilistMedia.averageScore / 10 : null);
+  const broadcast = anime?.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
+  const status = anime?.status || anilistMedia?.status || "FINISHED";
   const languages = ["Japanese"];
 
-  // Extract characters & cast
+  // Extract characters & cast from AniList + Jikan
   const charactersList: any[] = [];
-  const jikanCast = characters.map((c: any) => {
-     const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
-     const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
-     if (vaEn) languages.push("English");
+  const japaneseCast: any[] = [];
+  const dubCast: any[] = [];
 
-     const charItem = {
-       id: String(c.character?.mal_id || ""),
-       name: c.character?.name || "Unknown Character",
-       image: c.character?.images?.jpg?.image_url || null,
-       role: c.role === "Main" ? "Main" : "Supporting",
-       subVoiceActor: vaJp ? { id: String(vaJp.mal_id), name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
-       dubVoiceActor: vaEn ? { id: String(vaEn.mal_id), name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
-     };
-     if (charItem.id && charItem.name) charactersList.push(charItem);
+  if (anilistMedia?.characters?.edges) {
+    for (const edge of anilistMedia.characters.edges) {
+      const node = edge.node;
+      const jpVa = edge.voiceActors?.find((va: any) => va.languageV2 === "Japanese" || va.language === "Japanese");
+      const enVa = edge.voiceActors?.find((va: any) => va.languageV2 === "English" || va.language === "English");
+      if (enVa) languages.push("English");
+      edge.voiceActors?.forEach((va: any) => {
+        if (va.languageV2 && va.languageV2 !== "Japanese") languages.push(va.languageV2);
+      });
 
-     return {
-       character: { id: c.character?.mal_id, name: c.character?.name, image: c.character?.images?.jpg?.image_url },
-       japaneseCast: vaJp ? { id: vaJp.mal_id, name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
-       englishCast: vaEn ? { id: vaEn.mal_id, name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
-     };
-  }).slice(0, 24);
+      charactersList.push({
+        id: String(node.id),
+        name: node.name.full,
+        nativeName: node.name.native,
+        image: node.image?.large || null,
+        role: edge.role === "MAIN" ? "Main" : "Supporting",
+        subVoiceActor: jpVa ? { id: String(jpVa.id), name: jpVa.name.full, image: jpVa.image?.large } : null,
+        dubVoiceActor: enVa ? { id: String(enVa.id), name: enVa.name.full, image: enVa.image?.large } : null,
+      });
+
+      if (jpVa && !japaneseCast.some((c) => c.name === jpVa.name.full)) {
+        japaneseCast.push({
+          id: String(jpVa.id),
+          name: jpVa.name.full,
+          role: node.name.full,
+          profilePath: jpVa.image?.large || null,
+        });
+      }
+
+      if (enVa && !dubCast.some((c) => c.name === enVa.name.full)) {
+        dubCast.push({
+          id: String(enVa.id),
+          name: enVa.name.full,
+          role: node.name.full,
+          profilePath: enVa.image?.large || null,
+        });
+      }
+    }
+  }
+
+  // If AniList lacked voice actors, fallback to Jikan characters
+  if (charactersList.length === 0 && characters.length > 0) {
+    for (const c of characters) {
+      const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
+      const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
+      if (vaEn) languages.push("English");
+
+      const charItem = {
+        id: String(c.character?.mal_id || ""),
+        name: c.character?.name || "Unknown Character",
+        image: c.character?.images?.jpg?.image_url || null,
+        role: c.role === "Main" ? "Main" : "Supporting",
+        subVoiceActor: vaJp ? { id: String(vaJp.mal_id), name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
+        dubVoiceActor: vaEn ? { id: String(vaEn.mal_id), name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
+      };
+      if (charItem.id && charItem.name) charactersList.push(charItem);
+
+      if (vaJp && !japaneseCast.some((v) => v.name === vaJp.name)) {
+        japaneseCast.push({
+          id: String(vaJp.mal_id),
+          name: vaJp.name,
+          role: c.character?.name,
+          profilePath: vaJp.images?.jpg?.image_url,
+        });
+      }
+      if (vaEn && !dubCast.some((v) => v.name === vaEn.name)) {
+        dubCast.push({
+          id: String(vaEn.mal_id),
+          name: vaEn.name,
+          role: c.character?.name,
+          profilePath: vaEn.images?.jpg?.image_url,
+        });
+      }
+    }
+  }
 
   const uniqueLanguages = Array.from(new Set(languages));
-  const hasDub = uniqueLanguages.includes("English");
-  const isMovie = anime.type === "Movie" || media.type === "movie";
+  const hasDub = Boolean(
+    dubCast.length > 0 ||
+    uniqueLanguages.includes("English") ||
+    anime?.licensors?.length > 0 ||
+    anime?.streaming?.some((s: any) => /crunchyroll|funimation|netflix|hulu/i.test(s.name || ""))
+  );
+  const isMovie = anime?.type === "Movie" || anilistMedia?.format === "MOVIE" || media.type === "movie";
 
   const titles = {
-    english: anime.title_english || null,
-    romaji: anime.title || null,
-    native: anime.title_japanese || null,
-    synonyms: anime.title_synonyms || [],
+    english: anime?.title_english || anilistMedia?.title?.english || null,
+    romaji: anime?.title || anilistMedia?.title?.romaji || null,
+    native: anime?.title_japanese || anilistMedia?.title?.native || null,
+    synonyms: anime?.title_synonyms || [],
   };
 
-  const existingExtended = JSON.parse(media.extended_data_json || "{}");
-
-  const japaneseCast = jikanCast.map((c) => ({
-    id: c.japaneseCast?.id || c.character?.id,
-    name: c.japaneseCast?.name || "Unknown VA",
-    role: c.character?.name,
-    profilePath: c.japaneseCast?.image || c.character?.image,
-  })).filter((c) => c.id);
-
-  const dubCast = jikanCast.filter((c) => c.englishCast).map((c) => ({
-    id: c.englishCast?.id,
-    name: c.englishCast?.name || "Unknown VA",
-    role: c.character?.name,
-    profilePath: c.englishCast?.image || c.character?.image,
-  }));
+  let existingExtended: any = {};
+  try {
+    existingExtended = JSON.parse(media.extended_data_json || "{}");
+  } catch {
+    existingExtended = {};
+  }
 
   existingExtended.category = "anime";
   existingExtended.animeFormat = isMovie ? "movie" : "series";
   existingExtended.hasDub = hasDub;
+  existingExtended.dubAvailable = hasDub;
   existingExtended.originalLanguage = "Japanese";
+  existingExtended.audioLanguages = uniqueLanguages;
   existingExtended.anime = {
-    malId,
-    studios,
+    ...(existingExtended.anime || {}),
+    malId: malId || existingExtended.anime?.malId,
+    anilistId: anilistMedia?.id ? Number(anilistMedia.id) : existingExtended.anime?.anilistId,
+    studios: studios.length > 0 ? studios : existingExtended.anime?.studios || [],
     titles,
-    characters: charactersList.slice(0, 16),
+    characters: charactersList.slice(0, 24),
     malRating: jikanRating,
     broadcast,
     status,
@@ -760,13 +846,15 @@ async function hydrateJikan(env: Env, job: any) {
     hasDub,
     japaneseCast,
     dubCast,
-    episodes: episodes.slice(0, 36).map((e: any) => ({
+    episodes: episodes.slice(0, 50).map((e: any) => ({
       title: e.title,
       titleJapanese: e.title_japanese,
       titleRomaji: e.title_romanji,
       aired: e.aired,
       filler: Boolean(e.filler),
       recap: Boolean(e.recap),
+      hasDub,
+      dubAirDate: e.aired && hasDub ? new Date(new Date(e.aired).getTime() + 21 * 86400000).toISOString().slice(0, 10) : null,
     })),
   };
 
@@ -774,23 +862,40 @@ async function hydrateJikan(env: Env, job: any) {
   await runD1("update hydrated anime with jikan", db.prepare(`UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?`)
     .bind(JSON.stringify(existingExtended), now, media.id).run());
 
-  // Update episodes in DB with Japanese/Romaji titles and filler/recap flags if present
-  for (let i = 0; i < episodes.length; i++) {
-    const ep = episodes[i];
-    const epNum = ep.mal_id || (i + 1);
-    const epExt = JSON.stringify({
-      titleJapanese: ep.title_japanese || null,
-      titleRomaji: ep.title_romanji || null,
-      filler: Boolean(ep.filler),
-      recap: Boolean(ep.recap),
-    });
+  // Update all episodes in DB with Japanese/Romaji titles, filler/recap flags, and calculated dubAirDate
+  const dbEpisodes = await db.prepare("SELECT id, season_number, episode_number, air_date, extended_data_json FROM episodes WHERE media_id = ?")
+    .bind(media.id).all<any>();
+
+  for (const epRow of dbEpisodes.results || []) {
+    let epExt: any = {};
+    try {
+      epExt = JSON.parse(epRow.extended_data_json || "{}");
+    } catch {
+      epExt = {};
+    }
+
+    const matchedJikan = episodes.find((e: any) => e.mal_id === epRow.episode_number || (epRow.season_number === 1 && e.mal_id === epRow.episode_number));
+    const airDate = epRow.air_date || (matchedJikan?.aired ? matchedJikan.aired.slice(0, 10) : null);
+    const dubAirDate = airDate && hasDub ? new Date(new Date(airDate).getTime() + 21 * 86400000).toISOString().slice(0, 10) : (epExt.dubAirDate || null);
+
+    const updatedEpExt = {
+      ...epExt,
+      titleJapanese: matchedJikan?.title_japanese || epExt.titleJapanese || null,
+      titleRomaji: matchedJikan?.title_romanji || epExt.titleRomaji || null,
+      filler: matchedJikan ? Boolean(matchedJikan.filler) : Boolean(epExt.filler),
+      recap: matchedJikan ? Boolean(matchedJikan.recap) : Boolean(epExt.recap),
+      hasDub,
+      dubAirDate,
+      dubStatus: hasDub ? "Available" : null,
+    };
+
     try {
       await db.prepare(`UPDATE episodes SET
         name = COALESCE(name, ?),
         air_date = COALESCE(air_date, ?),
         extended_data_json = ?
-        WHERE media_id = ? AND episode_number = ?`)
-        .bind(ep.title || null, ep.aired ? ep.aired.slice(0, 10) : null, epExt, media.id, epNum)
+        WHERE id = ?`)
+        .bind(matchedJikan?.title || null, airDate, JSON.stringify(updatedEpExt), epRow.id)
         .run();
     } catch {}
   }

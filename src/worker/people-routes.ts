@@ -33,7 +33,7 @@ export function createPeopleRoutes() {
       if (!key) return apiError(c, 503, "server_error", "Person profiles are temporarily unavailable.");
 
       const cacheKey = `person:${id}`;
-      const cached = await c.env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider = 'tmdb' AND cache_key = ?")
+      const cached = await c.env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE (provider_code = 'tmdb' OR provider = 'tmdb') AND cache_key = ?")
         .bind(cacheKey)
         .first<{ response_json: string; expires_at: string }>()
         .catch((error) => {
@@ -89,9 +89,9 @@ export function createPeopleRoutes() {
 
       const now = new Date();
       const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
-      c.executionCtx.waitUntil(c.env.DB.prepare(`INSERT INTO provider_cache (id, provider, cache_key, response_json, status, fetched_at, expires_at, attribution_json)
-        VALUES (?, 'tmdb', ?, ?, ?, ?, ?, NULL)
-        ON CONFLICT(provider, cache_key) DO UPDATE SET response_json=excluded.response_json, status=excluded.status, fetched_at=excluded.fetched_at, expires_at=excluded.expires_at`)
+      c.executionCtx.waitUntil(c.env.DB.prepare(`INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+        VALUES (?, 'tmdb', ?, ?, ?, ?, ?)
+        ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json=excluded.response_json, http_status=excluded.http_status, fetched_at=excluded.fetched_at, expires_at=excluded.expires_at`)
         .bind(`pc_tmdb_person_${id}`, cacheKey, JSON.stringify(payload), response.status, now.toISOString(), expires.toISOString())
         .run()
         .catch((error) => console.error(`Person cache write failed for ${id}:`, error)));

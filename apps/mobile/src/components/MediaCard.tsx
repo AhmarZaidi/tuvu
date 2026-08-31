@@ -58,6 +58,8 @@ export function MediaCard({
     ? `S${item.nextEpisode.seasonNumber} E${item.nextEpisode.episodeNumber}`
     : null;
   const displayYear = item.year ? String(item.year) : '';
+  const isAnime = item.type === 'anime' || (item as any).category === 'anime';
+  const formatLabel = item.animeFormat === 'movie' || item.type === 'movie' ? 'MOVIE' : 'SERIES';
 
   const handleQuickWatch = async () => {
     if (!item.nextEpisode?.id || !onMarkNext) return;
@@ -95,7 +97,18 @@ export function MediaCard({
           {/* Body */}
           <View style={styles.compactBody}>
             <Text style={styles.compactTitle} numberOfLines={1}>{item.title}</Text>
-            <Text style={styles.compactMeta}>{nextLabel ?? displayYear}</Text>
+            <View style={styles.metaRowCompact}>
+              <Text style={styles.compactMeta}>{nextLabel ?? displayYear}</Text>
+              {isAnime && (
+                <View style={styles.formatIconWrapCompact}>
+                  <Ionicons
+                    name={formatLabel === 'MOVIE' ? 'film-outline' : 'tv-outline'}
+                    size={10}
+                    color="#ffcf5c"
+                  />
+                </View>
+              )}
+            </View>
             <StatusBadge label={formatStatus(item.status)} tone={resolveStatusTone(item.status)} />
           </View>
         </Pressable>
@@ -176,11 +189,22 @@ export function MediaCard({
           <Text style={styles.overlayTitle} numberOfLines={2}>
             {item.title}
           </Text>
-          {displayYear ? (
-            <View style={styles.yearChip}>
-              <Text style={styles.yearChipText}>{displayYear}</Text>
-            </View>
-          ) : null}
+          <View style={styles.bottomMetaRow}>
+            {displayYear ? (
+              <View style={styles.yearChip}>
+                <Text style={styles.yearChipText}>{displayYear}</Text>
+              </View>
+            ) : null}
+            {isAnime && (
+              <View style={styles.formatIconWrap}>
+                <Ionicons
+                  name={formatLabel === 'MOVIE' ? 'film-outline' : 'tv-outline'}
+                  size={11}
+                  color="#ffcf5c"
+                />
+              </View>
+            )}
+          </View>
         </LinearGradient>
       </Pressable>
 
@@ -396,5 +420,36 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginTop: 4,
     gap: 4,
+  },
+  bottomMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 2,
+  },
+  metaRowCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  formatIconWrap: {
+    backgroundColor: 'rgba(255, 207, 92, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.35)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  formatIconWrapCompact: {
+    backgroundColor: 'rgba(255, 207, 92, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.35)',
+    paddingHorizontal: 3.5,
+    paddingVertical: 1.5,
+    borderRadius: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

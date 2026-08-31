@@ -481,20 +481,38 @@ async function fetchMediaNews(env: Env, apiKey: string, title: string) {
 async function readCachedMediaNews(env: Env, title: string) {
   if (!env.DB) return [];
   const safeTitle = title.slice(0, 120).replaceAll('"', "").trim().toLowerCase();
-  const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
-    WHERE provider = 'newsapi' AND cache_key IN (?, ?)
-    ORDER BY fetched_at DESC
-    LIMIT 2`)
-    .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
-    .all<{ response_json: string }>();
-  for (const row of rows.results ?? []) {
-    try {
-      const parsed = JSON.parse(row.response_json) as NewsApiResponse;
-      const articles = normalizeNewsArticles(parsed);
-      if (articles.length) return articles;
-    } catch {
-      // Try the next cached row.
+  try {
+    const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
+      WHERE (provider_code = 'newsapi' OR provider = 'newsapi') AND cache_key IN (?, ?)
+      ORDER BY fetched_at DESC
+      LIMIT 2`)
+      .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
+      .all<{ response_json: string }>();
+    for (const row of rows.results ?? []) {
+      try {
+        const parsed = JSON.parse(row.response_json) as NewsApiResponse;
+        const articles = normalizeNewsArticles(parsed);
+        if (articles.length) return articles;
+      } catch {
+        // Try the next cached row.
+      }
     }
+  } catch {
+    try {
+      const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
+        WHERE cache_key IN (?, ?)
+        ORDER BY fetched_at DESC
+        LIMIT 2`)
+        .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
+        .all<{ response_json: string }>();
+      for (const row of rows.results ?? []) {
+        try {
+          const parsed = JSON.parse(row.response_json) as NewsApiResponse;
+          const articles = normalizeNewsArticles(parsed);
+          if (articles.length) return articles;
+        } catch {}
+      }
+    } catch {}
   }
   return [];
 }

@@ -21,6 +21,21 @@ interface SeasonAccordionProps {
   progressComponent?: React.ReactNode;
 }
 
+function releaseStatus(airDate: string | null): { kind: 'released' | 'future' | 'tba'; label: string } {
+  if (!airDate) return { kind: 'tba', label: 'TBA' };
+  const release = new Date(`${airDate}T00:00:00`);
+  if (Number.isNaN(release.getTime())) return { kind: 'tba', label: 'TBA' };
+  const diff = release.getTime() - Date.now();
+  if (diff <= 0) return { kind: 'released', label: 'Released' };
+  const minutes = Math.ceil(diff / 60_000);
+  if (minutes < 60) return { kind: 'future', label: `in ${minutes}m` };
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 48) return { kind: 'future', label: `in ${hours}h` };
+  const days = Math.ceil(hours / 24);
+  if (days < 60) return { kind: 'future', label: `in ${days}d` };
+  return { kind: 'future', label: `in ${Math.ceil(days / 30)}mo` };
+}
+
 export function SeasonAccordion({
   mediaId,
   mediaTitle,
@@ -31,12 +46,23 @@ export function SeasonAccordion({
   const router = useRouter();
   // Collapsed by default: expandedSeasons starts empty
   const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set([1]));
+  const [dateMode, setDateMode] = useState<'sub' | 'dub'>('sub');
   const [busyEpisodeId, setBusyEpisodeId] = useState<string | null>(null);
   const [watchActionTarget, setWatchActionTarget] = useState<
     | { type: 'episode'; episode: EpisodeWithActivity }
     | { type: 'season'; seasonNumber: number; seasonName: string }
     | null
   >(null);
+
+  const showDubToggle = useMemo(() => {
+    return episodes.some((ep) => {
+      let epExt: any = {};
+      try {
+        if (ep.extendedDataJson) epExt = JSON.parse(ep.extendedDataJson);
+      } catch {}
+      return Boolean(epExt.dubAirDate || epExt.dubAired || (ep as any).dubReleaseAt || epExt.hasDub);
+    });
+  }, [episodes]);
 
   const seasonsMap = useMemo(() => {
     const map = new Map<number, EpisodeWithActivity[]>();
@@ -109,8 +135,33 @@ export function SeasonAccordion({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.eyebrow}>EPISODE GUIDE</Text>
-      <Text style={styles.heading}>Seasons & Episodes</Text>
+      <View style={styles.headingRow}>
+        <View>
+          <Text style={styles.eyebrow}>EPISODE GUIDE</Text>
+          <Text style={styles.heading}>Seasons & Episodes</Text>
+        </View>
+        {showDubToggle && (
+          <View style={styles.dateModeToggle}>
+            <Pressable
+              style={[styles.dateModeOption, dateMode === 'sub' && styles.dateModeOptionActive]}
+              onPress={() => setDateMode('sub')}
+            >
+              <Text style={[styles.dateModeText, dateMode === 'sub' && styles.dateModeTextActive]}>
+                Sub Dates
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.dateModeOption, dateMode === 'dub' && styles.dateModeOptionActive]}
+              onPress={() => setDateMode('dub')}
+            >
+              <Text style={[styles.dateModeText, dateMode === 'dub' && styles.dateModeTextActive]}>
+                Dub Dates
+              </Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+
       <Text style={styles.subheading}>
         {totalWatched} of {totalEpisodes || episodes.length} available watched
       </Text>
@@ -208,6 +259,23 @@ export function SeasonAccordion({
                         ep.episodeNumber
                       ).padStart(2, '0')}`;
 
+                      let epExt: any = {};
+                      try {
+                        if (ep.extendedDataJson) epExt = JSON.parse(ep.extendedDataJson);
+                      } catch {}
+
+                      const altTitle = epExt.titleRomaji || epExt.titleJapanese;
+                      const isFiller = Boolean(epExt.filler);
+                      const isRecap = Boolean(epExt.recap);
+
+                      const effectiveAirDate = dateMode === 'dub'
+                        ? (epExt.dubAirDate || epExt.dubAired || (ep as any).dubReleaseAt || ep.airDate)
+                        : ep.airDate;
+                      const release = releaseStatus(effectiveAirDate);
+                      const formattedDate = effectiveAirDate
+                        ? new Date(effectiveAirDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : null;
+
                       return (
                         <Pressable
                           key={ep.id}
@@ -224,66 +292,63 @@ export function SeasonAccordion({
                           )}
 
                           {/* Title & Code */}
-                          {(() => {
-                            let epExt: any = {};
-                            try {
-                              if (ep.extendedDataJson) epExt = JSON.parse(ep.extendedDataJson);
-                            } catch {}
-
-                            const altTitle = epExt.titleRomaji || epExt.titleJapanese;
-                            const isFiller = Boolean(epExt.filler);
-                            const isRecap = Boolean(epExt.recap);
-
-                            return (
-                              <View style={styles.episodeMeta}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                  <Text style={styles.episodeCode}>{epCode}</Text>
-                                  {isFiller && (
-                                    <View style={styles.fillerBadge}>
-                                      <Text style={styles.fillerBadgeText}>FILLER</Text>
-                                    </View>
-                                  )}
-                                  {isRecap && (
-                                    <View style={styles.recapBadge}>
-                                      <Text style={styles.recapBadgeText}>RECAP</Text>
-                                    </View>
-                                  )}
+                          <View style={styles.episodeMeta}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.episodeCode}>{epCode}</Text>
+                              {formattedDate && (
+                                <Text style={styles.episodeDateText}>• {formattedDate}</Text>
+                              )}
+                              {isFiller && (
+                                <View style={styles.fillerBadge}>
+                                  <Text style={styles.fillerBadgeText}>FILLER</Text>
                                 </View>
-                                <Text
-                                  style={styles.episodeTitle}
-                                  numberOfLines={1}
-                                  ellipsizeMode="tail"
-                                >
-                                  {ep.title || `Episode ${ep.episodeNumber}`}
-                                </Text>
-                                {altTitle && altTitle !== ep.title && (
-                                  <Text style={styles.episodeAltTitle} numberOfLines={1}>
-                                    {altTitle}
-                                  </Text>
-                                )}
-                              </View>
-                            );
-                          })()}
-
-                          {/* Watched Toggle Circle with x2/x3 badge support */}
-                          <Pressable
-                            style={[styles.episodeCheckCircle, isWatched && styles.episodeCheckCircleWatched]}
-                            onPress={() => handlePressEpisodeCheck(ep)}
-                            disabled={isBusy}
-                            hitSlop={6}
-                          >
-                            {isBusy ? (
-                              <ActivityIndicator size="small" color="#101112" />
-                            ) : epWatchCount > 1 ? (
-                              <Text style={styles.rewatchBadgeText}>x{epWatchCount}</Text>
-                            ) : (
-                              <Ionicons
-                                name="checkmark"
-                                size={16}
-                                color={isWatched ? '#101112' : '#8b8e89'}
-                              />
+                              )}
+                              {isRecap && (
+                                <View style={styles.recapBadge}>
+                                  <Text style={styles.recapBadgeText}>RECAP</Text>
+                                </View>
+                              )}
+                            </View>
+                            <Text
+                              style={styles.episodeTitle}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
+                              {ep.title || `Episode ${ep.episodeNumber}`}
+                            </Text>
+                            {altTitle && altTitle !== ep.title && (
+                              <Text style={styles.episodeAltTitle} numberOfLines={1}>
+                                {altTitle}
+                              </Text>
                             )}
-                          </Pressable>
+                          </View>
+
+                          {/* Watched Action Circle OR Countdown Pill */}
+                          {isWatched || release.kind === 'released' || release.kind === 'tba' ? (
+                            <Pressable
+                              style={[styles.episodeCheckCircle, isWatched && styles.episodeCheckCircleWatched]}
+                              onPress={() => handlePressEpisodeCheck(ep)}
+                              disabled={isBusy}
+                              hitSlop={6}
+                            >
+                              {isBusy ? (
+                                <ActivityIndicator size="small" color="#101112" />
+                              ) : epWatchCount > 1 ? (
+                                <Text style={styles.rewatchBadgeText}>x{epWatchCount}</Text>
+                              ) : (
+                                <Ionicons
+                                  name="checkmark"
+                                  size={16}
+                                  color={isWatched ? '#101112' : '#8b8e89'}
+                                />
+                              )}
+                            </Pressable>
+                          ) : (
+                            <View style={styles.countdownBadge}>
+                              <Ionicons name="time-outline" size={11} color="#ffcf5c" />
+                              <Text style={styles.countdownBadgeText}>{release.label}</Text>
+                            </View>
+                          )}
 
                           {/* Navigation Chevron */}
                           <Ionicons
@@ -619,6 +684,59 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  headingRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  dateModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  dateModeOption: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  dateModeOptionActive: {
+    backgroundColor: 'rgba(255, 207, 92, 0.2)',
+  },
+  dateModeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#8b8e89',
+  },
+  dateModeTextActive: {
+    color: '#ffcf5c',
+    fontWeight: '800',
+  },
+  episodeDateText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#aeb1ac',
+    marginBottom: 2,
+  },
+  countdownBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 207, 92, 0.1)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 207, 92, 0.25)',
+  },
+  countdownBadgeText: {
+    color: '#ffcf5c',
+    fontSize: 10,
+    fontWeight: '800',
   },
   episodeAltTitle: {
     color: '#aeb1ac',

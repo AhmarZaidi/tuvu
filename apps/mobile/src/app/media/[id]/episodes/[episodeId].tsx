@@ -208,6 +208,20 @@ export default function EpisodeDetailsScreen() {
       })
     : null;
 
+  const isFiller = Boolean(ext.isFiller || ext.filler || ext.animeEpisode?.isFiller);
+  const isRecap = Boolean(ext.isRecap || ext.recap || ext.animeEpisode?.isRecap);
+  const romajiTitle = ext.titleRomaji || ext.title_romanji || ext.animeEpisode?.titleRomaji || null;
+  const japaneseTitle = ext.titleJapanese || ext.title_japanese || null;
+  const dubAirDate = ext.dubAirDate || ext.dubAired || (episode as any).dubReleaseAt || ext.animeEpisode?.dubAirDate || null;
+  const hasDub = Boolean(ext.hasDub || ext.dubAvailable || ext.animeEpisode?.dubAvailable || dubAirDate);
+  const formattedDubDate = dubAirDate
+    ? new Date(dubAirDate).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      })
+    : null;
+
   return (
     <View style={styles.container}>
       <GoldenGlow />
@@ -225,10 +239,27 @@ export default function EpisodeDetailsScreen() {
 
         {/* 2. Show Name, Episode Name & Synopsis Header */}
         <View style={styles.headerSection}>
-          <Text style={styles.showNameEyebrow}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
+          <View style={styles.showNameRow}>
+            <Text style={styles.showNameEyebrow}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
+            {isFiller && (
+              <View style={styles.fillerBadge}>
+                <Text style={styles.fillerBadgeText}>FILLER</Text>
+              </View>
+            )}
+            {isRecap && (
+              <View style={styles.recapBadge}>
+                <Text style={styles.recapBadgeText}>RECAP</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.episodeTitle}>
             {episode.title || episode.name || `Episode ${episode.episodeNumber}`}
           </Text>
+          {romajiTitle && romajiTitle !== episode.title && (
+            <Text style={styles.episodeSubtitleRomaji}>
+              {romajiTitle} {japaneseTitle ? `(${japaneseTitle})` : ''}
+            </Text>
+          )}
 
           {overview ? (
             <View style={styles.synopsisWrap}>
@@ -300,6 +331,15 @@ export default function EpisodeDetailsScreen() {
             <View style={styles.metaChip}>
               <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
               <Text style={styles.metaChipText}>{formattedAirDate}</Text>
+            </View>
+          )}
+
+          {(formattedDubDate || hasDub) && (
+            <View style={[styles.metaChip, styles.dubMetaChip]}>
+              <Ionicons name="volume-high-outline" size={13} color="#22c55e" />
+              <Text style={[styles.metaChipText, { color: '#22c55e' }]}>
+                {formattedDubDate ? `Dub: ${formattedDubDate}` : 'Dub Available'}
+              </Text>
             </View>
           )}
 
@@ -602,12 +642,56 @@ const styles = StyleSheet.create({
   headerSection: {
     marginBottom: 14,
   },
+  showNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   showNameEyebrow: {
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.9,
     color: theme.colors.accent,
-    marginBottom: 4,
+  },
+  fillerBadge: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  fillerBadgeText: {
+    color: '#ef4444',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  recapBadge: {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.4)',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  recapBadgeText: {
+    color: '#3b82f6',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  episodeSubtitleRomaji: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: '#aeb1ac',
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  dubMetaChip: {
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+    backgroundColor: 'rgba(34, 197, 94, 0.08)',
   },
   episodeTitle: {
     fontSize: 24,

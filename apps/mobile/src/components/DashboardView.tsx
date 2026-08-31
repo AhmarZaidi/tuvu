@@ -97,22 +97,27 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     return sections.find((s) => s.id === activeSectionId) || sections[0];
   }, [sections, activeSectionId, data, title]);
 
+function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
+  if (item.animeFormat) return item.animeFormat;
+  if (item.type === 'movie') return 'movie';
+  if (item.extendedDataJson) {
+    try {
+      const ext = JSON.parse(item.extendedDataJson);
+      if (ext.animeFormat === 'movie' || ext.anime?.format === 'MOVIE' || ext.format === 'MOVIE') return 'movie';
+      if (ext.animeFormat === 'series') return 'series';
+    } catch {}
+  }
+  const hasZeroEpisodes = item.totalRegularEpisodes === 0 || item.totalRegularEpisodes === null;
+  if (item.type === 'anime' && hasZeroEpisodes && !item.nextEpisode) return 'movie';
+  return 'series';
+}
+
   // Filter & Sort entries for single-section Grid Mode
   const displayedEntries = useMemo(() => {
     let list = [...(currentSection?.entries || [])];
 
     if (kind === 'anime' && formatFilter !== 'all') {
-      list = list.filter((item) => {
-        let fmt = item.animeFormat;
-        if (!fmt && item.extendedDataJson) {
-          try {
-            const ext = JSON.parse(item.extendedDataJson);
-            fmt = ext.animeFormat || (ext.category === 'anime' && item.type === 'movie' ? 'movie' : 'series');
-          } catch {}
-        }
-        if (!fmt) fmt = item.type === 'movie' ? 'movie' : 'series';
-        return fmt === formatFilter;
-      });
+      list = list.filter((item) => resolveAnimeFormat(item) === formatFilter);
     }
 
     if (search.trim()) {
@@ -142,17 +147,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
       .map((sec) => {
         let entries = [...(sec.entries || [])];
         if (kind === 'anime' && formatFilter !== 'all') {
-          entries = entries.filter((item) => {
-            let fmt = item.animeFormat;
-            if (!fmt && item.extendedDataJson) {
-              try {
-                const ext = JSON.parse(item.extendedDataJson);
-                fmt = ext.animeFormat || (ext.category === 'anime' && item.type === 'movie' ? 'movie' : 'series');
-              } catch {}
-            }
-            if (!fmt) fmt = item.type === 'movie' ? 'movie' : 'series';
-            return fmt === formatFilter;
-          });
+          entries = entries.filter((item) => resolveAnimeFormat(item) === formatFilter);
         }
         if (search.trim()) {
           const q = search.trim().toLowerCase();

@@ -39,7 +39,7 @@ export function createCharacterRoutes() {
       const cacheKey = `char:${id}`;
       if (c.env.DB) {
         const cached = await c.env.DB.prepare(
-          "SELECT response_json, expires_at FROM provider_cache WHERE provider = 'anilist' AND cache_key = ?"
+          "SELECT response_json, expires_at FROM provider_cache WHERE (provider_code = 'anilist' OR provider = 'anilist') AND cache_key = ?"
         )
           .bind(cacheKey)
           .first<{ response_json: string; expires_at: string }>()
@@ -89,11 +89,11 @@ export function createCharacterRoutes() {
               if (c.env.DB) {
                 const expiresAt = new Date(Date.now() + 604800000).toISOString();
                 await c.env.DB.prepare(
-                  `INSERT INTO provider_cache (provider, cache_key, response_json, status_code, expires_at, created_at)
-                   VALUES ('jikan', ?, ?, 200, ?, datetime('now'))
-                   ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at`
+                  `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+                   VALUES (?, 'jikan', ?, ?, 200, datetime('now'), ?)
+                   ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at`
                 )
-                  .bind(cacheKey, JSON.stringify(payload), expiresAt)
+                  .bind(`pc_jikan_char_${id}`, cacheKey, JSON.stringify(payload), expiresAt)
                   .run()
                   .catch(() => {});
               }
@@ -139,11 +139,11 @@ export function createCharacterRoutes() {
       if (c.env.DB) {
         const expiresAt = new Date(Date.now() + 604800000).toISOString();
         await c.env.DB.prepare(
-          `INSERT INTO provider_cache (provider, cache_key, response_json, status_code, expires_at, created_at)
-           VALUES ('anilist', ?, ?, 200, ?, datetime('now'))
-           ON CONFLICT(provider, cache_key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at`
+          `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+           VALUES (?, 'anilist', ?, ?, 200, datetime('now'), ?)
+           ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json = excluded.response_json, expires_at = excluded.expires_at`
         )
-          .bind(cacheKey, JSON.stringify(payload), expiresAt)
+          .bind(`pc_anilist_char_${id}`, cacheKey, JSON.stringify(payload), expiresAt)
           .run()
           .catch(() => {});
       }

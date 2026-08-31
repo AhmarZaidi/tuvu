@@ -42,6 +42,7 @@ export async function anilistSearchAnime(env: Env, query: string, limit = 8, use
           }
           format
           status
+          description
           episodes
           duration
           seasonYear
@@ -76,7 +77,7 @@ export async function anilistSearchAnime(env: Env, query: string, limit = 8, use
                   large
                 }
               }
-              voiceActors(language: JAPANESE) {
+              voiceActors {
                 id
                 name {
                   full
@@ -227,25 +228,59 @@ function normalizeAnilistAnime(record: any): ProviderResult | null {
   const isMovie = record.format === "MOVIE";
   const studios = (record.studios?.nodes || []).map((s: any) => ({ name: s.name }));
 
-  const characters = (record.characters?.edges || []).map((edge: any) => {
+  const cleanOverview = record.description
+    ? record.description.replace(/<[^>]*>/g, "").replace(/\n+/g, " ").trim()
+    : null;
+
+  const characters: any[] = [];
+  const japaneseCast: any[] = [];
+  const dubCast: any[] = [];
+
+  for (const edge of record.characters?.edges || []) {
     const node = edge.node;
+    if (!node?.id || !node?.name?.full) continue;
+
     const jaVa = edge.voiceActors?.find((va: any) => va.languageV2 === "Japanese" || !va.languageV2);
-    return {
-      id: node?.id ? String(node.id) : null,
-      name: node?.name?.full,
-      nativeName: node?.name?.native,
-      image: node?.image?.large,
+    const enVa = edge.voiceActors?.find((va: any) => va.languageV2 === "English");
+
+    const charItem = {
+      id: String(node.id),
+      name: node.name.full,
+      nativeName: node.name.native || null,
+      image: node.image?.large || null,
       role: edge.role === "MAIN" ? "Main" : "Supporting",
       subVoiceActor: jaVa ? { id: String(jaVa.id), name: jaVa.name?.full, image: jaVa.image?.large } : null,
+      dubVoiceActor: enVa ? { id: String(enVa.id), name: enVa.name?.full, image: enVa.image?.large } : null,
     };
-  }).filter((c: any) => c.id && c.name);
+    characters.push(charItem);
+
+    if (jaVa) {
+      japaneseCast.push({
+        id: String(jaVa.id),
+        name: jaVa.name?.full || "Unknown VA",
+        role: node.name.full,
+        profilePath: jaVa.image?.large || node.image?.large || null,
+      });
+    }
+
+    if (enVa) {
+      dubCast.push({
+        id: String(enVa.id),
+        name: enVa.name?.full || "Unknown VA",
+        role: node.name.full,
+        profilePath: enVa.image?.large || node.image?.large || null,
+      });
+    }
+  }
+
+  const hasDub = dubCast.length > 0;
 
   return {
     provider: "anilist",
     providerId: id,
     type: "anime",
     title,
-    overview: null,
+    overview: cleanOverview,
     posterPath: poster,
     backdropPath: backdrop,
     releaseDate,
@@ -257,6 +292,7 @@ function normalizeAnilistAnime(record: any): ProviderResult | null {
     extendedDataJson: JSON.stringify({
       category: "anime",
       animeFormat: isMovie ? "movie" : "series",
+      hasDub,
       originalLanguage: "Japanese",
       anime: {
         anilistId: Number(id),
@@ -266,7 +302,10 @@ function normalizeAnilistAnime(record: any): ProviderResult | null {
         status: record.status,
         episodesCount: record.episodes,
         format: record.format,
+        hasDub,
         characters,
+        japaneseCast,
+        dubCast,
         titles: {
           english: record.title?.english,
           romaji: record.title?.romaji,
@@ -277,3 +316,84 @@ function normalizeAnilistAnime(record: any): ProviderResult | null {
     }),
   };
 }
+
+export async function anilistFetchMediaByIdMal(env: Env, idMal: number, userId?: string | null) {
+  const graphqlQuery = `
+    query ($idMal: Int) {
+      Media(idMal: $idMal, type: ANIME) {
+        id
+        idMal
+        title {
+          romaji
+          english
+          native
+        }
+        format
+        status
+        description
+        episodes
+        duration
+        seasonYear
+        startDate {
+          year
+          month
+          day
+        }
+        coverImage {
+          large
+          extraLarge
+        }
+        bannerImage
+        genres
+        averageScore
+        popularity
+        studios(isMain: true) {
+          nodes {
+            name
+          }
+        }
+        characters(perPage: 16, sort: ROLE) {
+          edges {
+            role
+            node {
+              id
+              name {
+                full
+                native
+              }
+              image {
+                large
+              }
+            }
+            voiceActors {
+              id
+              name {
+                full
+              }
+              image {
+                large
+              }
+              languageV2
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await cachedJson<{ data?: { Media?: any } }>(
+    env,
+    "anilist",
+    `media:mal:${idMal}`,
+    providerTtls.jikanSearch || 86400,
+    () =>
+      fetch(ANILIST_GRAPHQL_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ query: graphqlQuery, variables: { idMal } }),
+      })
+  );
+
+  return data?.data?.Media ?? null;
+}
+

@@ -1,7 +1,7 @@
 import type { MediaType } from "@shared/media";
 import { igdbFetchDetails, igdbList, igdbSearch, rawgFetchDetails, rawgSearch } from "./providers/igdb-rawg";
 import { jikanAnimeCharacters, jikanAnimeEpisodes, jikanSearchAnime, jikanSearchProvider } from "./providers/jikan";
-import { anilistCharacterDetails, anilistFetchMediaByIdMal, anilistSearchAnime, anilistSearchProvider, anilistTrendingAnime } from "./providers/anilist";
+import { anilistCharacterDetails, anilistFetchMediaByIdMal, anilistSearchAnime, anilistSearchProvider, anilistStaffDetails, anilistTrendingAnime } from "./providers/anilist";
 import { openLibraryFetchDetails, openLibrarySearch, openLibrarySubject } from "./providers/open-library";
 import { googleBooksSearch } from "./providers/google-books";
 import { tvmazeLookup, tvmazeSearch, wikidataEntity } from "./providers/tvmaze-wikidata";
@@ -23,6 +23,7 @@ export {
   jikanAnimeEpisodes,
   jikanSearchAnime,
   anilistCharacterDetails,
+  anilistStaffDetails,
   anilistSearchAnime,
   anilistFetchMediaByIdMal,
   openLibraryFetchDetails,

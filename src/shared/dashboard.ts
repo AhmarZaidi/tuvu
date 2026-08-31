@@ -28,7 +28,7 @@ export type DashboardEntry = {
   updatedAt: string;
   totalRegularEpisodes: number;
   extendedDataJson?: string | null;
-  animeFormat?: "movie" | "series" | null;
+  animeFormat?: "movie" | "series" | "ova" | "ona" | "special" | null;
   nextEpisode: {
     id: string;
     name: string | null;

@@ -16,6 +16,7 @@ import { BottomSheet } from './BottomSheet';
 interface SeasonAccordionProps {
   mediaId: string;
   mediaTitle?: string;
+  isAnime?: boolean;
   episodes: EpisodeWithActivity[];
   onEpisodesUpdated: () => void;
   progressComponent?: React.ReactNode;
@@ -39,6 +40,7 @@ function releaseStatus(airDate: string | null): { kind: 'released' | 'future' | 
 export function SeasonAccordion({
   mediaId,
   mediaTitle,
+  isAnime,
   episodes,
   onEpisodesUpdated,
   progressComponent,
@@ -55,6 +57,7 @@ export function SeasonAccordion({
   >(null);
 
   const showDubToggle = useMemo(() => {
+    if (isAnime) return true;
     return episodes.some((ep) => {
       let epExt: any = {};
       try {
@@ -62,7 +65,7 @@ export function SeasonAccordion({
       } catch {}
       return Boolean(epExt.dubAirDate || epExt.dubAired || (ep as any).dubReleaseAt || epExt.hasDub);
     });
-  }, [episodes]);
+  }, [episodes, isAnime]);
 
   const seasonsMap = useMemo(() => {
     const map = new Map<number, EpisodeWithActivity[]>();
@@ -268,8 +271,9 @@ export function SeasonAccordion({
                       const isFiller = Boolean(epExt.filler);
                       const isRecap = Boolean(epExt.recap);
 
+                      const rawDubDate = epExt.dubAirDate || epExt.dubAired || (ep as any).dubReleaseAt || (isAnime && ep.airDate ? new Date(new Date(ep.airDate).getTime() + 21 * 86400000).toISOString().slice(0, 10) : null);
                       const effectiveAirDate = dateMode === 'dub'
-                        ? (epExt.dubAirDate || epExt.dubAired || (ep as any).dubReleaseAt || ep.airDate)
+                        ? (rawDubDate || ep.airDate)
                         : ep.airDate;
                       const release = releaseStatus(effectiveAirDate);
                       const formattedDate = effectiveAirDate

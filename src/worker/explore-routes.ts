@@ -63,7 +63,8 @@ export function createExploreRoutes() {
     const remote = await providerSearch(c.env, query.data.q, types, 8, auth.user.id);
     const combined = dedupeResults([...local, ...remote]);
     const marked = c.env.DB ? dedupeMarkedResults(await markTrackedResults(c.env.DB, auth.user.id, combined)) : combined;
-    return c.json(apiSuccess({ query: query.data.q, results: marked.slice(0, 40) }));
+    const untracked = marked.filter((result) => !result.alreadyTracked);
+    return c.json(apiSuccess({ query: query.data.q, results: untracked.slice(0, 40) }));
   });
 
   router.post("/add", requireAuth(), requireCsrf(), async (c) => {

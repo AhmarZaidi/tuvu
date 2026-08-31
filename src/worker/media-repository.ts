@@ -983,14 +983,21 @@ function mapEpisodeActivity(row: any): EpisodeActivityRecord {
 }
 
 function mapDashboardRow(row: any): DashboardEntry {
-  let animeFormat: "movie" | "series" | null = null;
+  let animeFormat: "movie" | "series" | "ova" | "ona" | "special" | null = null;
   const hasZeroEpisodes = row.total_regular_episodes === 0 || row.total_regular_episodes === null;
   const isMovieType = row.type === "movie";
+  const titleUpper = (row.title || "").toUpperCase();
 
   if (row.extended_data_json) {
     try {
       const ext = JSON.parse(row.extended_data_json);
-      if (
+      if (ext.animeFormat === "ova" || ext.format === "OVA" || ext.anime?.format === "OVA" || titleUpper.includes(" OVA")) {
+        animeFormat = "ova";
+      } else if (ext.animeFormat === "ona" || ext.format === "ONA" || ext.anime?.format === "ONA" || titleUpper.includes(" ONA")) {
+        animeFormat = "ona";
+      } else if (ext.animeFormat === "special" || ext.format === "SPECIAL" || ext.format === "SP" || ext.anime?.format === "SPECIAL") {
+        animeFormat = "special";
+      } else if (
         ext.animeFormat === "movie" ||
         ext.anime?.format === "MOVIE" ||
         ext.format === "MOVIE" ||
@@ -998,7 +1005,7 @@ function mapDashboardRow(row: any): DashboardEntry {
         (row.type === "anime" && (ext.format === "MOVIE" || ext.anime?.format === "MOVIE"))
       ) {
         animeFormat = "movie";
-      } else if (ext.animeFormat === "series") {
+      } else if (ext.animeFormat === "series" || ext.format === "TV" || ext.anime?.format === "TV") {
         animeFormat = "series";
       } else if (isMovieType) {
         animeFormat = "movie";
@@ -1007,7 +1014,13 @@ function mapDashboardRow(row: any): DashboardEntry {
   }
 
   if (!animeFormat) {
-    if (isMovieType) {
+    if (titleUpper.includes(" OVA")) {
+      animeFormat = "ova";
+    } else if (titleUpper.includes(" ONA")) {
+      animeFormat = "ona";
+    } else if (titleUpper.includes(" SPECIAL")) {
+      animeFormat = "special";
+    } else if (isMovieType) {
       animeFormat = "movie";
     } else if (row.type === "anime") {
       animeFormat = (hasZeroEpisodes && !row.next_episode_id) ? "movie" : "series";

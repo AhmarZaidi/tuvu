@@ -985,6 +985,7 @@ export default function MediaDetailsScreen() {
           <SeasonAccordion
             mediaId={id}
             mediaTitle={media.title}
+            isAnime={media.type === 'anime' || (media as any).extendedDataJson?.includes('anime')}
             episodes={episodes}
             onEpisodesUpdated={handleUpdated}
             progressComponent={

@@ -154,18 +154,22 @@ export async function anilistTrendingAnime(env: Env, limit = 20, userId?: string
   return (data?.data?.Page?.media ?? []).map(normalizeAnilistAnime).filter(isProviderResult);
 }
 
-export async function anilistCharacterDetails(env: Env, characterId: number | string, userId?: string | null) {
+export async function anilistCharacterDetails(env: Env, idOrSearch: number | string, userId?: string | null) {
+  const isNumeric = /^\d+$/.test(String(idOrSearch));
+  const variables = isNumeric ? { id: Number(idOrSearch) } : { search: String(idOrSearch) };
   const graphqlQuery = `
-    query ($id: Int) {
-      Character(id: $id) {
+    query ($id: Int, $search: String) {
+      Character(id: $id, search: $search) {
         id
         name {
           full
           native
           alternative
+          alternativeSpoiler
         }
         image {
           large
+          medium
         }
         description
         gender
@@ -175,35 +179,52 @@ export async function anilistCharacterDetails(env: Env, characterId: number | st
           month
           day
         }
-        media(type: ANIME, perPage: 12, sort: POPULARITY_DESC) {
-          nodes {
-            id
-            title {
-              romaji
-              english
-              userPreferred
+        bloodType
+        media(sort: POPULARITY_DESC, perPage: 16) {
+          edges {
+            node {
+              id
+              title {
+                english
+                romaji
+                userPreferred
+              }
+              coverImage {
+                large
+              }
+              format
+              type
+              startDate {
+                year
+              }
             }
-            coverImage {
-              large
+            voiceActors {
+              id
+              name {
+                full
+              }
+              languageV2
+              image {
+                large
+              }
             }
-            format
-            type
           }
         }
       }
     }
   `;
 
+  const cacheKey = `character:${String(idOrSearch).toLowerCase()}`;
   const data = await cachedJson<{ data?: { Character?: any } }>(
     env,
     "anilist",
-    `character:${characterId}`,
+    cacheKey,
     providerTtls.jikanCharacters || 604800,
     () =>
       fetch(ANILIST_GRAPHQL_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
-        body: JSON.stringify({ query: graphqlQuery, variables: { id: Number(characterId) } }),
+        body: JSON.stringify({ query: graphqlQuery, variables }),
       })
   );
 
@@ -396,4 +417,89 @@ export async function anilistFetchMediaByIdMal(env: Env, idMal: number, userId?:
 
   return data?.data?.Media ?? null;
 }
+
+export async function anilistStaffDetails(env: Env, idOrSearch: string | number, userId?: string | null) {
+  const isNumeric = /^\d+$/.test(String(idOrSearch));
+  const variables = isNumeric ? { id: Number(idOrSearch) } : { search: String(idOrSearch) };
+  const query = `
+    query ($id: Int, $search: String) {
+      Staff(id: $id, search: $search) {
+        id
+        name {
+          full
+          native
+          alternative
+        }
+        image {
+          large
+          medium
+        }
+        description
+        gender
+        age
+        dateOfBirth {
+          year
+          month
+          day
+        }
+        dateOfDeath {
+          year
+          month
+          day
+        }
+        homeTown
+        primaryOccupations
+        characters(sort: FAVOURITES_DESC, perPage: 24) {
+          edges {
+            role
+            node {
+              id
+              name {
+                full
+                native
+              }
+              image {
+                large
+              }
+              media(sort: POPULARITY_DESC, perPage: 1) {
+                nodes {
+                  id
+                  title {
+                    english
+                    romaji
+                    userPreferred
+                  }
+                  coverImage {
+                    large
+                  }
+                  format
+                  startDate {
+                    year
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const cacheKey = `staff:${String(idOrSearch).toLowerCase()}`;
+  const data = await cachedJson<{ data?: { Staff?: any } }>(
+    env,
+    "anilist",
+    cacheKey,
+    86400 * 7,
+    () =>
+      fetch(ANILIST_GRAPHQL_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ query, variables }),
+      })
+  );
+
+  return data?.data?.Staff ?? null;
+}
+
 

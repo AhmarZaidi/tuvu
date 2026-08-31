@@ -29,7 +29,7 @@ export type DashboardEntry = {
   updatedAt: string;
   totalRegularEpisodes?: number;
   extendedDataJson?: string | null;
-  animeFormat?: 'movie' | 'series' | null;
+  animeFormat?: 'movie' | 'series' | 'ova' | 'ona' | 'special' | null;
   nextEpisode?: {
     id: string;
     name: string | null;
@@ -466,8 +466,12 @@ export const api = {
     return apiRequest<{ results: ExploreResult[]; rows?: ExploreRow[] }>(`/api/explore/type/${type}`);
   },
 
-  async getPerson(id: string): Promise<PersonProfilePayload> {
-    return apiRequest<PersonProfilePayload>(`/api/people/${id}`);
+  async getPerson(id: string, opts?: { provider?: string; name?: string }): Promise<PersonProfilePayload> {
+    const params = new URLSearchParams();
+    if (opts?.provider) params.set('provider', opts.provider);
+    if (opts?.name) params.set('name', opts.name);
+    const q = params.toString();
+    return apiRequest<PersonProfilePayload>(`/api/people/${id}${q ? '?' + q : ''}`);
   },
 
   async resolveMedia(item: any): Promise<{ media: { id: string; type: string } }> {

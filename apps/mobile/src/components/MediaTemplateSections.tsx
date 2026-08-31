@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -67,7 +67,14 @@ export function MediaTemplateSections({
   const japaneseCast: any[] = animeData.japaneseCast || [];
   const dubCast: any[] = animeData.dubCast || [];
   const hasDub = Boolean(ext.hasDub || animeData.hasDub || dubCast.length > 0 || ext.audioLanguages?.includes('English'));
-  const animeFormatLabel = ext.animeFormat === 'movie' || media.type === 'movie' ? 'Anime Movie' : 'Anime Series';
+  const animeFormatLabel = useMemo(() => {
+    const fmt = (ext.animeFormat || ext.format || animeData.format || '').toUpperCase();
+    if (fmt === 'OVA' || media.title?.toUpperCase().includes(' OVA')) return 'Anime OVA';
+    if (fmt === 'ONA' || media.title?.toUpperCase().includes(' ONA')) return 'Anime ONA';
+    if (fmt === 'SPECIAL' || media.title?.toUpperCase().includes(' SPECIAL')) return 'Anime Special';
+    if (fmt === 'MOVIE' || media.type === 'movie') return 'Anime Movie';
+    return 'Anime Series';
+  }, [ext.animeFormat, ext.format, animeData.format, media.type, media.title]);
 
   const [voiceCastTab, setVoiceCastTab] = useState<'sub' | 'dub'>('sub');
 
@@ -556,7 +563,17 @@ export function MediaTemplateSections({
                   <Pressable
                     key={`${actor.id ?? actor.name}-${idx}`}
                     style={styles.castCard}
-                    onPress={() => actor.id && router.push(`/people/${actor.id}` as any)}
+                    onPress={() =>
+                      actor.id &&
+                      router.push({
+                        pathname: '/people/[id]',
+                        params: {
+                          id: String(actor.id),
+                          provider: isAnime ? 'anilist' : undefined,
+                          name: actor.name,
+                        },
+                      } as any)
+                    }
                   >
                     {actor.profilePath ? (
                       <Image source={{ uri: actor.profilePath }} style={styles.castPortrait} contentFit="cover" />

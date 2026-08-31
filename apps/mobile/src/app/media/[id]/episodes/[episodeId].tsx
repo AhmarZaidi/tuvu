@@ -200,6 +200,25 @@ export default function EpisodeDetailsScreen() {
     ? `${overview.slice(0, 200)}...`
     : overview;
 
+  const isAnime = Boolean(
+    media?.type === 'anime' ||
+    (media as any)?.extendedDataJson?.includes('anime') ||
+    ext.category === 'anime' ||
+    ext.titleRomaji ||
+    ext.titleJapanese
+  );
+  const isFiller = Boolean(ext.isFiller || ext.filler || ext.animeEpisode?.isFiller);
+  const isRecap = Boolean(ext.isRecap || ext.recap || ext.animeEpisode?.isRecap);
+  const romajiTitle = ext.titleRomaji || ext.title_romanji || ext.animeEpisode?.titleRomaji || null;
+  const japaneseTitle = ext.titleJapanese || ext.title_japanese || null;
+  const dubAirDate =
+    ext.dubAirDate ||
+    ext.dubAired ||
+    (episode as any).dubReleaseAt ||
+    ext.animeEpisode?.dubAirDate ||
+    (isAnime && episode.airDate ? new Date(new Date(episode.airDate).getTime() + 21 * 86400000).toISOString().slice(0, 10) : null);
+  const hasDub = Boolean(ext.hasDub || ext.dubAvailable || ext.animeEpisode?.dubAvailable || dubAirDate || isAnime);
+
   const formattedAirDate = episode.airDate
     ? new Date(episode.airDate).toLocaleDateString('en-US', {
         month: 'short',
@@ -208,18 +227,25 @@ export default function EpisodeDetailsScreen() {
       })
     : null;
 
-  const isFiller = Boolean(ext.isFiller || ext.filler || ext.animeEpisode?.isFiller);
-  const isRecap = Boolean(ext.isRecap || ext.recap || ext.animeEpisode?.isRecap);
-  const romajiTitle = ext.titleRomaji || ext.title_romanji || ext.animeEpisode?.titleRomaji || null;
-  const japaneseTitle = ext.titleJapanese || ext.title_japanese || null;
-  const dubAirDate = ext.dubAirDate || ext.dubAired || (episode as any).dubReleaseAt || ext.animeEpisode?.dubAirDate || null;
-  const hasDub = Boolean(ext.hasDub || ext.dubAvailable || ext.animeEpisode?.dubAvailable || dubAirDate);
+  const dubCountdown = (() => {
+    if (!dubAirDate) return null;
+    const release = new Date(`${dubAirDate}T00:00:00`);
+    if (Number.isNaN(release.getTime())) return null;
+    const diff = release.getTime() - Date.now();
+    if (diff <= 0) return null;
+    const days = Math.ceil(diff / 86_400_000);
+    if (days < 60) return `in ${days}d`;
+    return `in ${Math.ceil(days / 30)}mo`;
+  })();
+
   const formattedDubDate = dubAirDate
-    ? new Date(dubAirDate).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+    ? dubCountdown
+      ? `${new Date(dubAirDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} (${dubCountdown})`
+      : new Date(dubAirDate).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+        })
     : null;
 
   return (
@@ -330,7 +356,9 @@ export default function EpisodeDetailsScreen() {
           {formattedAirDate && (
             <View style={styles.metaChip}>
               <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
-              <Text style={styles.metaChipText}>{formattedAirDate}</Text>
+              <Text style={styles.metaChipText}>
+                {isAnime ? `Sub: ${formattedAirDate}` : formattedAirDate}
+              </Text>
             </View>
           )}
 

@@ -483,7 +483,7 @@ async function readCachedMediaNews(env: Env, title: string) {
   const safeTitle = title.slice(0, 120).replaceAll('"', "").trim().toLowerCase();
   try {
     const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
-      WHERE (provider_code = 'newsapi' OR provider = 'newsapi') AND cache_key IN (?, ?)
+      WHERE provider_code = 'newsapi' AND cache_key IN (?, ?)
       ORDER BY fetched_at DESC
       LIMIT 2`)
       .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)

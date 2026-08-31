@@ -24,7 +24,7 @@ import { useSubpageBack } from '../../hooks/useSubpageBack';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function PersonDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, provider, name } = useLocalSearchParams<{ id: string; provider?: string; name?: string }>();
   const router = useRouter();
   useSubpageBack('/(tabs)');
 
@@ -33,8 +33,8 @@ export default function PersonDetailsScreen() {
   const [resolvingId, setResolvingId] = useState<string | null>(null);
 
   const { data: person, isLoading, isError, refetch } = useQuery({
-    queryKey: ['personDetails', id],
-    queryFn: () => api.getPerson(id),
+    queryKey: ['personDetails', id, provider, name],
+    queryFn: () => api.getPerson(id, { provider, name }),
     enabled: Boolean(id),
   });
 

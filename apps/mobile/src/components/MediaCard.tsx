@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -59,7 +59,30 @@ export function MediaCard({
     : null;
   const displayYear = item.year ? String(item.year) : '';
   const isAnime = item.type === 'anime' || (item as any).category === 'anime';
-  const formatLabel = item.animeFormat === 'movie' || item.type === 'movie' ? 'MOVIE' : 'SERIES';
+
+  const formatLabel = useMemo(() => {
+    const fmt = (item.animeFormat || '').toUpperCase();
+    if (fmt === 'OVA' || item.title?.toUpperCase().includes(' OVA')) return 'OVA';
+    if (fmt === 'ONA' || item.title?.toUpperCase().includes(' ONA')) return 'ONA';
+    if (fmt === 'SPECIAL' || item.title?.toUpperCase().includes(' SPECIAL')) return 'SPECIAL';
+    if (fmt === 'MOVIE' || item.type === 'movie') return 'MOVIE';
+    return 'TV';
+  }, [item.animeFormat, item.type, item.title]);
+
+  const badgeStyle = useMemo(() => {
+    switch (formatLabel) {
+      case 'OVA':
+        return { bg: 'rgba(168, 85, 247, 0.22)', border: 'rgba(168, 85, 247, 0.5)', color: '#c084fc' };
+      case 'ONA':
+        return { bg: 'rgba(20, 184, 166, 0.22)', border: 'rgba(20, 184, 166, 0.5)', color: '#2dd4bf' };
+      case 'SPECIAL':
+        return { bg: 'rgba(249, 115, 22, 0.22)', border: 'rgba(249, 115, 22, 0.5)', color: '#fb923c' };
+      case 'MOVIE':
+        return { bg: 'rgba(59, 130, 246, 0.22)', border: 'rgba(59, 130, 246, 0.5)', color: '#60a5fa' };
+      default:
+        return { bg: 'rgba(255, 207, 92, 0.18)', border: 'rgba(255, 207, 92, 0.45)', color: '#ffcf5c' };
+    }
+  }, [formatLabel]);
 
   const handleQuickWatch = async () => {
     if (!item.nextEpisode?.id || !onMarkNext) return;
@@ -100,12 +123,10 @@ export function MediaCard({
             <View style={styles.metaRowCompact}>
               <Text style={styles.compactMeta}>{nextLabel ?? displayYear}</Text>
               {isAnime && (
-                <View style={styles.formatIconWrapCompact}>
-                  <Ionicons
-                    name={formatLabel === 'MOVIE' ? 'film-outline' : 'tv-outline'}
-                    size={10}
-                    color="#ffcf5c"
-                  />
+                <View style={[styles.formatBadgeCompact, { backgroundColor: badgeStyle.bg, borderColor: badgeStyle.border }]}>
+                  <Text style={[styles.formatBadgeTextCompact, { color: badgeStyle.color }]}>
+                    {formatLabel}
+                  </Text>
                 </View>
               )}
             </View>
@@ -162,7 +183,7 @@ export function MediaCard({
           <PosterPlaceholder title={item.title} type={item.type} />
         )}
 
-        {/* Top Badges Header: Status & Episode Chip */}
+        {/* Top Badges Header: Top Left Status & Top Right S1E1 + Format below */}
         <View style={styles.topBadgesRow}>
           <View style={styles.statusBadgeWrap}>
             <StatusBadge
@@ -173,38 +194,38 @@ export function MediaCard({
             />
           </View>
 
-          {nextLabel && (
-            <View style={styles.episodeChip}>
-              <Text style={styles.episodeChipText}>{nextLabel}</Text>
-            </View>
-          )}
+          <View style={styles.topRightCol}>
+            {nextLabel ? (
+              <View style={styles.episodeChip}>
+                <Text style={styles.episodeChipText}>{nextLabel}</Text>
+              </View>
+            ) : null}
+
+            {isAnime && (
+              <View style={[styles.formatBadge, { backgroundColor: badgeStyle.bg, borderColor: badgeStyle.border }]}>
+                <Text style={[styles.formatBadgeText, { color: badgeStyle.color }]}>
+                  {formatLabel}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
 
-        {/* Bottom Gradient Overlay: Title and Year Chip */}
+        {/* Bottom Gradient Overlay: Bottom Left Title & Bottom Right Year */}
         <LinearGradient
-          colors={['transparent', 'rgba(0, 0, 0, 0.45)', 'rgba(0, 0, 0, 0.88)']}
+          colors={['transparent', 'rgba(0, 0, 0, 0.45)', 'rgba(0, 0, 0, 0.92)']}
           locations={[0, 0.35, 1]}
           style={styles.bottomOverlay}
         >
           <Text style={styles.overlayTitle} numberOfLines={2}>
             {item.title}
           </Text>
-          <View style={styles.bottomMetaRow}>
-            {displayYear ? (
-              <View style={styles.yearChip}>
-                <Text style={styles.yearChipText}>{displayYear}</Text>
-              </View>
-            ) : null}
-            {isAnime && (
-              <View style={styles.formatIconWrap}>
-                <Ionicons
-                  name={formatLabel === 'MOVIE' ? 'film-outline' : 'tv-outline'}
-                  size={11}
-                  color="#ffcf5c"
-                />
-              </View>
-            )}
-          </View>
+
+          {displayYear ? (
+            <View style={styles.yearChip}>
+              <Text style={styles.yearChipText}>{displayYear}</Text>
+            </View>
+          ) : null}
         </LinearGradient>
       </Pressable>
 
@@ -279,7 +300,7 @@ const styles = StyleSheet.create({
     left: 5,
     right: 5,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: 4,
     zIndex: 10,
@@ -287,6 +308,12 @@ const styles = StyleSheet.create({
   statusBadgeWrap: {
     flexShrink: 1,
     minWidth: 0,
+  },
+  topRightCol: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 3,
+    flexShrink: 0,
   },
   episodeChip: {
     paddingHorizontal: 5,
@@ -308,7 +335,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingTop: 22,
-    paddingBottom: 6,
+    paddingBottom: 5,
     paddingHorizontal: 6,
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -321,19 +348,21 @@ const styles = StyleSheet.create({
     color: '#fff8e8',
     fontSize: 11,
     fontWeight: '900',
-    lineHeight: 14,
-    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    lineHeight: 14.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.9)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },
   yearChip: {
-    paddingHorizontal: 5,
+    paddingHorizontal: 4.5,
     paddingVertical: 1.5,
-    borderRadius: 5,
-    backgroundColor: 'rgba(16, 17, 18, 0.78)',
+    borderRadius: 4,
+    backgroundColor: 'rgba(16, 17, 18, 0.85)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     flexShrink: 0,
+    alignSelf: 'flex-end',
+    marginBottom: 1,
   },
   yearChipText: {
     color: '#cbd5e1',
@@ -432,24 +461,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
   },
-  formatIconWrap: {
-    backgroundColor: 'rgba(255, 207, 92, 0.15)',
+  formatBadge: {
     borderWidth: 1,
-    borderColor: 'rgba(255, 207, 92, 0.35)',
-    paddingHorizontal: 4,
-    paddingVertical: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
     borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  formatIconWrapCompact: {
-    backgroundColor: 'rgba(255, 207, 92, 0.15)',
+  formatBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  formatBadgeCompact: {
     borderWidth: 1,
-    borderColor: 'rgba(255, 207, 92, 0.35)',
-    paddingHorizontal: 3.5,
-    paddingVertical: 1.5,
-    borderRadius: 3,
+    paddingHorizontal: 4.5,
+    paddingVertical: 1,
+    borderRadius: 3.5,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  formatBadgeTextCompact: {
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 0.4,
   },
 });

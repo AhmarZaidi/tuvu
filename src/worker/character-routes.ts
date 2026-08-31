@@ -39,7 +39,7 @@ export function createCharacterRoutes() {
       const cacheKey = `char:${id}`;
       if (c.env.DB) {
         const cached = await c.env.DB.prepare(
-          "SELECT response_json, expires_at FROM provider_cache WHERE (provider_code = 'anilist' OR provider = 'anilist') AND cache_key = ?"
+          "SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'anilist' AND cache_key = ?"
         )
           .bind(cacheKey)
           .first<{ response_json: string; expires_at: string }>()
@@ -117,6 +117,31 @@ export function createCharacterRoutes() {
         ? `${charData.dateOfBirth.year}-${String(charData.dateOfBirth.month || 1).padStart(2, "0")}-${String(charData.dateOfBirth.day || 1).padStart(2, "0")}`
         : null;
 
+      const mediaList: any[] = [];
+      const voiceActorsMap = new Map<string, any>();
+
+      for (const edge of (charData.media?.edges || [])) {
+        if (edge.node && !mediaList.some((m) => m.id === String(edge.node.id))) {
+          mediaList.push({
+            id: String(edge.node.id),
+            title: edge.node.title?.english || edge.node.title?.userPreferred || edge.node.title?.romaji,
+            posterPath: edge.node.coverImage?.large || null,
+            format: edge.node.format || "Anime",
+            type: "anime",
+          });
+        }
+        for (const va of (edge.voiceActors || [])) {
+          if (va && !voiceActorsMap.has(String(va.id))) {
+            voiceActorsMap.set(String(va.id), {
+              id: String(va.id),
+              name: va.name?.full || "Unknown Voice Actor",
+              language: va.languageV2 || "Japanese",
+              image: va.image?.large || null,
+            });
+          }
+        }
+      }
+
       const payload: CharacterPayload = {
         id: String(charData.id),
         name: charData.name?.full || "Unknown Character",
@@ -127,13 +152,8 @@ export function createCharacterRoutes() {
         gender: charData.gender || null,
         age: charData.age || null,
         dateOfBirth: dob,
-        media: (charData.media?.nodes || []).slice(0, 12).map((m: any) => ({
-          id: String(m.id),
-          title: m.title?.english || m.title?.userPreferred || m.title?.romaji,
-          posterPath: m.coverImage?.large || null,
-          format: m.format || "Anime",
-          type: "anime",
-        })),
+        media: mediaList.slice(0, 16),
+        voiceActors: Array.from(voiceActorsMap.values()).slice(0, 12),
       };
 
       if (c.env.DB) {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   RefreshControl,
 } from 'react-native';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api, DashboardResponse, DashboardEntry, DashboardSection } from '../services/api';
@@ -50,9 +50,15 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   } = useDashboardLayout();
 
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
-  const [formatFilter, setFormatFilter] = useState<'all' | 'series' | 'movie'>('all');
+  const [formatFilter, setFormatFilter] = useState<'all' | 'series' | 'movie' | 'ova'>('all');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('updated');
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const handleAddMedia = () => {
     router.push({
@@ -68,9 +74,26 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     error,
     refetch,
     isRefetching,
-  } = useQuery<DashboardResponse>({
-    queryKey: ['dashboard', kind],
-    queryFn: () => api.getDashboard(kind, { limit: 100 }),
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery<DashboardResponse>({
+    queryKey: ['dashboard-infinite', kind, debouncedSearch],
+    queryFn: ({ pageParam = 0 }) =>
+      api.getDashboard(kind, {
+        offset: Number(pageParam),
+        limit: 100,
+        q: debouncedSearch || undefined,
+      }),
+    getNextPageParam: (lastPage, allPages) => {
+      const totalLoaded = allPages.reduce((sum, p) => sum + (p.entries?.length || 0), 0);
+      if (lastPage.page?.hasMore && totalLoaded < (lastPage.totalTracked || 0)) {
+        return totalLoaded;
+      }
+      return undefined;
+    },
+    placeholderData: (previousData) => previousData,
+    initialPageParam: 0,
   });
 
   const parseEntryTime = (dateStr?: string | null) => {
@@ -81,50 +104,97 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     return isNaN(t) ? 0 : t;
   };
 
+  const firstPage = data?.pages?.[0];
+  const allEntries = useMemo(() => {
+    if (!data?.pages) return [];
+    const seen = new Set<string>();
+    const list: DashboardEntry[] = [];
+    for (const page of data.pages) {
+      for (const item of page.entries || []) {
+        if (!seen.has(item.mediaId)) {
+          seen.add(item.mediaId);
+          list.push(item);
+        }
+      }
+    }
+    return list;
+  }, [data]);
+
+  const totalTracked = firstPage?.totalTracked ?? allEntries.length;
+  const statusCounts = firstPage?.statusCounts ?? {};
+  const sectionCounts = firstPage?.sectionCounts ?? {};
+
   const sections = useMemo(() => {
-    if (!data?.sections) return [];
-    const allSec = data.sections.find((s) => s.id === 'all');
-    const otherSecs = data.sections.filter((s) => s.id !== 'all');
-    const allTab = allSec || { id: 'all', label: `All ${title}`, entries: data?.entries || [] };
+    if (!firstPage?.sections) return [];
+    const allTab = { id: 'all', label: `All ${title}`, entries: allEntries };
+    const otherSecs = firstPage.sections
+      .filter((s) => s.id !== 'all')
+      .map((sec) => {
+        const matching = allEntries.filter((item) => {
+          if (sec.id === 'watch-next') return item.nextEpisode;
+          if (sec.id === 'continue-watching') return item.progressEpisodes > 0 && item.nextEpisode;
+          if (sec.id === 'away') return item.status === 'watching';
+          return sec.entries?.some((e) => e.mediaId === item.mediaId);
+        });
+        return {
+          ...sec,
+          entries: matching.length > 0 ? matching : sec.entries,
+        };
+      });
     return [allTab, ...otherSecs];
-  }, [data, title]);
+  }, [firstPage, allEntries, title]);
 
   const currentSection = useMemo(() => {
     if (activeSectionId === 'all') {
       const allSec = sections.find((s) => s.id === 'all');
-      return allSec || { id: 'all', label: `All ${title}`, entries: data?.entries || [] };
+      return allSec || { id: 'all', label: `All ${title}`, entries: allEntries };
     }
     return sections.find((s) => s.id === activeSectionId) || sections[0];
-  }, [sections, activeSectionId, data, title]);
+  }, [sections, activeSectionId, allEntries, title]);
 
-function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
+function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 'ona' | 'special' {
   if (item.animeFormat) return item.animeFormat;
-  if (item.type === 'movie') return 'movie';
+  const titleUpper = (item.title || '').toUpperCase();
+  if (titleUpper.includes(' OVA')) return 'ova';
+  if (titleUpper.includes(' ONA')) return 'ona';
+  if (titleUpper.includes(' SPECIAL')) return 'special';
   if (item.extendedDataJson) {
     try {
       const ext = JSON.parse(item.extendedDataJson);
+      if (ext.animeFormat === 'ova' || ext.format === 'OVA' || ext.anime?.format === 'OVA') return 'ova';
+      if (ext.animeFormat === 'ona' || ext.format === 'ONA' || ext.anime?.format === 'ONA') return 'ona';
+      if (ext.animeFormat === 'special' || ext.format === 'SPECIAL' || ext.format === 'SP' || ext.anime?.format === 'SPECIAL') return 'special';
       if (ext.animeFormat === 'movie' || ext.anime?.format === 'MOVIE' || ext.format === 'MOVIE') return 'movie';
-      if (ext.animeFormat === 'series') return 'series';
+      if (ext.animeFormat === 'series' || ext.format === 'TV' || ext.anime?.format === 'TV') return 'series';
     } catch {}
   }
-  const hasZeroEpisodes = item.totalRegularEpisodes === 0 || item.totalRegularEpisodes === null;
-  if (item.type === 'anime' && hasZeroEpisodes && !item.nextEpisode) return 'movie';
+  if (item.type === 'movie') return 'movie';
   return 'series';
 }
 
-  // Filter & Sort entries for single-section Grid Mode
+  // Filter & Sort entries for Active Section / Grid Mode
   const displayedEntries = useMemo(() => {
     let list = [...(currentSection?.entries || [])];
 
+    // Anime Format Filter
     if (kind === 'anime' && formatFilter !== 'all') {
-      list = list.filter((item) => resolveAnimeFormat(item) === formatFilter);
+      if (formatFilter === 'ova') {
+        list = list.filter((item) => {
+          const f = resolveAnimeFormat(item);
+          return f === 'ova' || f === 'ona' || f === 'special';
+        });
+      } else {
+        list = list.filter((item) => resolveAnimeFormat(item) === formatFilter);
+      }
     }
 
+    // Filter by search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((item) => item.title?.toLowerCase().includes(q));
     }
 
+    // Sort entries
     if (sortMode === 'title') {
       list.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
     } else if (sortMode === 'year') {
@@ -132,6 +202,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     } else if (sortMode === 'progress') {
       list.sort((a, b) => (b.progressEpisodes || 0) - (a.progressEpisodes || 0));
     } else {
+      // Default: recently updated
       list.sort((a, b) => parseEntryTime(b.updatedAt) - parseEntryTime(a.updatedAt));
     }
 
@@ -140,14 +211,21 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
 
   // Filter & Sort sections for Horizontal Carousels Mode
   const carouselSections = useMemo(() => {
-    if (!data?.sections) return [];
-    const realSections = data.sections.filter((s) => s.id !== 'all');
+    if (!sections.length) return [];
+    const realSections = sections.filter((s) => s.id !== 'all');
 
     return realSections
-      .map((sec) => {
+      .map((sec: DashboardSection) => {
         let entries = [...(sec.entries || [])];
         if (kind === 'anime' && formatFilter !== 'all') {
-          entries = entries.filter((item) => resolveAnimeFormat(item) === formatFilter);
+          if (formatFilter === 'ova') {
+            entries = entries.filter((item) => {
+              const f = resolveAnimeFormat(item);
+              return f === 'ova' || f === 'ona' || f === 'special';
+            });
+          } else {
+            entries = entries.filter((item) => resolveAnimeFormat(item) === formatFilter);
+          }
         }
         if (search.trim()) {
           const q = search.trim().toLowerCase();
@@ -168,7 +246,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
         };
       })
       .filter((sec) => sec.entries.length > 0);
-  }, [data, search, sortMode]);
+  }, [sections, search, sortMode, kind, formatFilter]);
 
   const cycleSort = () => {
     setSortMode((prev) => {
@@ -179,7 +257,6 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     });
   };
 
-  // Quick mark episode watched
   const handleMarkNext = async (episodeId: string) => {
     try {
       await api.updateEpisodeActivity(episodeId, { watched: true });
@@ -190,10 +267,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     }
   };
 
-  // Calculate 3-column card width on mobile with 16px screen padding and 8px gaps
-  const cardWidth = Math.max(96, Math.floor((windowWidth - 32 - 16) / 3));
-
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <View style={styles.container}>
         <TopBar />
@@ -205,7 +279,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     );
   }
 
-  if (isError) {
+  if (isError && !data) {
     return (
       <View style={styles.container}>
         <TopBar />
@@ -224,6 +298,9 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     );
   }
 
+  // Calculate 3-column card width on mobile with 16px screen padding and 8px gaps
+  const cardWidth = Math.max(96, Math.floor((windowWidth - 32 - 16) / 3));
+
   const headerContent = (
     <View>
       {/* 2. Page Heading & + Add Media Action */}
@@ -235,12 +312,12 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
       />
 
       {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
-      {data && (
+      {firstPage && (
         <DashboardStats
-          entries={data.entries}
+          entries={allEntries}
           kind={kind}
-          totalTracked={data.totalTracked}
-          statusCounts={data.statusCounts}
+          totalTracked={totalTracked}
+          statusCounts={statusCounts}
         />
       )}
 
@@ -256,11 +333,18 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
         placeholder={`Filter ${title.toLowerCase()}...`}
       />
 
-      {/* 5. Anime Format Filter: All Anime, Series, Movies */}
+      {/* 5. Anime Format Filter: All Anime, Series, Movies, OVAs */}
       {kind === 'anime' && (
         <View style={styles.animeFormatRow}>
-          {(['all', 'series', 'movie'] as const).map((fmt) => {
-            const label = fmt === 'all' ? 'All Anime' : fmt === 'series' ? 'Anime Series' : 'Anime Movies';
+          {(['all', 'series', 'movie', 'ova'] as const).map((fmt) => {
+            const label =
+              fmt === 'all'
+                ? 'All Anime'
+                : fmt === 'series'
+                ? 'Anime Series'
+                : fmt === 'movie'
+                ? 'Anime Movies'
+                : 'OVAs & Specials';
             const isSelected = formatFilter === fmt;
             return (
               <Pressable
@@ -283,6 +367,8 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
           sections={sections}
           activeSectionId={activeSectionId}
           onSelectSection={setActiveSectionId}
+          totalTracked={totalTracked}
+          sectionCounts={sectionCounts}
         />
       )}
     </View>
@@ -311,6 +397,10 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
     const hasMultipleRows = section.entries.length > 10;
     const isCollapsed = isSectionCollapsed(section.id);
     const isTwoRows = hasMultipleRows && !isCollapsed;
+    const displayCount =
+      section.id === 'all'
+        ? totalTracked
+        : sectionCounts[section.id] ?? section.entries.length;
 
     // Header Right Action: small collapse button
     const collapseButton = (
@@ -357,7 +447,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
           <View style={styles.carouselHeaderWrap}>
             <SectionHeader
               title={section.label}
-              count={section.entries.length}
+              count={displayCount}
               rightAction={collapseButton}
             />
           </View>
@@ -398,7 +488,7 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
         <View style={styles.carouselHeaderWrap}>
           <SectionHeader
             title={section.label}
-            count={section.entries.length}
+            count={displayCount}
             rightAction={collapseButton}
           />
         </View>
@@ -437,6 +527,19 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' {
           numColumns={3}
           contentContainerStyle={styles.listContent}
           columnWrapperStyle={styles.gridRow}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) {
+              void fetchNextPage();
+            }
+          }}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={colors.accent} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}

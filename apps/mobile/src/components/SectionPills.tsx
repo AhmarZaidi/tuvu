@@ -7,9 +7,17 @@ interface SectionPillsProps {
   sections: DashboardSection[];
   activeSectionId: string;
   onSelectSection: (id: string) => void;
+  totalTracked?: number;
+  sectionCounts?: Record<string, number>;
 }
 
-export function SectionPills({ sections, activeSectionId, onSelectSection }: SectionPillsProps) {
+export function SectionPills({
+  sections,
+  activeSectionId,
+  onSelectSection,
+  totalTracked,
+  sectionCounts,
+}: SectionPillsProps) {
   return (
     <ScrollView
       horizontal
@@ -19,7 +27,12 @@ export function SectionPills({ sections, activeSectionId, onSelectSection }: Sec
     >
       {sections.map((section) => {
         const isActive = activeSectionId === section.id;
-        const count = section.entries?.length ?? 0;
+        const fallbackCount = section.entries?.length ?? 0;
+        const count =
+          section.id === 'all'
+            ? totalTracked ?? fallbackCount
+            : sectionCounts?.[section.id] ?? fallbackCount;
+
         return (
           <Pressable
             key={section.id}

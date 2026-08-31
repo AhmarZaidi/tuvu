@@ -121,23 +121,79 @@ function localProviderResult(media: MediaItemRecord): ProviderResult {
   };
 }
 
+function normalizeTitleForDedupe(str: string): string {
+  return str
+    .toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function dedupeResults(results: ProviderResult[]) {
   const seenProviderKeys = new Set<string>();
   const titleIndexes = new Map<string, number>();
+  const malIdIndexes = new Map<number, number>();
   const output: ProviderResult[] = [];
+
   for (const result of results) {
     const key = `${result.provider}:${result.providerId}:${result.type}`;
-    const titleKey = `${result.type}:${result.title.toLowerCase()}:${result.year ?? ""}`;
     if (seenProviderKeys.has(key)) continue;
-    const existingIndex = titleIndexes.get(titleKey);
+    seenProviderKeys.add(key);
+
+    let ext: any = {};
+    try {
+      if (result.extendedDataJson) ext = JSON.parse(result.extendedDataJson);
+    } catch {}
+
+    const malId = ext?.anime?.malId || (result.provider === "jikan" ? Number(result.providerId) : null);
+    const normTitle = normalizeTitleForDedupe(result.title);
+    const titleKey = `${result.type}:${normTitle}:${result.year ?? ""}`;
+    const altEngKey = ext?.anime?.titles?.english ? `${result.type}:${normalizeTitleForDedupe(ext.anime.titles.english)}:${result.year ?? ""}` : null;
+    const altRomajiKey = ext?.anime?.titles?.romaji ? `${result.type}:${normalizeTitleForDedupe(ext.anime.titles.romaji)}:${result.year ?? ""}` : null;
+
+    let existingIndex: number | undefined = titleIndexes.get(titleKey);
+    if (existingIndex === undefined && altEngKey) existingIndex = titleIndexes.get(altEngKey);
+    if (existingIndex === undefined && altRomajiKey) existingIndex = titleIndexes.get(altRomajiKey);
+    if (existingIndex === undefined && malId && malIdIndexes.has(malId)) {
+      existingIndex = malIdIndexes.get(malId);
+    }
+
     if (existingIndex !== undefined) {
-      if (output[existingIndex]?.provider === "local" && result.provider !== "local") {
-        output[existingIndex] = { ...result, localMediaId: output[existingIndex].localMediaId };
-      }
+      const existing = output[existingIndex];
+      let existingExt: any = {};
+      try {
+        if (existing.extendedDataJson) existingExt = JSON.parse(existing.extendedDataJson);
+      } catch {}
+
+      const mergedExt = {
+        ...existingExt,
+        ...ext,
+        anime: {
+          ...(existingExt.anime || {}),
+          ...(ext.anime || {}),
+          titles: {
+            ...(existingExt.anime?.titles || {}),
+            ...(ext.anime?.titles || {}),
+          },
+        },
+      };
+
+      output[existingIndex] = {
+        ...existing,
+        posterPath: existing.posterPath || result.posterPath,
+        backdropPath: existing.backdropPath || result.backdropPath,
+        overview: existing.overview || result.overview,
+        extendedDataJson: JSON.stringify(mergedExt),
+        localMediaId: existing.localMediaId || result.localMediaId,
+      };
       continue;
     }
-    seenProviderKeys.add(key);
-    titleIndexes.set(titleKey, output.length);
+
+    const idx = output.length;
+    titleIndexes.set(titleKey, idx);
+    if (altEngKey) titleIndexes.set(altEngKey, idx);
+    if (altRomajiKey) titleIndexes.set(altRomajiKey, idx);
+    if (malId) malIdIndexes.set(malId, idx);
     output.push(result);
   }
   return output;

@@ -690,62 +690,110 @@ async function hydrateJikan(env: Env, job: any) {
   const jikanRating = anime.score;
   const broadcast = anime.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
   const status = anime.status;
-  const languages = ["Japanese"]; // Jikan primarily indexes Japanese original, we infer English from dub cast
-  
-  // Extract cast
+  const languages = ["Japanese"];
+
+  // Extract characters & cast
+  const charactersList: any[] = [];
   const jikanCast = characters.map((c: any) => {
-     // Find japanese and english voice actors
      const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
      const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
-     if (vaEn) languages.push("English"); // Infer dub availability
+     if (vaEn) languages.push("English");
+
+     const charItem = {
+       id: String(c.character?.mal_id || ""),
+       name: c.character?.name || "Unknown Character",
+       image: c.character?.images?.jpg?.image_url || null,
+       role: c.role === "Main" ? "Main" : "Supporting",
+       subVoiceActor: vaJp ? { id: String(vaJp.mal_id), name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
+       dubVoiceActor: vaEn ? { id: String(vaEn.mal_id), name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
+     };
+     if (charItem.id && charItem.name) charactersList.push(charItem);
+
      return {
        character: { id: c.character?.mal_id, name: c.character?.name, image: c.character?.images?.jpg?.image_url },
        japaneseCast: vaJp ? { id: vaJp.mal_id, name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
        englishCast: vaEn ? { id: vaEn.mal_id, name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
      };
-  }).slice(0, 16);
+  }).slice(0, 24);
 
   const uniqueLanguages = Array.from(new Set(languages));
+  const hasDub = uniqueLanguages.includes("English");
+  const isMovie = anime.type === "Movie" || media.type === "movie";
+
+  const titles = {
+    english: anime.title_english || null,
+    romaji: anime.title || null,
+    native: anime.title_japanese || null,
+    synonyms: anime.title_synonyms || [],
+  };
 
   const existingExtended = JSON.parse(media.extended_data_json || "{}");
-  
-  // Transform cast into ExtendedPerson array for Japanese and Dub
-  const japaneseCast = jikanCast.map(c => ({
+
+  const japaneseCast = jikanCast.map((c) => ({
     id: c.japaneseCast?.id || c.character?.id,
     name: c.japaneseCast?.name || "Unknown VA",
     role: c.character?.name,
-    profilePath: c.japaneseCast?.image || c.character?.image
-  })).filter(c => c.id);
+    profilePath: c.japaneseCast?.image || c.character?.image,
+  })).filter((c) => c.id);
 
-  const dubCast = jikanCast.filter(c => c.englishCast).map(c => ({
+  const dubCast = jikanCast.filter((c) => c.englishCast).map((c) => ({
     id: c.englishCast?.id,
     name: c.englishCast?.name || "Unknown VA",
     role: c.character?.name,
-    profilePath: c.englishCast?.image || c.character?.image
+    profilePath: c.englishCast?.image || c.character?.image,
   }));
 
+  existingExtended.category = "anime";
+  existingExtended.animeFormat = isMovie ? "movie" : "series";
+  existingExtended.hasDub = hasDub;
+  existingExtended.originalLanguage = "Japanese";
   existingExtended.anime = {
     malId,
     studios,
+    titles,
+    characters: charactersList.slice(0, 16),
     malRating: jikanRating,
     broadcast,
     status,
     originalLanguage: "Japanese",
     audioLanguages: uniqueLanguages,
+    hasDub,
     japaneseCast,
     dubCast,
-    episodes: episodes.slice(0, 24).map((e: any) => ({ 
-      title: e.title, 
-      titleJapanese: e.title_japanese, 
+    episodes: episodes.slice(0, 36).map((e: any) => ({
+      title: e.title,
+      titleJapanese: e.title_japanese,
+      titleRomaji: e.title_romanji,
       aired: e.aired,
-      filler: e.filler,
-      recap: e.recap
+      filler: Boolean(e.filler),
+      recap: Boolean(e.recap),
     })),
   };
 
   const now = new Date().toISOString();
   await runD1("update hydrated anime with jikan", db.prepare(`UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?`)
     .bind(JSON.stringify(existingExtended), now, media.id).run());
+
+  // Update episodes in DB with Japanese/Romaji titles and filler/recap flags if present
+  for (let i = 0; i < episodes.length; i++) {
+    const ep = episodes[i];
+    const epNum = ep.mal_id || (i + 1);
+    const epExt = JSON.stringify({
+      titleJapanese: ep.title_japanese || null,
+      titleRomaji: ep.title_romanji || null,
+      filler: Boolean(ep.filler),
+      recap: Boolean(ep.recap),
+    });
+    try {
+      await db.prepare(`UPDATE episodes SET
+        name = COALESCE(name, ?),
+        air_date = COALESCE(air_date, ?),
+        extended_data_json = ?
+        WHERE media_id = ? AND episode_number = ?`)
+        .bind(ep.title || null, ep.aired ? ep.aired.slice(0, 10) : null, epExt, media.id, epNum)
+        .run();
+    } catch {}
+  }
     
   await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
       VALUES (?, ?, ?)

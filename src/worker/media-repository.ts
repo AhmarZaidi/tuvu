@@ -705,7 +705,7 @@ export class D1MediaRepository implements MediaRepository {
       .prepare(
         `SELECT
            mi.id AS media_id, mi.type, mi.title, mi.overview, mi.poster_path,
-           mi.backdrop_path, mi.air_status, mi.release_date, mi.year,
+           mi.backdrop_path, mi.air_status, mi.release_date, mi.year, mi.extended_data_json,
            um.status, um.is_favorite, um.rating, um.progress_episodes, um.updated_at,
            um.progress_value, um.progress_total, um.progress_unit, um.platform, um.started_at, um.purchase_library,
            (SELECT COUNT(*) FROM episodes total_ep
@@ -982,7 +982,22 @@ function mapEpisodeActivity(row: any): EpisodeActivityRecord {
   };
 }
 
-function mapDashboardRow(row: DashboardRow): DashboardEntry {
+function mapDashboardRow(row: any): DashboardEntry {
+  let animeFormat: "movie" | "series" | null = null;
+  if (row.extended_data_json) {
+    try {
+      const ext = JSON.parse(row.extended_data_json);
+      if (ext.animeFormat === "movie" || (ext.category === "anime" && row.type === "movie")) {
+        animeFormat = "movie";
+      } else if (ext.animeFormat === "series" || ext.category === "anime" || row.type === "anime") {
+        animeFormat = "series";
+      }
+    } catch {}
+  }
+  if (!animeFormat && row.type === "anime") {
+    animeFormat = "series";
+  }
+
   return {
     mediaId: row.media_id,
     type: row.type,
@@ -1005,6 +1020,8 @@ function mapDashboardRow(row: DashboardRow): DashboardEntry {
     purchaseLibrary: row.purchase_library ?? null,
     updatedAt: row.updated_at,
     totalRegularEpisodes: row.total_regular_episodes,
+    extendedDataJson: row.extended_data_json ?? null,
+    animeFormat,
     nextEpisode: row.next_episode_id && row.next_season_number !== null && row.next_episode_number !== null
       ? {
           id: row.next_episode_id,

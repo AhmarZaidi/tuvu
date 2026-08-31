@@ -27,6 +27,8 @@ export type DashboardEntry = {
   purchaseLibrary: string | null;
   updatedAt: string;
   totalRegularEpisodes: number;
+  extendedDataJson?: string | null;
+  animeFormat?: "movie" | "series" | null;
   nextEpisode: {
     id: string;
     name: string | null;

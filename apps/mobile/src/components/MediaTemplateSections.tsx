@@ -59,6 +59,18 @@ export function MediaTemplateSections({
   const galleryImages = [...backdrops, ...posters];
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<number | null>(null);
 
+  const isAnime = media.type === 'anime' || ext.category === 'anime';
+  const animeData = ext.anime || {};
+  const studios: any[] = animeData.studios || ext.studios || [];
+  const titles: any = animeData.titles || {};
+  const characters: any[] = animeData.characters || ext.characters || [];
+  const japaneseCast: any[] = animeData.japaneseCast || [];
+  const dubCast: any[] = animeData.dubCast || [];
+  const hasDub = Boolean(ext.hasDub || animeData.hasDub || dubCast.length > 0 || ext.audioLanguages?.includes('English'));
+  const animeFormatLabel = ext.animeFormat === 'movie' || media.type === 'movie' ? 'Anime Movie' : 'Anime Series';
+
+  const [voiceCastTab, setVoiceCastTab] = useState<'sub' | 'dub'>('sub');
+
   const rawOrigLang = ext.originalLanguage || (media as any).language || ext.anime?.originalLanguage || null;
   const originalLanguageName = getLanguageName(rawOrigLang);
   const spokenLanguages: Array<{ code: string; name: string }> = ext.spokenLanguages || [];
@@ -249,6 +261,40 @@ export function MediaTemplateSections({
         </Text>
 
         <View style={styles.infoGrid}>
+          {/* Anime Format Badge */}
+          {isAnime && (
+            <View style={[styles.infoBadge, styles.infoBadgeAccent]}>
+              <Ionicons name={animeFormatLabel === 'Anime Movie' ? 'film-outline' : 'tv-outline'} size={14} color={theme.colors.accent} />
+              <Text style={[styles.infoBadgeText, { color: theme.colors.accent, fontWeight: '700' }]}>
+                {animeFormatLabel}
+              </Text>
+            </View>
+          )}
+
+          {/* Dub Status Badge */}
+          {isAnime && (
+            <View style={[styles.infoBadge, hasDub && styles.infoBadgeSuccess]}>
+              <Ionicons
+                name={hasDub ? 'volume-high-outline' : 'chatbubble-ellipses-outline'}
+                size={14}
+                color={hasDub ? '#22c55e' : '#aeb1ac'}
+              />
+              <Text style={[styles.infoBadgeText, hasDub && { color: '#22c55e', fontWeight: '700' }]}>
+                {hasDub ? 'Sub & Dub Available' : 'Subtitled'}
+              </Text>
+            </View>
+          )}
+
+          {/* Anime Studio Badge */}
+          {isAnime && studios.length > 0 && (
+            <View style={styles.infoBadge}>
+              <Ionicons name="business-outline" size={14} color="#aeb1ac" />
+              <Text style={styles.infoBadgeText} numberOfLines={1}>
+                Studio: {studios.map((s: any) => s.name || s).join(', ')}
+              </Text>
+            </View>
+          )}
+
           {/* Release Date */}
           <View style={styles.infoBadge}>
             <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
@@ -340,42 +386,149 @@ export function MediaTemplateSections({
         </View>
       </View>
 
-      {/* 4. CAST & CHARACTERS */}
-      <View style={styles.sectionCard}>
-        <Text style={styles.eyebrow}>CAST</Text>
-        <Text style={styles.sectionTitle}>Cast & Characters</Text>
+      {/* ANIME ALTERNATIVE TITLES */}
+      {isAnime && Boolean(titles.english || titles.romaji || titles.native) && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.eyebrow}>TITLES</Text>
+          <Text style={styles.sectionTitle}>Alternative titles</Text>
+          <View style={styles.titlesList}>
+            {titles.english && titles.english !== media.title && (
+              <View style={styles.titleRow}>
+                <Text style={styles.titleRowLabel}>English</Text>
+                <Text style={styles.titleRowVal}>{titles.english}</Text>
+              </View>
+            )}
+            {titles.romaji && titles.romaji !== media.title && (
+              <View style={styles.titleRow}>
+                <Text style={styles.titleRowLabel}>Romaji</Text>
+                <Text style={styles.titleRowVal}>{titles.romaji}</Text>
+              </View>
+            )}
+            {titles.native && (
+              <View style={styles.titleRow}>
+                <Text style={styles.titleRowLabel}>Japanese</Text>
+                <Text style={[styles.titleRowVal, { color: theme.colors.accent }]}>{titles.native}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
 
-        {cast.length > 0 ? (
+      {/* CHARACTERS (ANIME) */}
+      {characters.length > 0 && (
+        <View style={styles.sectionCard}>
+          <Text style={styles.eyebrow}>CHARACTERS</Text>
+          <Text style={styles.sectionTitle}>In-show characters</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.horizontalScroll}
           >
-            {cast.map((actor: any, idx: number) => (
+            {characters.map((char: any, idx: number) => (
               <Pressable
-                key={`${actor.id ?? actor.name}-${idx}`}
-                style={styles.castCard}
-                onPress={() => actor.id && router.push(`/people/${actor.id}` as any)}
+                key={`${char.id || char.name}-${idx}`}
+                style={styles.characterCard}
+                onPress={() => char.id && router.push(`/characters/${char.id}` as any)}
               >
-                {actor.profilePath ? (
-                  <Image source={{ uri: actor.profilePath }} style={styles.castPortrait} contentFit="cover" />
+                {char.image ? (
+                  <Image source={{ uri: char.image }} style={styles.characterPortrait} contentFit="cover" />
                 ) : (
-                  <View style={styles.castPortraitPlaceholder}>
-                    <Text style={styles.castInitials}>{(actor.name || 'A').slice(0, 1)}</Text>
+                  <View style={styles.characterPlaceholder}>
+                    <Text style={styles.characterInitials}>{(char.name || 'C').slice(0, 1)}</Text>
                   </View>
                 )}
-                <Text style={styles.castName} numberOfLines={1}>
-                  {actor.name}
+                <Text style={styles.characterName} numberOfLines={1}>
+                  {char.name}
                 </Text>
-                <Text style={styles.castRole} numberOfLines={1}>
-                  {actor.role || 'Cast'}
+                <Text style={styles.characterRole} numberOfLines={1}>
+                  {char.role || 'Character'}
                 </Text>
               </Pressable>
             ))}
           </ScrollView>
-        ) : (
-          <Text style={styles.mutedText}>Cast will appear after provider hydration.</Text>
-        )}
+        </View>
+      )}
+
+      {/* 4. CAST & VOICES */}
+      <View style={styles.sectionCard}>
+        <View style={styles.castHeaderRow}>
+          <View>
+            <Text style={styles.eyebrow}>{isAnime ? 'VOICES' : 'CAST'}</Text>
+            <Text style={styles.sectionTitle}>{isAnime ? 'Voice Cast' : 'Cast & Characters'}</Text>
+          </View>
+
+          {/* Anime Sub vs Dub Switcher */}
+          {isAnime && (japaneseCast.length > 0 || dubCast.length > 0) && (
+            <View style={styles.voiceTabSwitcher}>
+              <Pressable
+                style={[styles.voiceTab, voiceCastTab === 'sub' && styles.voiceTabActive]}
+                onPress={() => setVoiceCastTab('sub')}
+              >
+                <Text style={[styles.voiceTabText, voiceCastTab === 'sub' && styles.voiceTabTextActive]}>
+                  Sub (JP)
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.voiceTab, voiceCastTab === 'dub' && styles.voiceTabActive]}
+                onPress={() => setVoiceCastTab('dub')}
+              >
+                <Text style={[styles.voiceTabText, voiceCastTab === 'dub' && styles.voiceTabTextActive]}>
+                  Dub (EN)
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+
+        {(() => {
+          const currentCast = isAnime
+            ? voiceCastTab === 'dub' && dubCast.length > 0
+              ? dubCast
+              : japaneseCast.length > 0
+              ? japaneseCast
+              : cast
+            : cast;
+
+          if (currentCast.length > 0) {
+            return (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.horizontalScroll}
+              >
+                {currentCast.map((actor: any, idx: number) => (
+                  <Pressable
+                    key={`${actor.id ?? actor.name}-${idx}`}
+                    style={styles.castCard}
+                    onPress={() => actor.id && router.push(`/people/${actor.id}` as any)}
+                  >
+                    {actor.profilePath ? (
+                      <Image source={{ uri: actor.profilePath }} style={styles.castPortrait} contentFit="cover" />
+                    ) : (
+                      <View style={styles.castPortraitPlaceholder}>
+                        <Text style={styles.castInitials}>{(actor.name || 'A').slice(0, 1)}</Text>
+                      </View>
+                    )}
+                    <Text style={styles.castName} numberOfLines={1}>
+                      {actor.name}
+                    </Text>
+                    <Text style={styles.castRole} numberOfLines={1}>
+                      {actor.role || (isAnime ? 'Voice' : 'Cast')}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            );
+          }
+
+          return (
+            <Text style={styles.mutedText}>
+              {isAnime && voiceCastTab === 'dub'
+                ? 'English Dub cast not indexed for this anime.'
+                : 'Cast will appear after provider hydration.'}
+            </Text>
+          );
+        })()}
       </View>
 
       {/* 5. TRAILER EMBEDDED PLAYER */}
@@ -985,5 +1138,100 @@ const styles = StyleSheet.create({
   voteCountText: {
     fontSize: 12,
     color: '#8b8e89',
+  },
+  infoBadgeAccent: {
+    backgroundColor: 'rgba(255, 191, 71, 0.12)',
+    borderColor: 'rgba(255, 191, 71, 0.3)',
+  },
+  infoBadgeSuccess: {
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  titlesList: {
+    gap: 8,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 12,
+  },
+  titleRowLabel: {
+    width: 65,
+    color: '#aeb1ac',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  titleRowVal: {
+    flex: 1,
+    color: '#f8f7f2',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  characterCard: {
+    width: 90,
+    alignItems: 'center',
+  },
+  characterPortrait: {
+    width: 76,
+    height: 104,
+    borderRadius: 8,
+    backgroundColor: '#202326',
+    marginBottom: 6,
+  },
+  characterPlaceholder: {
+    width: 76,
+    height: 104,
+    borderRadius: 8,
+    backgroundColor: '#202326',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  characterInitials: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.colors.accent,
+  },
+  characterName: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#f8f7f2',
+    textAlign: 'center',
+  },
+  characterRole: {
+    fontSize: 10,
+    color: theme.colors.accent,
+    textAlign: 'center',
+  },
+  castHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  voiceTabSwitcher: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: 8,
+    padding: 2,
+    gap: 2,
+  },
+  voiceTab: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  voiceTabActive: {
+    backgroundColor: 'rgba(255, 191, 71, 0.2)',
+  },
+  voiceTabText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#aeb1ac',
+  },
+  voiceTabTextActive: {
+    color: theme.colors.accent,
+    fontWeight: '700',
   },
 });

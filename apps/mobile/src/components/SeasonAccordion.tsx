@@ -224,16 +224,46 @@ export function SeasonAccordion({
                           )}
 
                           {/* Title & Code */}
-                          <View style={styles.episodeMeta}>
-                            <Text style={styles.episodeCode}>{epCode}</Text>
-                            <Text
-                              style={styles.episodeTitle}
-                              numberOfLines={1}
-                              ellipsizeMode="tail"
-                            >
-                              {ep.title || `Episode ${ep.episodeNumber}`}
-                            </Text>
-                          </View>
+                          {(() => {
+                            let epExt: any = {};
+                            try {
+                              if (ep.extendedDataJson) epExt = JSON.parse(ep.extendedDataJson);
+                            } catch {}
+
+                            const altTitle = epExt.titleRomaji || epExt.titleJapanese;
+                            const isFiller = Boolean(epExt.filler);
+                            const isRecap = Boolean(epExt.recap);
+
+                            return (
+                              <View style={styles.episodeMeta}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={styles.episodeCode}>{epCode}</Text>
+                                  {isFiller && (
+                                    <View style={styles.fillerBadge}>
+                                      <Text style={styles.fillerBadgeText}>FILLER</Text>
+                                    </View>
+                                  )}
+                                  {isRecap && (
+                                    <View style={styles.recapBadge}>
+                                      <Text style={styles.recapBadgeText}>RECAP</Text>
+                                    </View>
+                                  )}
+                                </View>
+                                <Text
+                                  style={styles.episodeTitle}
+                                  numberOfLines={1}
+                                  ellipsizeMode="tail"
+                                >
+                                  {ep.title || `Episode ${ep.episodeNumber}`}
+                                </Text>
+                                {altTitle && altTitle !== ep.title && (
+                                  <Text style={styles.episodeAltTitle} numberOfLines={1}>
+                                    {altTitle}
+                                  </Text>
+                                )}
+                              </View>
+                            );
+                          })()}
 
                           {/* Watched Toggle Circle with x2/x3 badge support */}
                           <Pressable
@@ -556,5 +586,44 @@ const styles = StyleSheet.create({
   sheetActionSub: {
     color: '#8b8e89',
     fontSize: 12,
+  },
+  modalItemSubtitle: {
+    color: '#8b8e89',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  fillerBadge: {
+    backgroundColor: 'rgba(239, 68, 68, 0.18)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+  },
+  fillerBadgeText: {
+    color: '#ef4444',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  recapBadge: {
+    backgroundColor: 'rgba(59, 130, 246, 0.18)',
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
+  },
+  recapBadgeText: {
+    color: '#60a5fa',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  episodeAltTitle: {
+    color: '#aeb1ac',
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginTop: 1,
   },
 });

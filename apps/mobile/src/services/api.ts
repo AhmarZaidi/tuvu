@@ -28,6 +28,8 @@ export type DashboardEntry = {
   purchaseLibrary: string | null;
   updatedAt: string;
   totalRegularEpisodes?: number;
+  extendedDataJson?: string | null;
+  animeFormat?: 'movie' | 'series' | null;
   nextEpisode?: {
     id: string;
     name: string | null;
@@ -35,6 +37,31 @@ export type DashboardEntry = {
     episodeNumber: number;
     airDate: string | null;
   } | null;
+};
+
+export type CharacterDetails = {
+  id: string;
+  name: string;
+  nativeName: string | null;
+  alternativeNames: string[];
+  image: string | null;
+  description: string | null;
+  gender: string | null;
+  age: string | null;
+  dateOfBirth: string | null;
+  media: Array<{
+    id: string;
+    title: string;
+    posterPath: string | null;
+    format: string | null;
+    type: string;
+  }>;
+  voiceActors?: Array<{
+    id: string;
+    name: string;
+    language: string;
+    image: string | null;
+  }>;
 };
 
 export type DashboardSection = {
@@ -68,6 +95,7 @@ export type EpisodeWithActivity = {
   airDate: string | null;
   runtimeMinutes: number | null;
   isSpecial: boolean;
+  extendedDataJson?: string | null;
   activity?: {
     id: string;
     watched: boolean;
@@ -700,5 +728,9 @@ export const api = {
 
   async getStorageSettings(): Promise<{ storage: StorageStats }> {
     return apiRequest<{ storage: StorageStats }>('/api/settings/storage');
+  },
+
+  async getCharacter(id: string): Promise<CharacterDetails> {
+    return apiRequest<CharacterDetails>(`/api/characters/${id}`);
   },
 };

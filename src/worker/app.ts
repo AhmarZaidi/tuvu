@@ -11,6 +11,7 @@ import { createImportRoutes } from "./import-routes";
 import { createExploreRoutes } from "./explore-routes";
 import { createMergeRoutes } from "./merge-routes";
 import { createPeopleRoutes } from "./people-routes";
+import { createCharacterRoutes } from "./character-routes";
 import { createProfileRoutes } from "./profile-routes";
 import { createSettingsRoutes } from "./settings-routes";
 import type { ProfileRouteDependencies } from "./profile-routes";
@@ -85,6 +86,7 @@ export function createApp(dependencies: AppDependencies = {}) {
   app.route("/api/explore", createExploreRoutes());
   app.route("/api/merge", createMergeRoutes());
   app.route("/api/people", createPeopleRoutes());
+  app.route("/api/characters", createCharacterRoutes());
   app.route("/api/settings", createSettingsRoutes());
 
   app.onError((error, c) => {

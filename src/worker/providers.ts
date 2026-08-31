@@ -1,6 +1,7 @@
 import type { MediaType } from "@shared/media";
 import { igdbFetchDetails, igdbList, igdbSearch, rawgFetchDetails, rawgSearch } from "./providers/igdb-rawg";
 import { jikanAnimeCharacters, jikanAnimeEpisodes, jikanSearchAnime, jikanSearchProvider } from "./providers/jikan";
+import { anilistCharacterDetails, anilistSearchAnime, anilistSearchProvider, anilistTrendingAnime } from "./providers/anilist";
 import { openLibraryFetchDetails, openLibrarySearch, openLibrarySubject } from "./providers/open-library";
 import { googleBooksSearch } from "./providers/google-books";
 import { tvmazeLookup, tvmazeSearch, wikidataEntity } from "./providers/tvmaze-wikidata";
@@ -21,6 +22,8 @@ export {
   jikanAnimeCharacters,
   jikanAnimeEpisodes,
   jikanSearchAnime,
+  anilistCharacterDetails,
+  anilistSearchAnime,
   openLibraryFetchDetails,
   rawgFetchDetails,
   googleBooksSearch,
@@ -46,7 +49,10 @@ export async function providerSearch(env: Env, query: string, types: MediaType[]
     if (types.some((type) => type === "show" || type === "anime")) calls.push(tmdbSearch(env, "tv", trimmed, limit, userId));
     if (types.includes("show")) calls.push(tvmazeSearch(env, trimmed, limit));
   }
-  if (types.includes("anime")) calls.push(jikanSearchProvider(env, trimmed, Math.min(limit, 8), userId));
+  if (types.includes("anime")) {
+    calls.push(jikanSearchProvider(env, trimmed, Math.min(limit, 8), userId));
+    calls.push(anilistSearchProvider(env, trimmed, Math.min(limit, 8), userId));
+  }
   if (types.includes("game")) calls.push(igdbSearch(env, trimmed, limit, userId));
   if (types.includes("book")) {
     calls.push(openLibrarySearch(env, trimmed, limit, userId));
@@ -115,12 +121,14 @@ export async function providerTypeExploreRows(env: Env, type: MediaType, userId?
       ].filter((r) => r.results.length > 0);
     }
     case "anime": {
-      const [popular, topRated, trending] = await Promise.allSettled([
+      const [popular, topRated, trending, anilistTrending] = await Promise.allSettled([
         tmdbList(env, "type:anime:popular", "discover/tv?with_genres=16&with_original_language=ja&sort_by=popularity.desc", limit, userId),
         tmdbList(env, "type:anime:top_rated", "discover/tv?with_genres=16&with_original_language=ja&sort_by=vote_average.desc&vote_count.gte=100", limit, userId),
         tmdbList(env, "type:anime:recent", "discover/tv?with_genres=16&with_original_language=ja&air_date.gte=2024-01-01&sort_by=popularity.desc", limit, userId),
+        anilistTrendingAnime(env, limit, userId),
       ]);
       return [
+        { id: "anime-trending-anilist", title: "Trending on AniList", subtitle: "Top trending community anime right now.", results: valueOrEmpty(anilistTrending) },
         { id: "anime-popular", title: "Popular Anime", subtitle: "Most streamed Japanese animation series.", results: valueOrEmpty(popular).map((r) => ({ ...r, type: "anime" as const })) },
         { id: "anime-top-rated", title: "Top Rated Anime", subtitle: "Highest audience-rated anime classics.", results: valueOrEmpty(topRated).map((r) => ({ ...r, type: "anime" as const })) },
         { id: "anime-recent", title: "New & Recent Seasons", subtitle: "Fresh series and sequels from this year.", results: valueOrEmpty(trending).map((r) => ({ ...r, type: "anime" as const })) },

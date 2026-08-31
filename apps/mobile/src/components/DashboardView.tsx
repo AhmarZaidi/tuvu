@@ -50,6 +50,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   } = useDashboardLayout();
 
   const [activeSectionId, setActiveSectionId] = useState<string>('all');
+  const [formatFilter, setFormatFilter] = useState<'all' | 'series' | 'movie'>('all');
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('updated');
 
@@ -100,6 +101,20 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   const displayedEntries = useMemo(() => {
     let list = [...(currentSection?.entries || [])];
 
+    if (kind === 'anime' && formatFilter !== 'all') {
+      list = list.filter((item) => {
+        let fmt = item.animeFormat;
+        if (!fmt && item.extendedDataJson) {
+          try {
+            const ext = JSON.parse(item.extendedDataJson);
+            fmt = ext.animeFormat || (ext.category === 'anime' && item.type === 'movie' ? 'movie' : 'series');
+          } catch {}
+        }
+        if (!fmt) fmt = item.type === 'movie' ? 'movie' : 'series';
+        return fmt === formatFilter;
+      });
+    }
+
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter((item) => item.title?.toLowerCase().includes(q));
@@ -116,7 +131,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     }
 
     return list;
-  }, [currentSection, search, sortMode]);
+  }, [currentSection, search, sortMode, kind, formatFilter]);
 
   // Filter & Sort sections for Horizontal Carousels Mode
   const carouselSections = useMemo(() => {
@@ -126,6 +141,19 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
     return realSections
       .map((sec) => {
         let entries = [...(sec.entries || [])];
+        if (kind === 'anime' && formatFilter !== 'all') {
+          entries = entries.filter((item) => {
+            let fmt = item.animeFormat;
+            if (!fmt && item.extendedDataJson) {
+              try {
+                const ext = JSON.parse(item.extendedDataJson);
+                fmt = ext.animeFormat || (ext.category === 'anime' && item.type === 'movie' ? 'movie' : 'series');
+              } catch {}
+            }
+            if (!fmt) fmt = item.type === 'movie' ? 'movie' : 'series';
+            return fmt === formatFilter;
+          });
+        }
         if (search.trim()) {
           const q = search.trim().toLowerCase();
           entries = entries.filter((e) => e.title?.toLowerCase().includes(q));
@@ -233,7 +261,28 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
         placeholder={`Filter ${title.toLowerCase()}...`}
       />
 
-      {/* 5. Section Tabs (Only shown in Grid Mode) */}
+      {/* 5. Anime Format Filter: All Anime, Series, Movies */}
+      {kind === 'anime' && (
+        <View style={styles.animeFormatRow}>
+          {(['all', 'series', 'movie'] as const).map((fmt) => {
+            const label = fmt === 'all' ? 'All Anime' : fmt === 'series' ? 'Anime Series' : 'Anime Movies';
+            const isSelected = formatFilter === fmt;
+            return (
+              <Pressable
+                key={fmt}
+                style={[styles.animeFormatChip, isSelected && styles.animeFormatChipActive]}
+                onPress={() => setFormatFilter(fmt)}
+              >
+                <Text style={[styles.animeFormatChipText, isSelected && styles.animeFormatChipTextActive]}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {/* 6. Section Tabs (Only shown in Grid Mode) */}
       {layoutMode === 'grid' && sections.length > 0 && (
         <SectionPills
           sections={sections}
@@ -556,8 +605,36 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   emptyAddButtonText: {
-    color: theme.colors.accentContrast,
-    fontSize: 13,
-    fontWeight: '800',
+    color: '#12151c',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  animeFormatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+  },
+  animeFormatChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  animeFormatChipActive: {
+    backgroundColor: 'rgba(255, 191, 71, 0.16)',
+    borderColor: theme.colors.accent,
+  },
+  animeFormatChipText: {
+    color: '#aeb1ac',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  animeFormatChipTextActive: {
+    color: '#f8f7f2',
+    fontWeight: '700',
   },
 });

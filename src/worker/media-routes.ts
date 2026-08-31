@@ -116,6 +116,12 @@ export function createMediaRoutes() {
       url: string;
       provider: string;
       badge?: string;
+      servers: Array<{
+        id: string;
+        name: string;
+        url: string;
+        badge?: string;
+      }>;
     }> = [];
 
     // 1. Anime Sources
@@ -124,10 +130,16 @@ export function createMediaRoutes() {
       if (slug) {
         sources.push({
           id: "anikoto",
-          name: "Anikoto",
+          name: "Anikoto TV",
           url: `https://anikototv.to/watch/${slug}/ep-${episode}`,
           provider: "anikoto",
           badge: "HD • Sub/Dub",
+          servers: [
+            { id: "sub_1", name: "Sub (Default)", url: `https://anikototv.to/watch/${slug}/ep-${episode}`, badge: "HD" },
+            { id: "dub_1", name: "English Dub", url: `https://anikototv.to/watch/${slug}-dub/ep-${episode}`, badge: "Dub" },
+            { id: "megacloud", name: "MegaCloud", url: `https://anikototv.to/watch/${slug}/ep-${episode}?server=megacloud` },
+            { id: "vidstream", name: "Vidstream", url: `https://anikototv.to/watch/${slug}/ep-${episode}?server=vidstream` },
+          ],
         });
       }
 
@@ -139,19 +151,32 @@ export function createMediaRoutes() {
             url: `https://7reels.cc/movie/${tmdbId}/watch`,
             provider: "7reels",
             badge: "Primary",
+            servers: [
+              { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/movie/${tmdbId}/watch` },
+              { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
+              { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
+            ],
           });
           sources.push({
-            id: "vidsrc_to",
+            id: "vidsrc",
             name: "VidSrc",
             url: `https://vidsrc.to/embed/movie/${tmdbId}`,
             provider: "vidsrc",
             badge: "Fast",
+            servers: [
+              { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/movie/${tmdbId}` },
+              { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/movie/${tmdbId}` },
+            ],
           });
           sources.push({
-            id: "vidsrc_xyz",
-            name: "VidSrc XYZ",
-            url: `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`,
-            provider: "vidsrc_xyz",
+            id: "2embed",
+            name: "2Embed",
+            url: `https://www.2embed.cc/embed/${tmdbId}`,
+            provider: "2embed",
+            servers: [
+              { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embed/${tmdbId}` },
+              { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embed/${tmdbId}` },
+            ],
           });
         } else {
           sources.push({
@@ -160,19 +185,32 @@ export function createMediaRoutes() {
             url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
             provider: "7reels",
             badge: "Primary",
+            servers: [
+              { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+              { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+              { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
+            ],
           });
           sources.push({
-            id: "vidsrc_to",
+            id: "vidsrc",
             name: "VidSrc",
             url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
             provider: "vidsrc",
             badge: "Fast",
+            servers: [
+              { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}` },
+              { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/tv/${tmdbId}/${season}/${episode}` },
+            ],
           });
           sources.push({
-            id: "vidsrc_xyz",
-            name: "VidSrc XYZ",
-            url: `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
-            provider: "vidsrc_xyz",
+            id: "2embed",
+            name: "2Embed",
+            url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+            provider: "2embed",
+            servers: [
+              { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+              { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+            ],
           });
         }
       }
@@ -183,6 +221,9 @@ export function createMediaRoutes() {
         url: `https://hianime.to/search?keyword=${encodeURIComponent(media.title)}`,
         provider: "hianime",
         badge: "Anime",
+        servers: [
+          { id: "hianime_search", name: "HiAnime Search", url: `https://hianime.to/search?keyword=${encodeURIComponent(media.title)}` },
+        ],
       });
     } else if (media.type === "movie" && !isEpisode) {
       // 2. Movies
@@ -193,25 +234,43 @@ export function createMediaRoutes() {
           url: `https://7reels.cc/movie/${tmdbId}/watch`,
           provider: "7reels",
           badge: "Primary",
+          servers: [
+            { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/movie/${tmdbId}/watch` },
+            { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
+            { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
+          ],
         });
         sources.push({
-          id: "vidsrc_to",
+          id: "vidsrc",
           name: "VidSrc",
           url: `https://vidsrc.to/embed/movie/${tmdbId}`,
           provider: "vidsrc",
           badge: "Fast",
+          servers: [
+            { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/movie/${tmdbId}` },
+            { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/movie/${tmdbId}` },
+            { id: "vidsrc_in", name: "VidSrc IN", url: `https://vidsrc.in/embed/movie/${tmdbId}` },
+          ],
         });
         sources.push({
-          id: "vidsrc_xyz",
-          name: "VidSrc XYZ",
-          url: `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`,
-          provider: "vidsrc_xyz",
+          id: "2embed",
+          name: "2Embed",
+          url: `https://www.2embed.cc/embed/${tmdbId}`,
+          provider: "2embed",
+          badge: "HD",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embed/${tmdbId}` },
+            { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embed/${tmdbId}` },
+          ],
         });
         sources.push({
-          id: "autoembed",
-          name: "AutoEmbed",
-          url: `https://player.autoembed.cc/embed/movie/${tmdbId}`,
-          provider: "autoembed",
+          id: "smashystream",
+          name: "SmashyStream",
+          url: `https://player.smashystream.com/movie/${tmdbId}`,
+          provider: "smashystream",
+          servers: [
+            { id: "smashy_1", name: "Smashy Main", url: `https://player.smashystream.com/movie/${tmdbId}` },
+          ],
         });
       }
 
@@ -224,6 +283,9 @@ export function createMediaRoutes() {
           url: archiveMatch.url,
           provider: "archive",
           badge: "Public Domain",
+          servers: [
+            { id: "archive_main", name: "Archive Embed", url: archiveMatch.url },
+          ],
         });
       }
 
@@ -234,6 +296,9 @@ export function createMediaRoutes() {
         url: `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(media.title + " Full Movie")}`,
         provider: "youtube",
         badge: "Free",
+        servers: [
+          { id: "yt_search", name: "YouTube Search", url: `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(media.title + " Full Movie")}` },
+        ],
       });
     } else {
       // 3. TV Shows
@@ -244,25 +309,42 @@ export function createMediaRoutes() {
           url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
           provider: "7reels",
           badge: "Primary",
+          servers: [
+            { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+            { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+            { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
+          ],
         });
         sources.push({
-          id: "vidsrc_to",
+          id: "vidsrc",
           name: "VidSrc",
           url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
           provider: "vidsrc",
           badge: "Fast",
+          servers: [
+            { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}` },
+            { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/tv/${tmdbId}/${season}/${episode}` },
+          ],
         });
         sources.push({
-          id: "vidsrc_xyz",
-          name: "VidSrc XYZ",
-          url: `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
-          provider: "vidsrc_xyz",
+          id: "2embed",
+          name: "2Embed",
+          url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+          provider: "2embed",
+          badge: "HD",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+            { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+          ],
         });
         sources.push({
-          id: "autoembed",
-          name: "AutoEmbed",
-          url: `https://player.autoembed.cc/embed/tv/${tmdbId}/${season}/${episode}`,
-          provider: "autoembed",
+          id: "smashystream",
+          name: "SmashyStream",
+          url: `https://player.smashystream.com/tv/${tmdbId}?s=${season}&e=${episode}`,
+          provider: "smashystream",
+          servers: [
+            { id: "smashy_tv", name: "Smashy TV", url: `https://player.smashystream.com/tv/${tmdbId}?s=${season}&e=${episode}` },
+          ],
         });
       }
     }

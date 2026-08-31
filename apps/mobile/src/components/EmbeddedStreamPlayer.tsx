@@ -7,14 +7,15 @@ import {
   Pressable,
   Linking,
   ScrollView,
-  Dimensions,
+  Modal,
   StatusBar,
+  BackHandler,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
-import { StreamSourceItem } from '../services/api';
+import { StreamSourceItem, StreamServer } from '../services/api';
 
 const RNWebView: any = WebView;
 
@@ -27,76 +28,6 @@ interface EmbeddedStreamPlayerProps {
   sources?: StreamSourceItem[];
 }
 
-// Injected CSS for 7reels to isolate and maximize only the video player
-const INJECTED_CSS_7REELS = `
-  header, nav, footer, .top-bar, .header, .back-btn, .back-button, .search-bar,
-  .related-shows, .sidebar, .navbar, .nav-bar, #header, #footer {
-    display: none !important;
-  }
-  html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    background: #000 !important;
-    overflow: hidden !important;
-  }
-  #root, .player-container, .video-wrap, iframe, video {
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-  }
-`;
-
-// Injected CSS for anikoto to isolate only the player container
-const INJECTED_CSS_ANIKOTO = `
-  header, footer, nav, #header, #footer, .sidebar, .watch-second, .watch-order,
-  .comment-box, .anime-related, #disqus_thread, .sidebar-section, .w2g-create,
-  #w2g-create, .announcement, .alert, .header-bottom, .navbar {
-    display: none !important;
-  }
-  html, body {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    background: #000 !important;
-    overflow: hidden !important;
-  }
-  #watch-main, .watch-wrap, .watch-container, #w-player, #player-wrapper, #player, iframe, video {
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: 100vw !important;
-    max-height: 100vh !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    position: fixed !important;
-    top: 0 !important;
-    left: 0 !important;
-    z-index: 99999 !important;
-  }
-`;
-
-// Injected CSS for other standard embed providers (VidSrc, AutoEmbed, Archive)
-const INJECTED_CSS_GENERIC = `
-  html, body, #player, .player, iframe, video {
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
-    background: #000 !important;
-    overflow: hidden !important;
-  }
-`;
-
 export function EmbeddedStreamPlayer({
   url: initialUrl,
   provider: initialProvider = '7reels',
@@ -105,8 +36,9 @@ export function EmbeddedStreamPlayer({
   height = 230,
   sources = [],
 }: EmbeddedStreamPlayerProps) {
-  // Source State
+  // Source & Server State
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
+  const [activeServerIndex, setActiveServerIndex] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [keyCounter, setKeyCounter] = useState(0);
 
@@ -118,47 +50,92 @@ export function EmbeddedStreamPlayer({
   const [showControls, setShowControls] = useState(true);
 
   const webViewRef = useRef<any>(null);
+  const fullscreenWebViewRef = useRef<any>(null);
   const controlsTimeoutRef = useRef<any>(null);
 
   // Normalize source list
-  const sourceList = sources.length > 0 ? sources : [{ id: 'default', name: initialProvider, url: initialUrl, provider: initialProvider }];
+  const sourceList: StreamSourceItem[] = sources.length > 0
+    ? sources
+    : [{ id: 'default', name: initialProvider, url: initialUrl, provider: initialProvider, servers: [{ id: 'srv_1', name: 'Server 1 (Default)', url: initialUrl }] }];
+
   const activeSource = sourceList[activeSourceIndex] || sourceList[0];
+  const activeServers = activeSource.servers && activeSource.servers.length > 0
+    ? activeSource.servers
+    : [{ id: 'srv_1', name: 'Default Server', url: activeSource.url }];
+  const activeServer = activeServers[activeServerIndex] || activeServers[0];
 
   useEffect(() => {
-    if (sources.length > 0 && sources[activeSourceIndex]) {
-      setCurrentUrl(sources[activeSourceIndex].url);
+    if (activeServer && activeServer.url) {
+      setCurrentUrl(activeServer.url);
+    } else if (activeSource && activeSource.url) {
+      setCurrentUrl(activeSource.url);
     } else {
       setCurrentUrl(initialUrl);
     }
-  }, [initialUrl, sources, activeSourceIndex]);
+  }, [activeSource, activeServer, initialUrl]);
 
   // Clean up orientation when unmounting
   useEffect(() => {
+    const handleBack = () => {
+      if (isFullscreen) {
+        toggleFullscreen();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', handleBack);
     return () => {
+      sub.remove();
       ScreenOrientation.unlockAsync().catch(() => {});
     };
-  }, []);
+  }, [isFullscreen]);
 
   const handleSelectSource = (index: number) => {
     if (index === activeSourceIndex) return;
     setActiveSourceIndex(index);
-    setCurrentUrl(sourceList[index].url);
+    setActiveServerIndex(0);
+    const newSrc = sourceList[index];
+    const initialSrvUrl = newSrc.servers && newSrc.servers.length > 0 ? newSrc.servers[0].url : newSrc.url;
+    setCurrentUrl(initialSrvUrl);
     setLoading(true);
     setHasError(false);
     setKeyCounter((k) => k + 1);
   };
 
+  const handleSelectServer = (index: number) => {
+    if (index === activeServerIndex) return;
+    setActiveServerIndex(index);
+    const srv = activeServers[index];
+    if (srv && srv.url) {
+      setCurrentUrl(srv.url);
+      setLoading(true);
+      setHasError(false);
+      setKeyCounter((k) => k + 1);
+    }
+  };
+
   const handleAutoFallback = useCallback(() => {
+    // 1. Try next server within same source
+    if (activeServerIndex < activeServers.length - 1) {
+      const nextSrvIdx = activeServerIndex + 1;
+      const nextSrv = activeServers[nextSrvIdx];
+      setFallbackToast(`Switching to ${nextSrv.name}`);
+      setTimeout(() => setFallbackToast(null), 3000);
+      handleSelectServer(nextSrvIdx);
+      return;
+    }
+
+    // 2. Try next source
     if (activeSourceIndex < sourceList.length - 1) {
-      const nextIdx = activeSourceIndex + 1;
-      const nextSrc = sourceList[nextIdx];
-      setFallbackToast(`Switched to fallback: ${nextSrc.name}`);
+      const nextSrcIdx = activeSourceIndex + 1;
+      const nextSrc = sourceList[nextSrcIdx];
+      setFallbackToast(`Switched to: ${nextSrc.name}`);
       setTimeout(() => setFallbackToast(null), 3500);
-      handleSelectSource(nextIdx);
+      handleSelectSource(nextSrcIdx);
     } else {
       setHasError(true);
     }
-  }, [activeSourceIndex, sourceList]);
+  }, [activeServerIndex, activeServers, activeSourceIndex, sourceList]);
 
   const toggleFullscreen = async () => {
     if (isFullscreen) {
@@ -179,12 +156,16 @@ export function EmbeddedStreamPlayer({
     setShowControls(true);
     controlsTimeoutRef.current = setTimeout(() => {
       setShowControls(false);
-    }, 3800);
+    }, 4000);
   };
 
   const handleScreenTouch = () => {
     if (isFullscreen) {
-      resetControlsTimer();
+      if (showControls) {
+        setShowControls(false);
+      } else {
+        resetControlsTimer();
+      }
     }
   };
 
@@ -192,7 +173,7 @@ export function EmbeddedStreamPlayer({
   const handleResetToStream = () => {
     setLoading(true);
     setHasError(false);
-    setCurrentUrl(activeSource.url);
+    setCurrentUrl(activeServer.url || activeSource.url);
     setKeyCounter((k) => k + 1);
   };
 
@@ -200,78 +181,86 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
-  const isAnikoto = activeSource.provider === 'anikoto' || currentUrl.includes('anikototv');
-  const is7reels = activeSource.provider === '7reels' || currentUrl.includes('7reels');
-
-  const injectedCSS = isAnikoto ? INJECTED_CSS_ANIKOTO : is7reels ? INJECTED_CSS_7REELS : INJECTED_CSS_GENERIC;
-
+  // Targeted script to isolate player and remove floating buttons
   const injectedJS = `
     (function() {
-      // 1. Neutralize popups and redirects
+      // 1. Block unwanted popups and external redirects
       window.open = function() { return null; };
       window.alert = function() {};
       window.confirm = function() { return true; };
       window.prompt = function() { return null; };
 
-      // 2. Inject fit CSS
+      // 2. Inject fit CSS to hide site chrome
       var style = document.getElementById('tuvu-embed-style');
       if (!style) {
         style = document.createElement('style');
         style.id = 'tuvu-embed-style';
-        style.innerHTML = \`${injectedCSS}\`;
+        style.innerHTML = \`
+          header, nav, footer, .navbar, .nav-bar, #header, #footer,
+          #disqus_thread, #smart-tv-controls, .related-shows, .sidebar {
+            display: none !important;
+          }
+          body {
+            background: #000000 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+        \`;
         document.head.appendChild(style);
       }
 
-      // 3. Remove fake overlay clickjackers every 500ms
-      var clearAds = function() {
-        var bads = document.querySelectorAll('div[style*="z-index: 9999"], div[style*="z-index:9999"], a[target="_blank"], .ad-overlay, .pop-overlay, #disqus_thread');
-        bads.forEach(function(el) { el.remove(); });
-      };
-      setInterval(clearAds, 500);
-
-      // 4. Auto-scroll to player container
-      setTimeout(function() {
-        var player = document.getElementById('w-player') || document.getElementById('player') || document.querySelector('.player') || document.querySelector('video') || document.querySelector('iframe');
-        if (player) {
-          player.scrollIntoView({ behavior: 'instant', block: 'start' });
+      // 3. Maximize and pin the iframe to fill the viewport
+      function maximizePlayer() {
+        var iframe = document.querySelector('iframe');
+        if (iframe) {
+          iframe.style.position = 'fixed';
+          iframe.style.top = '0';
+          iframe.style.left = '0';
+          iframe.style.width = '100vw';
+          iframe.style.height = '100vh';
+          iframe.style.zIndex = '999999';
+          iframe.style.border = 'none';
+          iframe.style.background = '#000000';
         }
-      }, 500);
+
+        // Hide floating back buttons in top left corner (outside iframe)
+        var allButtons = document.querySelectorAll('button, a');
+        for (var i = 0; i < allButtons.length; i++) {
+          var btn = allButtons[i];
+          if (btn.closest && !btn.closest('iframe')) {
+            var rect = btn.getBoundingClientRect();
+            if (rect.top >= 0 && rect.top < 90 && rect.left >= 0 && rect.left < 90) {
+              btn.style.display = 'none';
+            }
+          }
+        }
+      }
+
+      setInterval(maximizePlayer, 350);
+      maximizePlayer();
     })();
     true;
   `;
 
-  // Safe navigation filter to prevent Google / ad redirects
+  // Safe navigation filter that does not block stream subframes
   const handleShouldStartLoad = (req: any) => {
-    const u = req.url.toLowerCase();
-    if (u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) return true;
+    const u = (req.url || '').toLowerCase();
+    if (!u || u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) return true;
 
-    // Check if domain is allowed stream provider / cdn / recaptcha
-    const allowed = [
-      '7reels.cc',
-      'anikototv.to',
-      'vidsrc',
-      'embed.su',
-      'autoembed.cc',
-      'multiembed.mov',
-      'superembed.stream',
-      'archive.org',
-      'youtube.com',
-      'youtu.be',
-      'hianime.to',
-      'anipixcdn.co',
-      'tmdb-image-prod',
-      'cloudflare',
-      'recaptcha',
-      'gstatic.com',
-    ];
-
-    const isMatch = allowed.some((domain) => u.includes(domain));
-    if (isMatch) {
-      return true;
+    // Block android intent / market hijackers
+    if (u.startsWith('intent:') || u.startsWith('market:') || u.startsWith('vnd.youtube:')) {
+      return false;
     }
 
-    // Block unknown / redirect domains (like google search, ad redirectors)
-    return false;
+    // If it's a top-frame redirect away to ad/search engine
+    if (req.isTopFrame && !u.includes('7reels') && !u.includes('anikoto') && !u.includes('vidsrc') && !u.includes('embed') && !u.includes('youtube')) {
+      if (u.includes('google.com') || u.includes('doubleclick') || u.includes('ad.') || u.includes('bet')) {
+        return false;
+      }
+    }
+
+    // Allow all embed and media requests
+    return true;
   };
 
   const webViewProps: any = {
@@ -298,176 +287,230 @@ export function EmbeddedStreamPlayer({
   };
 
   return (
-    <View style={[styles.container, isFullscreen && styles.fullscreenContainer]}>
-      {/* Normal Mode Header (hidden in Fullscreen mode) */}
-      {!isFullscreen && (
-        <>
-          <View style={styles.headerRow}>
-            <View style={styles.titleWrap}>
-              <Text style={styles.eyebrow}>STREAM PLAYER</Text>
-              <Text style={styles.title} numberOfLines={1}>
-                {title}
-              </Text>
-              {subtitle && (
-                <Text style={styles.subtitle} numberOfLines={1}>
-                  {subtitle}
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.actionsRow}>
-              {/* Reset to stream button */}
-              <Pressable
-                style={styles.iconBtn}
-                onPress={handleResetToStream}
-                hitSlop={6}
-                accessibilityLabel="Reset to stream"
-              >
-                <Ionicons name="home-outline" size={15} color="#dcded9" />
-              </Pressable>
-
-              {/* Reload button */}
-              <Pressable
-                style={styles.iconBtn}
-                onPress={() => {
-                  setLoading(true);
-                  setHasError(false);
-                  webViewRef.current?.reload?.();
-                }}
-                hitSlop={6}
-              >
-                <Ionicons name="reload-outline" size={15} color="#dcded9" />
-              </Pressable>
-
-              {/* Fullscreen Button */}
-              <Pressable style={styles.iconBtnAccent} onPress={toggleFullscreen} hitSlop={6}>
-                <Ionicons name="expand" size={15} color="#101112" />
-              </Pressable>
-
-              {/* External browser button */}
-              <Pressable style={styles.iconBtn} onPress={handleOpenExternal} hitSlop={6}>
-                <Ionicons name="open-outline" size={15} color="#dcded9" />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* Horizontal Source Selector Chips */}
-          {sourceList.length > 1 && (
-            <View style={styles.sourceScrollWrap}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceRow}>
-                {sourceList.map((src, idx) => {
-                  const isSelected = idx === activeSourceIndex;
-                  return (
-                    <Pressable
-                      key={src.id || idx}
-                      style={[styles.sourceChip, isSelected && styles.sourceChipActive]}
-                      onPress={() => handleSelectSource(idx)}
-                    >
-                      {isSelected && <Ionicons name="play" size={10} color="#ffcf5c" style={{ marginRight: 4 }} />}
-                      <Text style={[styles.sourceChipText, isSelected && styles.sourceChipTextActive]}>
-                        {src.name}
-                      </Text>
-                      {src.badge && (
-                        <View style={[styles.sourceBadge, isSelected && styles.sourceBadgeActive]}>
-                          <Text style={[styles.sourceBadgeText, isSelected && styles.sourceBadgeTextActive]}>
-                            {src.badge}
-                          </Text>
-                        </View>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
+    <View style={styles.container}>
+      {/* Normal Mode Header */}
+      <View style={styles.headerRow}>
+        <View style={styles.titleWrap}>
+          <Text style={styles.eyebrow}>STREAM PLAYER</Text>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+          {subtitle && (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
           )}
-        </>
+        </View>
+
+        <View style={styles.actionsRow}>
+          {/* Reset to stream button */}
+          <Pressable
+            style={styles.iconBtn}
+            onPress={handleResetToStream}
+            hitSlop={6}
+            accessibilityLabel="Reset to stream"
+          >
+            <Ionicons name="home-outline" size={15} color="#dcded9" />
+          </Pressable>
+
+          {/* Reload button */}
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => {
+              setLoading(true);
+              setHasError(false);
+              webViewRef.current?.reload?.();
+            }}
+            hitSlop={6}
+          >
+            <Ionicons name="reload-outline" size={15} color="#dcded9" />
+          </Pressable>
+
+          {/* Fullscreen Button */}
+          <Pressable style={styles.iconBtnAccent} onPress={toggleFullscreen} hitSlop={6}>
+            <Ionicons name="expand" size={15} color="#101112" />
+          </Pressable>
+
+          {/* External browser button */}
+          <Pressable style={styles.iconBtn} onPress={handleOpenExternal} hitSlop={6}>
+            <Ionicons name="open-outline" size={15} color="#dcded9" />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Row 1: Primary Source Selector Chips */}
+      {sourceList.length > 1 && (
+        <View style={styles.sourceScrollWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceRow}>
+            {sourceList.map((src, idx) => {
+              const isSelected = idx === activeSourceIndex;
+              return (
+                <Pressable
+                  key={src.id || idx}
+                  style={[styles.sourceChip, isSelected && styles.sourceChipActive]}
+                  onPress={() => handleSelectSource(idx)}
+                >
+                  {isSelected && <Ionicons name="play" size={10} color="#ffcf5c" style={{ marginRight: 4 }} />}
+                  <Text style={[styles.sourceChipText, isSelected && styles.sourceChipTextActive]}>
+                    {src.name}
+                  </Text>
+                  {src.badge && (
+                    <View style={[styles.sourceBadge, isSelected && styles.sourceBadgeActive]}>
+                      <Text style={[styles.sourceBadgeText, isSelected && styles.sourceBadgeTextActive]}>
+                        {src.badge}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
       )}
 
-      {/* Embedded Video Player Box (Single continuous WebView) */}
-      <View
-        style={[styles.playerBox, isFullscreen ? styles.playerBoxFullscreen : { height }]}
-        onTouchEnd={handleScreenTouch}
-      >
-        <RNWebView key={`webview-${keyCounter}-${activeSourceIndex}`} ref={webViewRef} {...webViewProps} />
-
-        {/* Fallback Toast Banner */}
-        {fallbackToast && (
-          <View style={styles.fallbackToast}>
-            <Ionicons name="swap-horizontal" size={14} color="#ffcf5c" />
-            <Text style={styles.fallbackToastText}>{fallbackToast}</Text>
-          </View>
-        )}
-
-        {/* Loading Overlay */}
-        {loading && (
-          <View style={styles.overlayCenter}>
-            <ActivityIndicator size="small" color={theme.colors.accent} />
-            <Text style={styles.overlayText}>Connecting to {activeSource.name}...</Text>
-          </View>
-        )}
-
-        {/* Error Fallback */}
-        {hasError && (
-          <View style={styles.overlayCenter}>
-            <Ionicons name="alert-circle-outline" size={28} color="#ff6b6b" />
-            <Text style={styles.errorText}>Could not load stream from {activeSource.name}.</Text>
-            <View style={styles.errorActionsRow}>
-              <Pressable style={styles.retryBtn} onPress={handleResetToStream}>
-                <Text style={styles.retryBtnText}>Retry</Text>
-              </Pressable>
-              {activeSourceIndex < sourceList.length - 1 && (
+      {/* Row 2: Server / Mirror Selector Chips for Selected Source */}
+      {activeServers.length > 1 && (
+        <View style={styles.serverScrollWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serverRow}>
+            <Text style={styles.serverLabel}>SERVER:</Text>
+            {activeServers.map((srv, sIdx) => {
+              const isServerActive = sIdx === activeServerIndex;
+              return (
                 <Pressable
-                  style={[styles.retryBtn, { backgroundColor: 'rgba(255, 207, 92, 0.15)', borderColor: '#ffcf5c' }]}
-                  onPress={() => handleSelectSource(activeSourceIndex + 1)}
+                  key={srv.id || sIdx}
+                  style={[styles.serverChip, isServerActive && styles.serverChipActive]}
+                  onPress={() => handleSelectServer(sIdx)}
                 >
-                  <Text style={[styles.retryBtnText, { color: '#ffcf5c' }]}>Try Next Source</Text>
+                  <Text style={[styles.serverChipText, isServerActive && styles.serverChipTextActive]}>
+                    {srv.name}
+                  </Text>
+                  {srv.badge && (
+                    <View style={[styles.serverBadge, isServerActive && styles.serverBadgeActive]}>
+                      <Text style={[styles.serverBadgeText, isServerActive && styles.serverBadgeTextActive]}>
+                        {srv.badge}
+                      </Text>
+                    </View>
+                  )}
                 </Pressable>
-              )}
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Normal Embedded Player Box */}
+      {!isFullscreen && (
+        <View style={[styles.playerBox, { height }]}>
+          <RNWebView key={`webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`} ref={webViewRef} {...webViewProps} />
+
+          {/* Fallback Toast Banner */}
+          {fallbackToast && (
+            <View style={styles.fallbackToast}>
+              <Ionicons name="swap-horizontal" size={14} color="#ffcf5c" />
+              <Text style={styles.fallbackToastText}>{fallbackToast}</Text>
             </View>
-          </View>
-        )}
+          )}
 
-        {/* Floating Controls Overlay in Fullscreen Mode */}
-        {isFullscreen && showControls && (
-          <View style={styles.floatingFullscreenBar}>
-            <View style={styles.floatingLeft}>
-              <Pressable style={styles.floatingCloseBtn} onPress={toggleFullscreen}>
-                <Ionicons name="contract" size={16} color="#f8f7f2" />
-                <Text style={styles.floatingCloseText}>Exit Fullscreen</Text>
-              </Pressable>
+          {/* Loading Overlay */}
+          {loading && (
+            <View style={styles.overlayCenter}>
+              <ActivityIndicator size="small" color={theme.colors.accent} />
+              <Text style={styles.overlayText}>Connecting to {activeSource.name}...</Text>
+            </View>
+          )}
 
-              <View style={styles.floatingSourceBadge}>
-                <Text style={styles.floatingSourceText}>{activeSource.name}</Text>
+          {/* Error Fallback */}
+          {hasError && (
+            <View style={styles.overlayCenter}>
+              <Ionicons name="alert-circle-outline" size={28} color="#ff6b6b" />
+              <Text style={styles.errorText}>Could not load stream from {activeSource.name}.</Text>
+              <View style={styles.errorActionsRow}>
+                <Pressable style={styles.retryBtn} onPress={handleResetToStream}>
+                  <Text style={styles.retryBtnText}>Retry</Text>
+                </Pressable>
+                {activeSourceIndex < sourceList.length - 1 && (
+                  <Pressable
+                    style={[styles.retryBtn, { backgroundColor: 'rgba(255, 207, 92, 0.15)', borderColor: '#ffcf5c' }]}
+                    onPress={() => handleSelectSource(activeSourceIndex + 1)}
+                  >
+                    <Text style={[styles.retryBtnText, { color: '#ffcf5c' }]}>Try Next Source</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
+          )}
+        </View>
+      )}
 
-            <View style={styles.floatingRight}>
-              {/* Reset to stream link button */}
-              <Pressable style={styles.floatingIconBtn} onPress={handleResetToStream} hitSlop={6}>
-                <Ionicons name="home-outline" size={16} color="#f8f7f2" />
-              </Pressable>
+      {/* Native Immersive Landscape Fullscreen Modal */}
+      <Modal
+        visible={isFullscreen}
+        animationType="fade"
+        transparent={false}
+        statusBarTranslucent={true}
+        hardwareAccelerated={true}
+        onRequestClose={toggleFullscreen}
+      >
+        <StatusBar hidden={true} />
+        <View style={styles.fullscreenModalContainer} onTouchEnd={handleScreenTouch}>
+          <RNWebView
+            key={`fullscreen-webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`}
+            ref={fullscreenWebViewRef}
+            {...webViewProps}
+          />
 
-              {/* Reload button */}
-              <Pressable
-                style={styles.floatingIconBtn}
-                onPress={() => {
-                  setLoading(true);
-                  setHasError(false);
-                  webViewRef.current?.reload?.();
-                }}
-                hitSlop={6}
-              >
-                <Ionicons name="reload-outline" size={16} color="#f8f7f2" />
-              </Pressable>
-
-              {/* External browser button */}
-              <Pressable style={styles.floatingIconBtn} onPress={handleOpenExternal} hitSlop={6}>
-                <Ionicons name="open-outline" size={16} color="#f8f7f2" />
-              </Pressable>
+          {/* Fullscreen Loading Overlay */}
+          {loading && (
+            <View style={styles.overlayCenter}>
+              <ActivityIndicator size="large" color={theme.colors.accent} />
+              <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
             </View>
-          </View>
-        )}
-      </View>
+          )}
+
+          {/* Floating Controls HUD in Fullscreen Mode */}
+          {showControls && (
+            <View style={styles.floatingFullscreenBar}>
+              <View style={styles.floatingLeft}>
+                <Pressable style={styles.floatingCloseBtn} onPress={toggleFullscreen}>
+                  <Ionicons name="contract" size={16} color="#f8f7f2" />
+                  <Text style={styles.floatingCloseText}>Exit</Text>
+                </Pressable>
+
+                <View style={styles.floatingSourceBadge}>
+                  <Text style={styles.floatingSourceText}>
+                    {activeSource.name} • {activeServer.name}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.floatingRight}>
+                {/* Reset to stream button */}
+                <Pressable style={styles.floatingIconBtn} onPress={handleResetToStream} hitSlop={6}>
+                  <Ionicons name="home-outline" size={16} color="#f8f7f2" />
+                </Pressable>
+
+                {/* Reload button */}
+                <Pressable
+                  style={styles.floatingIconBtn}
+                  onPress={() => {
+                    setLoading(true);
+                    setHasError(false);
+                    fullscreenWebViewRef.current?.reload?.();
+                  }}
+                  hitSlop={6}
+                >
+                  <Ionicons name="reload-outline" size={16} color="#f8f7f2" />
+                </Pressable>
+
+                {/* External browser button */}
+                <Pressable style={styles.floatingIconBtn} onPress={handleOpenExternal} hitSlop={6}>
+                  <Ionicons name="open-outline" size={16} color="#f8f7f2" />
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -481,17 +524,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
   },
-  fullscreenContainer: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 99999,
-    backgroundColor: '#000',
-    borderWidth: 0,
-    borderRadius: 0,
-    marginBottom: 0,
+  fullscreenModalContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    position: 'relative',
   },
   headerRow: {
     flexDirection: 'row',
@@ -602,20 +640,75 @@ const styles = StyleSheet.create({
     color: '#ffcf5c',
     fontWeight: '700',
   },
+  serverScrollWrap: {
+    backgroundColor: '#0a0b0c',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.03)',
+    paddingVertical: 6,
+  },
+  serverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  serverLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#6b6e68',
+    letterSpacing: 0.8,
+    marginRight: 2,
+  },
+  serverChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 3.5,
+    borderRadius: 6,
+  },
+  serverChipActive: {
+    backgroundColor: 'rgba(255, 207, 92, 0.09)',
+    borderColor: 'rgba(255, 207, 92, 0.35)',
+  },
+  serverChipText: {
+    color: '#8b8e89',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  serverChipTextActive: {
+    color: '#ffcf5c',
+    fontWeight: '700',
+  },
+  serverBadge: {
+    marginLeft: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  serverBadgeActive: {
+    backgroundColor: 'rgba(255, 207, 92, 0.18)',
+  },
+  serverBadgeText: {
+    fontSize: 8.5,
+    color: '#717570',
+    fontWeight: '600',
+  },
+  serverBadgeTextActive: {
+    color: '#ffcf5c',
+  },
   playerBox: {
     width: '100%',
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
     position: 'relative',
     overflow: 'hidden',
   },
-  playerBoxFullscreen: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
-  },
   webView: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
   },
   fallbackToast: {
     position: 'absolute',
@@ -643,7 +736,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#000',
+    backgroundColor: '#000000',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
@@ -678,9 +771,9 @@ const styles = StyleSheet.create({
   },
   floatingFullscreenBar: {
     position: 'absolute',
-    top: 14,
-    left: 14,
-    right: 14,
+    top: 16,
+    left: 20,
+    right: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -700,9 +793,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: 'rgba(20, 21, 23, 0.85)',
+    backgroundColor: 'rgba(15, 16, 18, 0.88)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
@@ -716,7 +809,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 207, 92, 0.18)',
     borderWidth: 1,
     borderColor: 'rgba(255, 207, 92, 0.35)',
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
   },
@@ -729,9 +822,9 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(20, 21, 23, 0.85)',
+    backgroundColor: 'rgba(15, 16, 18, 0.88)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
+    borderColor: 'rgba(255, 255, 255, 0.18)',
     alignItems: 'center',
     justifyContent: 'center',
   },

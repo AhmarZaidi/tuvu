@@ -197,6 +197,22 @@ export type ConflictItem = {
   incoming: string;
 };
 
+export type StreamServer = {
+  id: string;
+  name: string;
+  url: string;
+  badge?: string;
+};
+
+export type StreamSourceItem = {
+  id: string;
+  name: string;
+  url: string;
+  provider: string;
+  badge?: string;
+  servers?: StreamServer[];
+};
+
 export type MediaNewsArticle = {
   title: string;
   url: string;
@@ -352,14 +368,6 @@ export type StorageStats = {
   databaseBytes: number | null;
   supabaseBytes: number | null;
 };
-
-export interface StreamSourceItem {
-  id: string;
-  name: string;
-  url: string;
-  provider: string;
-  badge?: string;
-}
 
 export interface StreamUrlResponse {
   streamUrl: string;

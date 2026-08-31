@@ -28,6 +28,33 @@ export async function processHydrationJob(env: Env, jobId: string) {
   // D1 writes, so each season/chunk runs in a separate invocation.
 }
 
+export async function rehydrateMediaDirectly(env: Env, mediaId: string) {
+  if (!env.DB) return;
+  const db = env.DB;
+  const media = await runD1("load media for direct hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(mediaId).first<any>());
+  if (!media) return;
+
+  const provider = media.source === "tv_time" || !media.source ? "tmdb" : media.source;
+  const job = {
+    id: randomId("mrj"),
+    media_id: mediaId,
+    provider,
+    provider_code: provider,
+    scope: "media",
+  };
+  if (provider === "tmdb") {
+    await hydrateTmdb(env, job);
+  } else if (provider === "igdb") {
+    await hydrateIgdb(env, job);
+  } else if (provider === "openlibrary") {
+    await hydrateOpenLibrary(env, job);
+  } else if (provider === "jikan") {
+    await hydrateJikan(env, job);
+  } else if (provider === "rawg") {
+    await hydrateRawg(env, job);
+  }
+}
+
 export async function processHydrationJobs(env: Env) {
   if (!env.DB) return;
   const db = env.DB;
@@ -162,7 +189,7 @@ async function hydrateTmdb(env: Env, job: any) {
 
     const existingExt = JSON.parse(media.extended_data_json || "{}");
     const extendedData = {
-      ...existingExt,
+      ...(media.type === "anime" && existingExt.category === "anime" ? { category: "anime", anime: existingExt.anime, animeFormat: existingExt.animeFormat } : {}),
       cast,
       crew,
       creators,
@@ -170,13 +197,13 @@ async function hydrateTmdb(env: Env, job: any) {
       related,
       videos,
       images,
-      originalLanguage: data.original_language || media.language || existingExt.originalLanguage || null,
+      originalLanguage: data.original_language || media.language || null,
       spokenLanguages: (data.spoken_languages || []).map((l: any) => ({
         code: l.iso_639_1,
         name: l.english_name || l.name,
       })),
       languages: data.languages || (data.spoken_languages ? data.spoken_languages.map((l: any) => l.iso_639_1) : []),
-      externalIds: data.external_ids,
+      externalIds: data.external_ids || {},
       rating: data.vote_average,
       voteCount: data.vote_count,
       popularity: data.popularity,
@@ -211,8 +238,8 @@ async function hydrateTmdb(env: Env, job: any) {
         air_status = COALESCE(?, air_status),
         language = COALESCE(?, language),
         extended_data_json = ?, 
-        total_seasons = COALESCE(?, total_seasons), 
-        total_episodes = COALESCE(?, total_episodes),
+        total_seasons = ?, 
+        total_episodes = ?,
         updated_at = ? 
         WHERE id = ?`)
         .bind(
@@ -225,8 +252,8 @@ async function hydrateTmdb(env: Env, job: any) {
           inferTmdbStatus(data.status, media.type),
           data.original_language || null,
           JSON.stringify(extendedData),
-          data.number_of_seasons || null,
-          data.number_of_episodes || null,
+          media.type === "movie" ? null : (data.number_of_seasons || null),
+          media.type === "movie" ? null : (data.number_of_episodes || null),
           now.toISOString(),
           media.id
         ).run());

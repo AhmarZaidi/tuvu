@@ -621,51 +621,259 @@ export default function MediaDetailsScreen() {
               </Pressable>
             </View>
 
-            {/* Status Buttons: Watch Later, Stopped */}
+            {/* Status Buttons based on media type */}
             <View style={styles.statusButtonsRow}>
-              <Pressable
-                style={[
-                  styles.statusPill,
-                  userMedia?.status === 'watch_later' && styles.statusPillActive,
-                ]}
-                onPress={() => handleManualStatus('watch_later')}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={14}
-                  color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
-                />
-                <Text
-                  style={[
-                    styles.statusPillText,
-                    userMedia?.status === 'watch_later' && styles.statusPillTextActive,
-                  ]}
-                >
-                  Watch Later
-                </Text>
-              </Pressable>
+              {media.type === 'movie' ? (
+                <>
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'watched' && styles.statusPillActiveWatched,
+                    ]}
+                    onPress={() => handleManualStatus('watched')}
+                  >
+                    <Ionicons
+                      name={userMedia?.status === 'watched' ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                      size={15}
+                      color={userMedia?.status === 'watched' ? '#22c55e' : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'watched' && styles.statusPillTextActiveWatched,
+                      ]}
+                    >
+                      Watched
+                    </Text>
+                  </Pressable>
 
-              <Pressable
-                style={[
-                  styles.statusPill,
-                  userMedia?.status === 'stopped' && styles.statusPillActive,
-                ]}
-                onPress={() => handleManualStatus('stopped')}
-              >
-                <Ionicons
-                  name="square-outline"
-                  size={14}
-                  color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
-                />
-                <Text
-                  style={[
-                    styles.statusPillText,
-                    userMedia?.status === 'stopped' && styles.statusPillTextActive,
-                  ]}
-                >
-                  Stopped
-                </Text>
-              </Pressable>
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'watch_later' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('watch_later')}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={14}
+                      color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'watch_later' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Watch Later
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'stopped' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('stopped')}
+                  >
+                    <Ionicons
+                      name="square-outline"
+                      size={14}
+                      color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'stopped' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Stopped
+                    </Text>
+                  </Pressable>
+                </>
+              ) : media.type === 'book' ? (
+                <>
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'reading' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('reading')}
+                  >
+                    <Ionicons
+                      name="book-outline"
+                      size={14}
+                      color={userMedia?.status === 'reading' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'reading' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Reading
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'finished' && styles.statusPillActiveWatched,
+                    ]}
+                    onPress={() => handleManualStatus('finished')}
+                  >
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={14}
+                      color={userMedia?.status === 'finished' ? '#22c55e' : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'finished' && styles.statusPillTextActiveWatched,
+                      ]}
+                    >
+                      Finished
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'want_to_read' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('want_to_read')}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={14}
+                      color={userMedia?.status === 'want_to_read' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'want_to_read' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Want to Read
+                    </Text>
+                  </Pressable>
+                </>
+              ) : media.type === 'game' ? (
+                <>
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'playing' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('playing')}
+                  >
+                    <Ionicons
+                      name="game-controller-outline"
+                      size={14}
+                      color={userMedia?.status === 'playing' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'playing' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Playing
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'completed' && styles.statusPillActiveWatched,
+                    ]}
+                    onPress={() => handleManualStatus('completed')}
+                  >
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={14}
+                      color={userMedia?.status === 'completed' ? '#22c55e' : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'completed' && styles.statusPillTextActiveWatched,
+                      ]}
+                    >
+                      Completed
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'planned' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('planned')}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={14}
+                      color={userMedia?.status === 'planned' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'planned' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Planned
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'watch_later' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('watch_later')}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={14}
+                      color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'watch_later' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Watch Later
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.statusPill,
+                      userMedia?.status === 'stopped' && styles.statusPillActive,
+                    ]}
+                    onPress={() => handleManualStatus('stopped')}
+                  >
+                    <Ionicons
+                      name="square-outline"
+                      size={14}
+                      color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
+                    />
+                    <Text
+                      style={[
+                        styles.statusPillText,
+                        userMedia?.status === 'stopped' && styles.statusPillTextActive,
+                      ]}
+                    >
+                      Stopped
+                    </Text>
+                  </Pressable>
+                </>
+              )}
             </View>
 
             {/* Your rating with 5 Emojis */}
@@ -957,6 +1165,8 @@ export default function MediaDetailsScreen() {
         onClose={() => setConflictModalOpen(false)}
         conflicts={conflicts}
         onResolve={handleResolveConflicts}
+        mediaType={media.type}
+        onTypeChange={handleChangeMediaType}
       />
     </View>
   );
@@ -1219,6 +1429,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 191, 71, 0.16)',
     borderColor: theme.colors.accent,
   },
+  statusPillActiveWatched: {
+    backgroundColor: 'rgba(34, 197, 94, 0.16)',
+    borderColor: '#22c55e',
+  },
   statusPillText: {
     fontSize: 12,
     fontWeight: '600',
@@ -1226,6 +1440,9 @@ const styles = StyleSheet.create({
   },
   statusPillTextActive: {
     color: '#f8f7f2',
+  },
+  statusPillTextActiveWatched: {
+    color: '#22c55e',
   },
   // Progress
   progressSection: {

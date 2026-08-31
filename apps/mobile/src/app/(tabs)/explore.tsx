@@ -148,8 +148,8 @@ export default function ExploreScreen() {
       return;
     }
     try {
-      const added = await api.addExploreResult(item);
-      router.push(`/media/${added.media.id}` as any);
+      const resolved = await api.resolveMedia(item);
+      router.push(`/media/${resolved.media.id}` as any);
     } catch {
       // Fallback
     }

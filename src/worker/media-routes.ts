@@ -4,12 +4,13 @@ import { createMediaSchema, createSeasonSchema, createEpisodeSchema, createMedia
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { bumpUserLibraryVersion } from "./library-version-service";
-import { maybeEnqueueStaleMediaRefresh } from "./hydration";
+import { maybeEnqueueStaleMediaRefresh, rehydrateMediaDirectly } from "./hydration";
 import { resolveMergedMediaId } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
 import { cachedJson, ProviderRateLimitError } from "./providers/provider-cache-service";
 import { providerCredential } from "./providers/provider-credentials";
 import { providerTtls } from "./providers/provider-ttls";
+import { tmdbSearch } from "./providers/tmdb";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 import { uploadMediaCoverToSupabase } from "./supabase-storage";
 
@@ -99,18 +100,140 @@ export function createMediaRoutes() {
     }
     const isAnime = targetType === "anime" || body.anime === true;
 
+    const typeChanged = targetType !== media.type;
     const now = new Date().toISOString();
-    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, isAnime, targetType);
+    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, isAnime, targetType, typeChanged);
 
+    const userId = c.get("auth").user.id;
     if (c.env.DB) {
       await c.env.DB.prepare("UPDATE media_items SET type = ?, extended_data_json = ?, updated_at = ? WHERE id = ?")
         .bind(targetType, extendedDataJson, now, media.id)
         .run();
+
+      // Clean up, re-search provider match, and rehydrate when moving between types
+      if (typeChanged) {
+        let provider = media.source || "tmdb";
+        if (provider === "tv_time" || !provider) provider = "tmdb";
+
+        if (provider === "tmdb") {
+          try {
+            const mode = targetType === "movie" ? "movie" : "tv";
+            const searchResults = await tmdbSearch(c.env, mode, media.title, 5, userId);
+            const normalizedMediaTitle = media.title.trim().toLowerCase();
+            const bestMatch = searchResults.find((r) => {
+              const rTitle = (r.title || "").trim().toLowerCase();
+              if (rTitle === normalizedMediaTitle) {
+                if (media.year && r.year) return Math.abs(media.year - r.year) <= 1;
+                return true;
+              }
+              return false;
+            }) || searchResults[0];
+
+            if (bestMatch) {
+              await c.env.DB.prepare(`UPDATE media_items SET
+                source = 'tmdb',
+                source_id = ?,
+                title = COALESCE(?, title),
+                overview = COALESCE(?, overview),
+                poster_path = COALESCE(?, poster_path),
+                backdrop_path = COALESCE(?, backdrop_path),
+                release_date = COALESCE(?, release_date),
+                year = COALESCE(?, year),
+                updated_at = ?
+                WHERE id = ?`)
+                .bind(
+                  bestMatch.providerId,
+                  bestMatch.title || null,
+                  bestMatch.overview || null,
+                  bestMatch.posterPath || null,
+                  bestMatch.backdropPath || null,
+                  bestMatch.releaseDate || null,
+                  bestMatch.year || null,
+                  now,
+                  media.id
+                )
+                .run();
+
+              await c.env.DB.prepare(`INSERT INTO media_external_ids
+                (id, media_id, namespace, external_id, provider_code, external_url, is_primary, created_at, updated_at, source)
+                VALUES (?, ?, 'tmdb', ?, 'tmdb', ?, 1, ?, ?, 'tmdb')
+                ON CONFLICT(media_id, source, external_id) DO UPDATE SET
+                  external_id = excluded.external_id,
+                  external_url = excluded.external_url,
+                  updated_at = excluded.updated_at`)
+                .bind(randomId("mei"), media.id, bestMatch.providerId, bestMatch.sourceUrl || `https://www.themoviedb.org/${mode}/${bestMatch.providerId}`, now, now)
+                .run();
+            }
+          } catch (searchErr) {
+            console.error("Provider re-search on classification change failed:", searchErr);
+          }
+        }
+
+        if (targetType === "movie") {
+          // Adjust TMDB URLs from /tv/ to /movie/
+          await c.env.DB.prepare("UPDATE media_external_ids SET external_url = REPLACE(external_url, '/tv/', '/movie/'), updated_at = ? WHERE media_id = ? AND (source = 'tmdb' OR namespace = 'tmdb' OR provider_code = 'tmdb') AND external_url LIKE '%/tv/%'")
+            .bind(now, media.id)
+            .run();
+          // Remove TVDB IDs associated with TV series
+          await c.env.DB.prepare("DELETE FROM media_external_ids WHERE media_id = ? AND (source = 'tvdb' OR namespace = 'tvdb' OR provider_code = 'tvdb')")
+            .bind(media.id)
+            .run();
+          // Delete obsolete episode rows and episode activities for this movie
+          await c.env.DB.prepare("DELETE FROM episodes WHERE media_id = ?")
+            .bind(media.id)
+            .run();
+          await c.env.DB.prepare("DELETE FROM episode_activity WHERE media_id = ?")
+            .bind(media.id)
+            .run();
+        } else if (targetType === "show" || targetType === "anime") {
+          // Adjust TMDB URLs from /movie/ to /tv/
+          await c.env.DB.prepare("UPDATE media_external_ids SET external_url = REPLACE(external_url, '/movie/', '/tv/'), updated_at = ? WHERE media_id = ? AND (source = 'tmdb' OR namespace = 'tmdb' OR provider_code = 'tmdb') AND external_url LIKE '%/movie/%'")
+            .bind(now, media.id)
+            .run();
+        }
+
+        // Clean up previous extended details (cast, images, conflicts)
+        const cleanExt = targetType === "anime" ? JSON.stringify({ category: "anime", animeFormat: "series", pendingConflicts: [] }) : "{}";
+        await c.env.DB.prepare("UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?")
+          .bind(cleanExt, now, media.id)
+          .run();
+
+        // Perform direct synchronous rehydration
+        try {
+          await rehydrateMediaDirectly(c.env, media.id);
+        } catch (hydrateErr) {
+          console.error("Direct rehydration on classification change failed:", hydrateErr);
+        }
+      }
+
+      const um = await c.env.DB.prepare("SELECT * FROM user_media WHERE user_id = ? AND media_id = ?")
+        .bind(userId, media.id)
+        .first<{ id: string; status: string }>();
+
+      if (um) {
+        let newStatus = um.status;
+        if (targetType === "movie") {
+          if (["completed", "up_to_date", "watched"].includes(um.status)) {
+            newStatus = "watched";
+          } else {
+            newStatus = "watch_later";
+          }
+        } else if (targetType === "show" || targetType === "anime") {
+          if (um.status === "watched") {
+            newStatus = "completed";
+          } else if (!["watching", "up_to_date", "completed", "stopped", "not_started", "watch_later"].includes(um.status)) {
+            newStatus = "not_started";
+          }
+        }
+        await c.env.DB.prepare("UPDATE user_media SET status = ?, updated_at = ? WHERE user_id = ? AND media_id = ?")
+          .bind(newStatus, now, userId, media.id)
+          .run();
+      }
     } else {
       await mediaRepo.updateMediaExtendedData(media.id, extendedDataJson, now);
     }
     const updated = await mediaRepo.findMediaById(media.id);
-    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, c.get("auth").user.id);
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, userId);
     return c.json(apiSuccess({ media: updated ?? { ...media, type: targetType, extendedDataJson }, libraryVersion }));
   });
 
@@ -442,7 +565,7 @@ function normalizeRelatedType(type: string) {
   return type === "movie" ? "movie" : "show";
 }
 
-function updateAnimeClassification(json: string | null | undefined, anime: boolean, type: string) {
+function updateAnimeClassification(json: string | null | undefined, anime: boolean, type: string, typeChanged = false) {
   let data: Record<string, unknown> = {};
   if (json) {
     try {
@@ -450,6 +573,9 @@ function updateAnimeClassification(json: string | null | undefined, anime: boole
     } catch {
       data = {};
     }
+  }
+  if (typeChanged) {
+    delete data.pendingConflicts;
   }
   if (anime) {
     data.category = "anime";

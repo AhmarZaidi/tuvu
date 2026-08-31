@@ -7,9 +7,11 @@ export type StatusTone = 'watching' | 'planned' | 'complete' | 'paused' | 'stopp
 interface StatusBadgeProps {
   label: string;
   tone?: StatusTone;
+  numberOfLines?: number;
+  compact?: boolean;
 }
 
-export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
+export function StatusBadge({ label, tone = 'neutral', numberOfLines = 1, compact = false }: StatusBadgeProps) {
   let styleTone = theme.colors.status.planned;
 
   if (tone === 'watching') {
@@ -23,8 +25,14 @@ export function StatusBadge({ label, tone = 'neutral' }: StatusBadgeProps) {
   }
 
   return (
-    <View style={[styles.badge, { backgroundColor: styleTone.bg }]}>
-      <Text style={[styles.text, { color: styleTone.text }]}>{label}</Text>
+    <View style={[styles.badge, compact && styles.badgeCompact, { backgroundColor: styleTone.bg }]}>
+      <Text
+        style={[styles.text, compact && styles.textCompact, { color: styleTone.text }]}
+        numberOfLines={numberOfLines}
+        ellipsizeMode="tail"
+      >
+        {label}
+      </Text>
     </View>
   );
 }
@@ -35,11 +43,20 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: theme.borderRadius.pill,
     alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  badgeCompact: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
   text: {
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
+  },
+  textCompact: {
+    fontSize: 8.5,
+    letterSpacing: 0.2,
   },
 });

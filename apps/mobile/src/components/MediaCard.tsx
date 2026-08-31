@@ -149,19 +149,23 @@ export function MediaCard({
           <PosterPlaceholder title={item.title} type={item.type} />
         )}
 
-        {/* Top-Left Overlay: Status Chip */}
-        <View style={styles.topLeftOverlay}>
-          <StatusBadge label={formatStatus(item.status)} tone={resolveStatusTone(item.status)} />
-        </View>
+        {/* Top Badges Header: Status & Episode Chip */}
+        <View style={styles.topBadgesRow}>
+          <View style={styles.statusBadgeWrap}>
+            <StatusBadge
+              label={formatStatus(item.status)}
+              tone={resolveStatusTone(item.status)}
+              numberOfLines={1}
+              compact
+            />
+          </View>
 
-        {/* Top-Right Overlay: Episode Chip (e.g. S01 E02) */}
-        {nextLabel && (
-          <View style={styles.topRightOverlay}>
+          {nextLabel && (
             <View style={styles.episodeChip}>
               <Text style={styles.episodeChipText}>{nextLabel}</Text>
             </View>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* Bottom Gradient Overlay: Title and Year Chip */}
         <LinearGradient
@@ -245,28 +249,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textAlign: 'center',
   },
-  topLeftOverlay: {
+  topBadgesRow: {
     position: 'absolute',
     top: 5,
     left: 5,
+    right: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
     zIndex: 10,
   },
-  topRightOverlay: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    zIndex: 10,
+  statusBadgeWrap: {
+    flexShrink: 1,
+    minWidth: 0,
   },
   episodeChip: {
     paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: theme.borderRadius.pill,
-    backgroundColor: 'rgba(16, 17, 18, 0.85)',
+    backgroundColor: 'rgba(16, 17, 18, 0.88)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 207, 92, 0.35)',
+    borderColor: 'rgba(255, 207, 92, 0.4)',
+    flexShrink: 0,
   },
   episodeChipText: {
-    fontSize: 9,
+    fontSize: 8.5,
     fontWeight: '900',
     color: theme.colors.accent,
   },

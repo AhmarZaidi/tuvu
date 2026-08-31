@@ -18,6 +18,8 @@ interface ConflictResolutionModalProps {
   onClose: () => void;
   conflicts: ConflictItem[];
   onResolve: (resolutions: Record<string, 'accept' | 'keep'>) => Promise<void>;
+  mediaType?: string;
+  onTypeChange?: (newType: string) => Promise<void>;
 }
 
 export function ConflictResolutionModal({
@@ -25,9 +27,12 @@ export function ConflictResolutionModal({
   onClose,
   conflicts,
   onResolve,
+  mediaType,
+  onTypeChange,
 }: ConflictResolutionModalProps) {
   const [decisions, setDecisions] = useState<Record<string, 'accept' | 'keep'>>({});
   const [saving, setSaving] = useState(false);
+  const [changingType, setChangingType] = useState(false);
 
   const handleSelect = (section: string, choice: 'accept' | 'keep') => {
     setDecisions((prev) => ({ ...prev, [section]: choice }));
@@ -69,6 +74,58 @@ export function ConflictResolutionModal({
       icon="git-pull-request-outline"
     >
       <View style={styles.sheetContent}>
+        {onTypeChange && (
+          <View style={styles.typeSwitcherCard}>
+            <View style={styles.typeSwitcherHeader}>
+              <Ionicons name="swap-horizontal-outline" size={14} color={theme.colors.accent} />
+              <Text style={styles.typeSwitcherTitle}>MISCLASSIFIED MEDIA TYPE?</Text>
+            </View>
+            <Text style={styles.typeSwitcherDesc}>
+              If incoming data indicates a different format, change media type:
+            </Text>
+            <View style={styles.typeChipsRow}>
+              {(['show', 'anime', 'movie'] as const).map((typeKey) => {
+                const isSelected = mediaType === typeKey;
+                const label = typeKey === 'show' ? 'TV Show' : typeKey === 'anime' ? 'Anime' : 'Movie';
+                const iconName =
+                  typeKey === 'show'
+                    ? 'tv-outline'
+                    : typeKey === 'anime'
+                    ? 'sparkles-outline'
+                    : 'film-outline';
+
+                return (
+                  <Pressable
+                    key={typeKey}
+                    style={[styles.typeChip, isSelected && styles.typeChipSelected]}
+                    onPress={async () => {
+                      if (!isSelected && onTypeChange) {
+                        try {
+                          setChangingType(true);
+                          await onTypeChange(typeKey);
+                          onClose();
+                        } finally {
+                          setChangingType(false);
+                        }
+                      }
+                    }}
+                    disabled={changingType}
+                  >
+                    <Ionicons
+                      name={isSelected ? 'checkmark' : iconName}
+                      size={13}
+                      color={isSelected ? '#101112' : '#dcded9'}
+                    />
+                    <Text style={[styles.typeChipText, isSelected && styles.typeChipTextSelected]}>
+                      {label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
         <Text style={styles.description}>
           Fresh details from TMDB conflict with values currently saved in your library.
           Choose which information to keep or update for each section.
@@ -168,7 +225,63 @@ export function ConflictResolutionModal({
   const styles = StyleSheet.create({
     sheetContent: {
       paddingTop: 4,
-      maxHeight: 520,
+      maxHeight: 560,
+    },
+    typeSwitcherCard: {
+      backgroundColor: 'rgba(255, 191, 71, 0.06)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 191, 71, 0.2)',
+      borderRadius: theme.borderRadius.md,
+      padding: 12,
+      marginBottom: 12,
+    },
+    typeSwitcherHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 4,
+    },
+    typeSwitcherTitle: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: theme.colors.accent,
+      letterSpacing: 0.8,
+    },
+    typeSwitcherDesc: {
+      fontSize: 11,
+      color: '#dcded9',
+      marginBottom: 10,
+      lineHeight: 15,
+    },
+    typeChipsRow: {
+      flexDirection: 'row',
+      gap: 8,
+    },
+    typeChip: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 6,
+      borderRadius: 8,
+      backgroundColor: 'rgba(255, 255, 255, 0.06)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    typeChipSelected: {
+      backgroundColor: theme.colors.accent,
+      borderColor: theme.colors.accent,
+    },
+    typeChipText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: '#dcded9',
+    },
+    typeChipTextSelected: {
+      color: '#101112',
+      fontWeight: '700',
     },
   header: {
     flexDirection: 'row',

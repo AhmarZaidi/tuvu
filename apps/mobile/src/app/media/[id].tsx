@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Image } from 'expo-image';
+import { Image } from '../../components/AppImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { api, ConflictItem, EpisodeWithActivity, HydrationProgress, MediaNewsArticle } from '../../services/api';
@@ -27,6 +27,7 @@ import { SeasonAccordion } from '../../components/SeasonAccordion';
 import { MediaTemplateSections } from '../../components/MediaTemplateSections';
 import { BottomSheet } from '../../components/BottomSheet';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
+import { resolveImageUrl } from '../../utils/images';
 
 export default function MediaDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -415,17 +416,8 @@ export default function MediaDetailsScreen() {
   const media = data.media;
   const userMedia = data.userMedia;
 
-  const posterUrl = media.posterPath
-    ? media.posterPath.startsWith('http')
-      ? media.posterPath
-      : `https://tmdb-image-prod.b-cdn.net/t/p/w500${media.posterPath}`
-    : null;
-
-  const backdropUrl = media.backdropPath
-    ? media.backdropPath.startsWith('http')
-      ? media.backdropPath
-      : `https://tmdb-image-prod.b-cdn.net/t/p/w780${media.backdropPath}`
-    : null;
+  const posterUrl = resolveImageUrl(media.posterPath, 'w500');
+  const backdropUrl = resolveImageUrl(media.backdropPath, 'w780');
 
   const episodes = episodesData?.episodes || [];
   const regularEpisodes = episodes.filter((ep) => !ep.isSpecial && (ep.seasonNumber ?? 0) > 0);

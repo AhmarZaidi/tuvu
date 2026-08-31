@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable } from 'react-native';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAppTheme } from '../context/ThemeContext';
 import { useSearch } from '../context/SearchContext';
 import { api } from '../services/api';
+import { resolveImageUrl } from '../utils/images';
 
 interface TopBarProps {
   onSearchPress?: () => void;
@@ -27,7 +28,7 @@ export function TopBar({ onSearchPress }: TopBarProps) {
     queryFn: () => api.getMe(),
   });
 
-  const avatarUrl = meData?.profile?.avatarUrl;
+  const avatarUrl = resolveImageUrl(meData?.profile?.avatarUrl);
   const initial = (meData?.user?.displayName || meData?.user?.username || 'T')[0].toUpperCase();
 
   return (

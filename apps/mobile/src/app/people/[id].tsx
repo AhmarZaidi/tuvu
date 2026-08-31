@@ -13,13 +13,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Image } from 'expo-image';
+import { Image } from '../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api, PersonCredit } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { TopBar } from '../../components/TopBar';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
+import { resolveImageUrl } from '../../utils/images';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -85,9 +86,9 @@ export default function PersonDetailsScreen() {
 
   const images: string[] =
     person.images && person.images.length > 0
-      ? person.images
+      ? person.images.map((img) => resolveImageUrl(img, 'h632') || img).filter(Boolean) as string[]
       : person.profilePath
-      ? [person.profilePath]
+      ? [resolveImageUrl(person.profilePath, 'h632') || person.profilePath]
       : [];
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -287,9 +288,9 @@ export default function PersonDetailsScreen() {
                     onPress={() => handleOpenCredit(credit)}
                     disabled={isResolving}
                   >
-                    {credit.posterPath ? (
+                    {resolveImageUrl(credit.posterPath, 'w342') ? (
                       <Image
-                        source={{ uri: credit.posterPath }}
+                        source={{ uri: resolveImageUrl(credit.posterPath, 'w342')! }}
                         style={styles.creditPoster}
                         contentFit="cover"
                       />

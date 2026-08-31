@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,6 +19,7 @@ import { theme } from '../constants/theme';
 import { api, MediaDetailData, MediaNewsArticle } from '../services/api';
 import { getLanguageName } from '../utils/language';
 import { EmbeddedStreamPlayer } from './EmbeddedStreamPlayer';
+import { resolveImageUrl } from '../utils/images';
 
 interface MediaTemplateSectionsProps {
   media: MediaDetailData['media'];
@@ -251,8 +252,8 @@ export function MediaTemplateSections({
           <View style={styles.providersWrap}>
             {watchProviders.map((provider: any, idx: number) => (
               <View key={`${provider.name}-${idx}`} style={styles.providerChip}>
-                {provider.logoPath && (
-                  <Image source={{ uri: provider.logoPath }} style={styles.providerLogo} contentFit="cover" />
+                {resolveImageUrl(provider.logoPath, 'w92') && (
+                  <Image source={{ uri: resolveImageUrl(provider.logoPath, 'w92')! }} style={styles.providerLogo} contentFit="cover" />
                 )}
                 <Text style={styles.providerName}>{provider.name}</Text>
               </View>
@@ -446,8 +447,8 @@ export function MediaTemplateSections({
                 style={styles.characterCard}
                 onPress={() => char.id && router.push(`/characters/${char.id}` as any)}
               >
-                {char.image ? (
-                  <Image source={{ uri: char.image }} style={styles.characterPortrait} contentFit="cover" />
+                {resolveImageUrl(char.image) ? (
+                  <Image source={{ uri: resolveImageUrl(char.image)! }} style={styles.characterPortrait} contentFit="cover" />
                 ) : (
                   <View style={styles.characterPlaceholder}>
                     <Text style={styles.characterInitials}>{(char.name || 'C').slice(0, 1)}</Text>
@@ -584,8 +585,8 @@ export function MediaTemplateSections({
                       } as any)
                     }
                   >
-                    {actor.profilePath ? (
-                      <Image source={{ uri: actor.profilePath }} style={styles.castPortrait} contentFit="cover" />
+                    {resolveImageUrl(actor.profilePath, 'w185') ? (
+                      <Image source={{ uri: resolveImageUrl(actor.profilePath, 'w185')! }} style={styles.castPortrait} contentFit="cover" />
                     ) : (
                       <View style={styles.castPortraitPlaceholder}>
                         <Text style={styles.castInitials}>{(actor.name || 'A').slice(0, 1)}</Text>
@@ -620,7 +621,8 @@ export function MediaTemplateSections({
           provider={streamData.provider}
           title={`Watch ${media.title}`}
           subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
-          height={225}
+          sources={streamData.sources}
+          height={230}
         />
       )}
 
@@ -688,8 +690,8 @@ export function MediaTemplateSections({
                   onPress={() => handleOpenRelated(item)}
                   disabled={isResolving}
                 >
-                  {item.posterPath ? (
-                    <Image source={{ uri: item.posterPath }} style={styles.relatedPoster} contentFit="cover" />
+                  {resolveImageUrl(item.posterPath, 'w342') ? (
+                    <Image source={{ uri: resolveImageUrl(item.posterPath, 'w342')! }} style={styles.relatedPoster} contentFit="cover" />
                   ) : (
                     <View style={styles.relatedPosterPlaceholder}>
                       <Text style={styles.relatedInitials}>{(item.title || 'M').slice(0, 2)}</Text>
@@ -746,6 +748,7 @@ export function MediaTemplateSections({
           >
             {galleryImages.slice(0, 16).map((imgUrl, idx) => {
               const isBackdrop = idx < backdrops.length;
+              const resolved = resolveImageUrl(imgUrl, isBackdrop ? 'w780' : 'w342') || imgUrl;
               return (
                 <Pressable
                   key={`${imgUrl}-${idx}`}
@@ -755,7 +758,7 @@ export function MediaTemplateSections({
                   ]}
                   onPress={() => setActiveGalleryIndex(idx)}
                 >
-                  <Image source={{ uri: imgUrl }} style={styles.galleryThumbImage} contentFit="cover" />
+                  <Image source={{ uri: resolved }} style={styles.galleryThumbImage} contentFit="cover" />
                 </Pressable>
               );
             })}

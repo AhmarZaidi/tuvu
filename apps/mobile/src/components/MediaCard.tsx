@@ -1,13 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
-import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { theme } from '../constants/theme';
 import { DashboardEntry } from '../services/api';
-import { StatusBadge, StatusTone } from './StatusBadge';
+import { StatusBadge, StatusTone, resolveStatusTone } from './StatusBadge';
 import { PosterPlaceholder } from './PosterPlaceholder';
+import { resolveImageUrl } from '../utils/images';
+import { Image } from './AppImage';
 
 interface MediaCardProps {
   item: DashboardEntry;
@@ -15,15 +16,6 @@ interface MediaCardProps {
   variant?: 'grid' | 'compact';
   onMarkNext?: (episodeId: string) => Promise<void>;
   reserveActionSpace?: boolean;
-}
-
-function resolveStatusTone(status: string): StatusTone {
-  const s = (status || '').toLowerCase();
-  if (['watching', 'reading', 'playing'].includes(s)) return 'watching';
-  if (['watched', 'completed', 'finished', 'up_to_date'].includes(s)) return 'complete';
-  if (['paused', 'on_hold'].includes(s)) return 'paused';
-  if (['dropped', 'stopped'].includes(s)) return 'stopped';
-  return 'planned';
 }
 
 function formatStatus(status: string): string {
@@ -40,9 +32,7 @@ export function MediaCard({
   const router = useRouter();
   const [marking, setMarking] = useState(false);
 
-  const posterUrl = item.posterPath
-    ? (item.posterPath.startsWith('http') ? item.posterPath : `https://tmdb-image-prod.b-cdn.net/t/p/w342${item.posterPath}`)
-    : null;
+  const posterUrl = resolveImageUrl(item.posterPath, 'w342');
 
   // Calculate progress percentage
   let progressPercent = 0;

@@ -110,65 +110,190 @@ export function createMediaRoutes() {
       tmdbId = media.sourceId;
     }
 
-    // 1. Anime resolution via anikototv.to
+    const sources: Array<{
+      id: string;
+      name: string;
+      url: string;
+      provider: string;
+      badge?: string;
+    }> = [];
+
+    // 1. Anime Sources
     if (isAnime) {
       const slug = await resolveAnikotoSlug(c.env, media.title);
       if (slug) {
-        const streamUrl = `https://anikototv.to/watch/${slug}/ep-${episode}`;
-        return c.json(apiSuccess({
-          streamUrl,
+        sources.push({
+          id: "anikoto",
+          name: "Anikoto",
+          url: `https://anikototv.to/watch/${slug}/ep-${episode}`,
           provider: "anikoto",
-          sourceLabel: "anikototv.to",
-          siteUrl: `https://anikototv.to/watch/${slug}`,
-          isAnime: true,
-          tmdbId,
-        }));
+          badge: "HD • Sub/Dub",
+        });
       }
-    }
 
-    // 2. Shows & Movies resolution via 7reels.cc
-    if (tmdbId) {
-      if (media.type === "movie" && !isEpisode) {
-        return c.json(apiSuccess({
-          streamUrl: `https://7reels.cc/movie/${tmdbId}/watch`,
+      if (tmdbId) {
+        if (media.type === "movie" && !isEpisode) {
+          sources.push({
+            id: "7reels",
+            name: "7reels.cc",
+            url: `https://7reels.cc/movie/${tmdbId}/watch`,
+            provider: "7reels",
+            badge: "Primary",
+          });
+          sources.push({
+            id: "vidsrc_to",
+            name: "VidSrc",
+            url: `https://vidsrc.to/embed/movie/${tmdbId}`,
+            provider: "vidsrc",
+            badge: "Fast",
+          });
+          sources.push({
+            id: "vidsrc_xyz",
+            name: "VidSrc XYZ",
+            url: `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`,
+            provider: "vidsrc_xyz",
+          });
+        } else {
+          sources.push({
+            id: "7reels",
+            name: "7reels.cc",
+            url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+            provider: "7reels",
+            badge: "Primary",
+          });
+          sources.push({
+            id: "vidsrc_to",
+            name: "VidSrc",
+            url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
+            provider: "vidsrc",
+            badge: "Fast",
+          });
+          sources.push({
+            id: "vidsrc_xyz",
+            name: "VidSrc XYZ",
+            url: `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
+            provider: "vidsrc_xyz",
+          });
+        }
+      }
+
+      sources.push({
+        id: "hianime",
+        name: "HiAnime",
+        url: `https://hianime.to/search?keyword=${encodeURIComponent(media.title)}`,
+        provider: "hianime",
+        badge: "Anime",
+      });
+    } else if (media.type === "movie" && !isEpisode) {
+      // 2. Movies
+      if (tmdbId) {
+        sources.push({
+          id: "7reels",
+          name: "7reels.cc",
+          url: `https://7reels.cc/movie/${tmdbId}/watch`,
           provider: "7reels",
-          sourceLabel: "7reels.cc",
-          siteUrl: `https://7reels.cc/movie/${tmdbId}`,
-          isAnime: false,
-          tmdbId,
-        }));
+          badge: "Primary",
+        });
+        sources.push({
+          id: "vidsrc_to",
+          name: "VidSrc",
+          url: `https://vidsrc.to/embed/movie/${tmdbId}`,
+          provider: "vidsrc",
+          badge: "Fast",
+        });
+        sources.push({
+          id: "vidsrc_xyz",
+          name: "VidSrc XYZ",
+          url: `https://vidsrc.xyz/embed/movie?tmdb=${tmdbId}`,
+          provider: "vidsrc_xyz",
+        });
+        sources.push({
+          id: "autoembed",
+          name: "AutoEmbed",
+          url: `https://player.autoembed.cc/embed/movie/${tmdbId}`,
+          provider: "autoembed",
+        });
       }
 
-      // TV Show or Anime Series with episode
-      return c.json(apiSuccess({
-        streamUrl: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
-        provider: "7reels",
-        sourceLabel: "7reels.cc",
-        siteUrl: `https://7reels.cc/tv/${tmdbId}`,
-        isAnime: isAnime,
-        tmdbId,
-      }));
+      // Check Internet Archive for classic/older movies
+      const archiveMatch = await searchArchiveOrgMovie(c.env, media.title, media.year);
+      if (archiveMatch) {
+        sources.push({
+          id: "archive",
+          name: "Internet Archive",
+          url: archiveMatch.url,
+          provider: "archive",
+          badge: "Public Domain",
+        });
+      }
+
+      // YouTube Full Movie search fallback
+      sources.push({
+        id: "youtube_movie",
+        name: "YouTube",
+        url: `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(media.title + " Full Movie")}`,
+        provider: "youtube",
+        badge: "Free",
+      });
+    } else {
+      // 3. TV Shows
+      if (tmdbId) {
+        sources.push({
+          id: "7reels",
+          name: "7reels.cc",
+          url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+          provider: "7reels",
+          badge: "Primary",
+        });
+        sources.push({
+          id: "vidsrc_to",
+          name: "VidSrc",
+          url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
+          provider: "vidsrc",
+          badge: "Fast",
+        });
+        sources.push({
+          id: "vidsrc_xyz",
+          name: "VidSrc XYZ",
+          url: `https://vidsrc.xyz/embed/tv?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
+          provider: "vidsrc_xyz",
+        });
+        sources.push({
+          id: "autoembed",
+          name: "AutoEmbed",
+          url: `https://player.autoembed.cc/embed/tv/${tmdbId}/${season}/${episode}`,
+          provider: "autoembed",
+        });
+      }
     }
 
-    // Fallback if no TMDB ID and not resolved
-    if (isAnime) {
-      return c.json(apiSuccess({
-        streamUrl: `https://anikototv.to/search?keyword=${encodeURIComponent(media.title)}`,
-        provider: "anikoto",
-        sourceLabel: "anikototv.to",
-        siteUrl: `https://anikototv.to/`,
-        isAnime: true,
-        tmdbId: null,
-      }));
+    if (sources.length === 0) {
+      if (isAnime) {
+        sources.push({
+          id: "anikoto_search",
+          name: "Anikoto",
+          url: `https://anikototv.to/search?keyword=${encodeURIComponent(media.title)}`,
+          provider: "anikoto",
+        });
+      } else {
+        sources.push({
+          id: "7reels_search",
+          name: "7reels.cc",
+          url: `https://7reels.cc/search?q=${encodeURIComponent(media.title)}`,
+          provider: "7reels",
+        });
+      }
     }
 
+    const primary = sources[0];
     return c.json(apiSuccess({
-      streamUrl: `https://7reels.cc/search?q=${encodeURIComponent(media.title)}`,
-      provider: "7reels",
-      sourceLabel: "7reels.cc",
-      siteUrl: "https://7reels.cc",
-      isAnime: false,
-      tmdbId: null,
+      streamUrl: primary.url,
+      provider: primary.provider,
+      sourceLabel: primary.name,
+      siteUrl: primary.url,
+      isAnime,
+      tmdbId,
+      sources,
     }));
   });
 
@@ -749,5 +874,53 @@ async function resolveAnikotoSlug(env: Env, rawTitle: string): Promise<string | 
     console.error("Anikoto slug resolution error:", err);
   }
 
+  return null;
+}
+
+async function searchArchiveOrgMovie(env: Env, title: string, year?: number | null): Promise<{ identifier: string; url: string; title: string } | null> {
+  const cacheKey = `archive:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}:${year || "any"}`;
+  if (env.DB) {
+    const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'archive' AND cache_key = ?")
+      .bind(cacheKey)
+      .first<{ response_json: string; expires_at: string }>()
+      .catch(() => null);
+    if (cached && new Date(cached.expires_at).getTime() > Date.now()) {
+      return JSON.parse(cached.response_json);
+    }
+  }
+
+  try {
+    const cleanTitle = title.replace(/[^\w\s]/gi, "").trim();
+    const query = year
+      ? `title:(${cleanTitle}) AND year:(${year}) AND mediatype:(movies)`
+      : `title:(${cleanTitle}) AND mediatype:(movies)`;
+    const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(query)}&fl[]=identifier,title,year&output=json&rows=3`;
+    const res = await fetch(searchUrl, {
+      headers: { "User-Agent": "tuvu/1.0" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const docs = data?.response?.docs || [];
+    if (docs.length > 0 && docs[0].identifier) {
+      const match = {
+        identifier: docs[0].identifier,
+        url: `https://archive.org/embed/${docs[0].identifier}`,
+        title: docs[0].title || title,
+      };
+      if (env.DB) {
+        const now = new Date();
+        const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        await env.DB.prepare(
+          `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+           VALUES (?, 'archive', ?, ?, 200, ?, ?)
+           ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json=excluded.response_json, expires_at=excluded.expires_at`
+        )
+          .bind(`pc_archive_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32)}`, cacheKey, JSON.stringify(match), now.toISOString(), expires.toISOString())
+          .run()
+          .catch(() => {});
+      }
+      return match;
+    }
+  } catch {}
   return null;
 }

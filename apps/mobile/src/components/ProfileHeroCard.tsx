@@ -8,7 +8,7 @@ import {
   TextInput,
   ViewStyle,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,6 +17,7 @@ import { useAppTheme } from '../context/ThemeContext';
 import { useSnackbar } from '../context/SnackbarContext';
 import { api, MeResponse } from '../services/api';
 import { BottomSheet } from './BottomSheet';
+import { resolveImageUrl } from '../utils/images';
 
 interface ProfileHeroCardProps {
   meData?: MeResponse;
@@ -149,8 +150,8 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
     >
       {/* Banner Section */}
       <View style={styles.banner}>
-        {meData?.profile?.bannerUrl ? (
-          <Image source={{ uri: meData.profile.bannerUrl }} style={styles.bannerImage} contentFit="cover" />
+        {resolveImageUrl(meData?.profile?.bannerUrl) ? (
+          <Image source={{ uri: resolveImageUrl(meData?.profile?.bannerUrl)! }} style={styles.bannerImage} contentFit="cover" />
         ) : (
           /* Yellow to Blue/Green Gradient matching web client .profile-banner */
           <LinearGradient
@@ -182,8 +183,8 @@ export function ProfileHeroCard({ meData, editable = false, onRefresh, style }: 
       <View style={styles.userRow}>
         <View style={styles.avatarWrapper}>
           <View style={styles.avatar}>
-            {meData?.profile?.avatarUrl ? (
-              <Image source={{ uri: meData.profile.avatarUrl }} style={styles.avatarImage} contentFit="cover" />
+            {resolveImageUrl(meData?.profile?.avatarUrl) ? (
+              <Image source={{ uri: resolveImageUrl(meData?.profile?.avatarUrl)! }} style={styles.avatarImage} contentFit="cover" />
             ) : (
               <Text style={styles.avatarText}>{getInitials(displayName)}</Text>
             )}

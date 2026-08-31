@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { Image } from '../../components/AppImage';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { api, DashboardEntry, ExploreResult, ExploreRow } from '../../services/api';
 import { useAppTheme } from '../../context/ThemeContext';
@@ -23,6 +23,7 @@ import { SectionHeader } from '../../components/SectionHeader';
 import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { PosterPlaceholder } from '../../components/PosterPlaceholder';
+import { resolveImageUrl } from '../../utils/images';
 
 const MEDIA_TYPES = [
   { key: '', label: 'All Media', icon: 'sparkles' as const },
@@ -179,9 +180,7 @@ export default function ExploreScreen() {
   };
 
   const renderItemCard = (item: ExploreResult | any, isGrid = false) => {
-    const poster = item.posterPath
-      ? (item.posterPath.startsWith('http') ? item.posterPath : `https://tmdb-image-prod.b-cdn.net/t/p/w342${item.posterPath}`)
-      : null;
+    const poster = resolveImageUrl(item.posterPath, 'w342');
     const itemKey = `${item.provider || 'media'}:${item.providerId || item.mediaId || item.id || item.title}`;
     const isAdding = addingId === (item.providerId || item.mediaId || item.id);
 

@@ -9,12 +9,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { theme } from '../constants/theme';
 import { useAppTheme } from '../context/ThemeContext';
 import { api, ExploreResult } from '../services/api';
 import { BottomSheet } from './BottomSheet';
 import { PosterPlaceholder } from './PosterPlaceholder';
+import { resolveImageUrl } from '../utils/images';
 
 interface CreateMediaModalProps {
   open: boolean;
@@ -108,9 +109,7 @@ export function CreateMediaModal({
             keyExtractor={(item, index) => `${item.provider || 'item'}:${item.providerId || item.mediaId || item.id || index}:${index}`}
             contentContainerStyle={styles.list}
             renderItem={({ item }) => {
-              const poster = item.posterPath
-                ? (item.posterPath.startsWith('http') ? item.posterPath : `https://tmdb-image-prod.b-cdn.net/t/p/w185${item.posterPath}`)
-                : null;
+              const poster = resolveImageUrl(item.posterPath, 'w185');
               const isAdding = addingId === (item.providerId || item.mediaId || item.id);
 
               return (

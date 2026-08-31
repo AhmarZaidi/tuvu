@@ -6,12 +6,13 @@ import {
   Pressable,
   ActivityIndicator,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
 import { EpisodeWithActivity, api } from '../services/api';
 import { BottomSheet } from './BottomSheet';
+import { resolveImageUrl } from '../utils/images';
 
 interface SeasonAccordionProps {
   mediaId: string;
@@ -252,11 +253,7 @@ export function SeasonAccordion({
                       const isWatched = Boolean(ep.activity?.watched);
                       const epWatchCount = isWatched ? 1 + (ep.activity?.rewatchCount ?? 0) : 0;
                       const isBusy = busyEpisodeId === ep.id;
-                      const stillUrl = ep.stillPath
-                        ? ep.stillPath.startsWith('http')
-                          ? ep.stillPath
-                          : `https://tmdb-image-prod.b-cdn.net/t/p/w300${ep.stillPath}`
-                        : null;
+                      const stillUrl = resolveImageUrl(ep.stillPath, 'w300');
 
                       const epCode = `S${String(ep.seasonNumber ?? 0).padStart(2, '0')}xE${String(
                         ep.episodeNumber

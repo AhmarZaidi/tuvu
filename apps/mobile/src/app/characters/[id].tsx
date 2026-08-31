@@ -12,13 +12,14 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Image } from 'expo-image';
+import { Image } from '../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import { theme } from '../../constants/theme';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { TopBar } from '../../components/TopBar';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
+import { resolveImageUrl } from '../../utils/images';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -89,7 +90,9 @@ export default function CharacterDetailsScreen() {
   const isBioLong = bio.length > 280;
   const displayedBio = isBioLong && !expandedBio ? `${bio.slice(0, 260)}...` : bio;
 
-  const images: string[] = character.image ? [character.image] : [];
+  const images: string[] = character.image
+    ? [resolveImageUrl(character.image, 'h632') || character.image]
+    : [];
   const cardWidth = SCREEN_WIDTH - theme.spacing.md * 2;
 
   const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -256,8 +259,8 @@ export default function CharacterDetailsScreen() {
                     } as any)
                   }
                 >
-                  {va.image ? (
-                    <Image source={{ uri: va.image }} style={styles.vaPortrait} contentFit="cover" />
+                  {resolveImageUrl(va.image, 'h632') ? (
+                    <Image source={{ uri: resolveImageUrl(va.image, 'h632')! }} style={styles.vaPortrait} contentFit="cover" />
                   ) : (
                     <View style={styles.vaPlaceholder}>
                       <Text style={styles.vaInitials}>{(va.name || 'V').slice(0, 1)}</Text>
@@ -292,8 +295,8 @@ export default function CharacterDetailsScreen() {
                   onPress={() => handleOpenMedia(item)}
                   disabled={resolvingId === item.id}
                 >
-                  {item.posterPath ? (
-                    <Image source={{ uri: item.posterPath }} style={styles.mediaPoster} contentFit="cover" />
+                  {resolveImageUrl(item.posterPath, 'w342') ? (
+                    <Image source={{ uri: resolveImageUrl(item.posterPath, 'w342')! }} style={styles.mediaPoster} contentFit="cover" />
                   ) : (
                     <View style={styles.mediaPosterPlaceholder}>
                       <Text style={styles.mediaInitials}>{(item.title || 'A').slice(0, 2)}</Text>

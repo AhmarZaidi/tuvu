@@ -7,11 +7,12 @@ import {
   Pressable,
   ActivityIndicator,
 } from 'react-native';
-import { Image } from 'expo-image';
+import { Image } from './AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { ConflictItem } from '../services/api';
 import { BottomSheet } from './BottomSheet';
+import { resolveImageUrl } from '../utils/images';
 
 interface ConflictResolutionModalProps {
   open: boolean;
@@ -146,7 +147,7 @@ export function ConflictResolutionModal({
                     <View style={styles.compareCol}>
                       <Text style={styles.colHeader}>CURRENT SAVED</Text>
                       {isImage ? (
-                        <Image source={{ uri: item.current }} style={styles.previewImage} contentFit="cover" />
+                        <Image source={{ uri: resolveImageUrl(item.current) || item.current }} style={styles.previewImage} contentFit="cover" />
                       ) : (
                         <Text style={styles.valText} numberOfLines={4}>
                           {item.current || '(empty)'}
@@ -174,7 +175,7 @@ export function ConflictResolutionModal({
                     <View style={styles.compareCol}>
                       <Text style={[styles.colHeader, { color: theme.colors.accent }]}>INCOMING TMDB</Text>
                       {isImage ? (
-                        <Image source={{ uri: item.incoming }} style={styles.previewImage} contentFit="cover" />
+                        <Image source={{ uri: resolveImageUrl(item.incoming) || item.incoming }} style={styles.previewImage} contentFit="cover" />
                       ) : (
                         <Text style={styles.valText} numberOfLines={4}>
                           {item.incoming || '(empty)'}

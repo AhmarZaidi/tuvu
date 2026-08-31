@@ -4,6 +4,15 @@ import { theme } from '../constants/theme';
 
 export type StatusTone = 'watching' | 'planned' | 'complete' | 'paused' | 'stopped' | 'neutral';
 
+export function resolveStatusTone(status: string): StatusTone {
+  const s = (status || '').toLowerCase();
+  if (['watching', 'reading', 'playing'].includes(s)) return 'watching';
+  if (['watched', 'completed', 'finished', 'up_to_date'].includes(s)) return 'complete';
+  if (['paused', 'on_hold'].includes(s)) return 'paused';
+  if (['dropped', 'stopped'].includes(s)) return 'stopped';
+  return 'planned';
+}
+
 interface StatusBadgeProps {
   label: string;
   tone?: StatusTone;

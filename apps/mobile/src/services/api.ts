@@ -353,6 +353,24 @@ export type StorageStats = {
   supabaseBytes: number | null;
 };
 
+export interface StreamSourceItem {
+  id: string;
+  name: string;
+  url: string;
+  provider: string;
+  badge?: string;
+}
+
+export interface StreamUrlResponse {
+  streamUrl: string;
+  provider: string;
+  sourceLabel: string;
+  siteUrl: string;
+  isAnime: boolean;
+  tmdbId?: string | null;
+  sources: StreamSourceItem[];
+}
+
 export const api = {
   async checkHealth(): Promise<HealthStatus> {
     return apiRequest<HealthStatus>('/api/health');
@@ -474,27 +492,13 @@ export const api = {
     return apiRequest<PersonProfilePayload>(`/api/people/${id}${q ? '?' + q : ''}`);
   },
 
-  async getStreamUrl(mediaId: string, opts?: { season?: number; episode?: number; isEpisode?: boolean }): Promise<{
-    streamUrl: string;
-    provider: '7reels' | 'anikoto';
-    sourceLabel: string;
-    siteUrl: string;
-    isAnime: boolean;
-    tmdbId?: string | null;
-  }> {
+  async getStreamUrl(mediaId: string, opts?: { season?: number; episode?: number; isEpisode?: boolean }): Promise<StreamUrlResponse> {
     const params = new URLSearchParams();
     if (opts?.season !== undefined) params.set('season', String(opts.season));
     if (opts?.episode !== undefined) params.set('episode', String(opts.episode));
     if (opts?.isEpisode !== undefined) params.set('isEpisode', String(opts.isEpisode));
     const q = params.toString();
-    return apiRequest<{
-      streamUrl: string;
-      provider: '7reels' | 'anikoto';
-      sourceLabel: string;
-      siteUrl: string;
-      isAnime: boolean;
-      tmdbId?: string | null;
-    }>(`/api/media/${mediaId}/stream-url${q ? '?' + q : ''}`);
+    return apiRequest<StreamUrlResponse>(`/api/media/${mediaId}/stream-url${q ? '?' + q : ''}`);
   },
 
   async resolveMedia(item: any): Promise<{ media: { id: string; type: string } }> {

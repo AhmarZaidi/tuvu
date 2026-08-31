@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Image } from 'expo-image';
+import { Image } from '../../../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api, EpisodeWithActivity } from '../../../../services/api';
 import { theme } from '../../../../constants/theme';
@@ -24,6 +24,7 @@ import { BottomSheet } from '../../../../components/BottomSheet';
 import { useSubpageBack } from '../../../../hooks/useSubpageBack';
 import { getLanguageName } from '../../../../utils/language';
 import { EmbeddedStreamPlayer } from '../../../../components/EmbeddedStreamPlayer';
+import { resolveImageUrl } from '../../../../utils/images';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -114,14 +115,10 @@ export default function EpisodeDetailsScreen() {
 
   // Stills / Banner Images
   const stills: string[] = ext.stills || ext.images || [];
-  const primaryStill = episode?.stillPath
-    ? (episode.stillPath.startsWith('http')
-        ? episode.stillPath
-        : `https://tmdb-image-prod.b-cdn.net/t/p/w780${episode.stillPath}`)
-    : null;
+  const primaryStill = resolveImageUrl(episode?.stillPath, 'w780');
 
   const imageList: string[] = stills.length > 0
-    ? stills.map((s) => (s.startsWith('http') ? s : `https://tmdb-image-prod.b-cdn.net/t/p/w780${s}`))
+    ? stills.map((s) => resolveImageUrl(s, 'w780') || s).filter(Boolean) as string[]
     : primaryStill
     ? [primaryStill]
     : [];
@@ -439,6 +436,7 @@ export default function EpisodeDetailsScreen() {
             provider={streamData.provider}
             title={`Watch ${episode.title || `Episode ${episode.episodeNumber}`}`}
             subtitle={`Season ${episode.seasonNumber || 1} • Episode ${episode.episodeNumber || 1} • ${streamData.sourceLabel}`}
+            sources={streamData.sources}
             height={235}
           />
         )}
@@ -519,9 +517,9 @@ export default function EpisodeDetailsScreen() {
                   style={styles.castCard}
                   onPress={() => actor.id && router.push(`/people/${actor.id}` as any)}
                 >
-                  {actor.profilePath ? (
+                  {resolveImageUrl(actor.profilePath, 'w185') ? (
                     <Image
-                      source={{ uri: actor.profilePath }}
+                      source={{ uri: resolveImageUrl(actor.profilePath, 'w185')! }}
                       style={styles.castPortrait}
                       contentFit="cover"
                     />

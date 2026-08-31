@@ -23,6 +23,7 @@ import { EmojiRating } from '../../../../components/EmojiRating';
 import { BottomSheet } from '../../../../components/BottomSheet';
 import { useSubpageBack } from '../../../../hooks/useSubpageBack';
 import { getLanguageName } from '../../../../utils/language';
+import { EmbeddedStreamPlayer } from '../../../../components/EmbeddedStreamPlayer';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -45,6 +46,20 @@ export default function EpisodeDetailsScreen() {
     enabled: Boolean(episodeId),
   });
 
+  const episode = data?.episode;
+  const media = data?.media;
+
+  const { data: streamData } = useQuery({
+    queryKey: ['episodeStreamUrl', mediaId, episode?.seasonNumber, episode?.episodeNumber],
+    queryFn: () =>
+      api.getStreamUrl(mediaId, {
+        season: episode?.seasonNumber || 1,
+        episode: episode?.episodeNumber || 1,
+        isEpisode: true,
+      }),
+    enabled: Boolean(mediaId && episode),
+  });
+
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [expandedOverview, setExpandedOverview] = useState(false);
@@ -57,8 +72,6 @@ export default function EpisodeDetailsScreen() {
     }
   }, [data?.activity?.notes]);
 
-  const episode = data?.episode;
-  const media = data?.media;
   const activity = data?.activity;
   const isWatched = Boolean(activity?.watched);
   const rewatchCount = activity?.rewatchCount || 0;
@@ -419,7 +432,18 @@ export default function EpisodeDetailsScreen() {
           </Pressable>
         </View>
 
-        {/* 5. Watch Status Action Card */}
+        {/* 5. EMBEDDED STREAM PLAYER */}
+        {streamData?.streamUrl && (
+          <EmbeddedStreamPlayer
+            url={streamData.streamUrl}
+            provider={streamData.provider}
+            title={`Watch ${episode.title || `Episode ${episode.episodeNumber}`}`}
+            subtitle={`Season ${episode.seasonNumber || 1} • Episode ${episode.episodeNumber || 1} • ${streamData.sourceLabel}`}
+            height={235}
+          />
+        )}
+
+        {/* 6. Watch Status Action Card */}
         <View style={styles.sectionCard}>
           <Text style={styles.cardEyebrow}>WATCH STATUS</Text>
           <Pressable

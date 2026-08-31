@@ -474,6 +474,29 @@ export const api = {
     return apiRequest<PersonProfilePayload>(`/api/people/${id}${q ? '?' + q : ''}`);
   },
 
+  async getStreamUrl(mediaId: string, opts?: { season?: number; episode?: number; isEpisode?: boolean }): Promise<{
+    streamUrl: string;
+    provider: '7reels' | 'anikoto';
+    sourceLabel: string;
+    siteUrl: string;
+    isAnime: boolean;
+    tmdbId?: string | null;
+  }> {
+    const params = new URLSearchParams();
+    if (opts?.season !== undefined) params.set('season', String(opts.season));
+    if (opts?.episode !== undefined) params.set('episode', String(opts.episode));
+    if (opts?.isEpisode !== undefined) params.set('isEpisode', String(opts.isEpisode));
+    const q = params.toString();
+    return apiRequest<{
+      streamUrl: string;
+      provider: '7reels' | 'anikoto';
+      sourceLabel: string;
+      siteUrl: string;
+      isAnime: boolean;
+      tmdbId?: string | null;
+    }>(`/api/media/${mediaId}/stream-url${q ? '?' + q : ''}`);
+  },
+
   async resolveMedia(item: any): Promise<{ media: { id: string; type: string } }> {
     return apiRequest<{ media: { id: string; type: string } }>('/api/explore/resolve', {
       method: 'POST',

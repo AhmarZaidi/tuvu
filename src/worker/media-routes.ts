@@ -83,6 +83,95 @@ export function createMediaRoutes() {
     }
   });
 
+  router.get("/:id/stream-url", requireAuth(), async (c) => {
+    const mediaRepo = c.get("mediaRepository");
+    const mediaId = c.req.param("id");
+    const media = await mediaRepo.findMediaById(mediaId);
+    if (!media) return apiError(c, 404, "not_found", "Media item not found.");
+
+    const season = Number(c.req.query("season") || 1);
+    const episode = Number(c.req.query("episode") || 1);
+    const isEpisode = c.req.query("isEpisode") === "true" || Boolean(c.req.query("episode"));
+
+    // Check if anime
+    const isAnime =
+      media.type === "anime" ||
+      (media.extendedDataJson && (media.extendedDataJson.includes('"category":"anime"') || media.extendedDataJson.includes('"anime":')));
+
+    // Extract TMDB ID
+    let tmdbId = media.source === "tmdb" ? media.sourceId : null;
+    if (!tmdbId && media.extendedDataJson) {
+      try {
+        const ext = JSON.parse(media.extendedDataJson);
+        tmdbId = ext.tmdbId || ext.id || ext.externalIds?.tmdb_id || null;
+      } catch {}
+    }
+    if (!tmdbId && /^\d+$/.test(media.sourceId || "")) {
+      tmdbId = media.sourceId;
+    }
+
+    // 1. Anime resolution via anikototv.to
+    if (isAnime) {
+      const slug = await resolveAnikotoSlug(c.env, media.title);
+      if (slug) {
+        const streamUrl = `https://anikototv.to/watch/${slug}/ep-${episode}`;
+        return c.json(apiSuccess({
+          streamUrl,
+          provider: "anikoto",
+          sourceLabel: "anikototv.to",
+          siteUrl: `https://anikototv.to/watch/${slug}`,
+          isAnime: true,
+          tmdbId,
+        }));
+      }
+    }
+
+    // 2. Shows & Movies resolution via 7reels.cc
+    if (tmdbId) {
+      if (media.type === "movie" && !isEpisode) {
+        return c.json(apiSuccess({
+          streamUrl: `https://7reels.cc/movie/${tmdbId}/watch`,
+          provider: "7reels",
+          sourceLabel: "7reels.cc",
+          siteUrl: `https://7reels.cc/movie/${tmdbId}`,
+          isAnime: false,
+          tmdbId,
+        }));
+      }
+
+      // TV Show or Anime Series with episode
+      return c.json(apiSuccess({
+        streamUrl: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+        provider: "7reels",
+        sourceLabel: "7reels.cc",
+        siteUrl: `https://7reels.cc/tv/${tmdbId}`,
+        isAnime: isAnime,
+        tmdbId,
+      }));
+    }
+
+    // Fallback if no TMDB ID and not resolved
+    if (isAnime) {
+      return c.json(apiSuccess({
+        streamUrl: `https://anikototv.to/search?keyword=${encodeURIComponent(media.title)}`,
+        provider: "anikoto",
+        sourceLabel: "anikototv.to",
+        siteUrl: `https://anikototv.to/`,
+        isAnime: true,
+        tmdbId: null,
+      }));
+    }
+
+    return c.json(apiSuccess({
+      streamUrl: `https://7reels.cc/search?q=${encodeURIComponent(media.title)}`,
+      provider: "7reels",
+      sourceLabel: "7reels.cc",
+      siteUrl: "https://7reels.cc",
+      isAnime: false,
+      tmdbId: null,
+    }));
+  });
+
   // GET /api/media/:id — get media detail
   router.patch("/:id/classification", requireAuth(), requireCsrf(), async (c) => {
     const body = await c.req.json().catch(() => null) as { anime?: boolean; type?: string } | null;
@@ -605,4 +694,60 @@ function updateAnimeClassification(json: string | null | undefined, anime: boole
     if (data.anime && Object.keys(data.anime as Record<string, unknown>).length === 0) delete data.anime;
   }
   return Object.keys(data).length ? JSON.stringify(data) : null;
+}
+
+async function resolveAnikotoSlug(env: Env, rawTitle: string): Promise<string | null> {
+  const cleanTitle = rawTitle.replace(/[:\-–—]\s*(the\s+)?final\s+season.*$/i, "").trim();
+  const cacheKey = `anikoto:slug:${cleanTitle.toLowerCase().slice(0, 80)}`;
+
+  if (env.DB) {
+    const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'anikoto' AND cache_key = ?")
+      .bind(cacheKey)
+      .first<{ response_json: string; expires_at: string }>()
+      .catch(() => null);
+    if (cached && new Date(cached.expires_at).getTime() > Date.now()) {
+      return JSON.parse(cached.response_json) as string;
+    }
+  }
+
+  try {
+    const searchUrl = `https://anikototv.to/search?keyword=${encodeURIComponent(cleanTitle)}`;
+    const res = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const matches = [...html.matchAll(/<a\s+[^>]*href=["'](https:\/\/anikototv\.to\/watch\/([^"'/]+)\/[^"']*)["'][^>]*>([\s\S]*?)<\/a>/g)]
+      .map((m) => ({
+        url: m[1],
+        slug: m[2],
+        titleText: m[3].replace(/<[^>]*>/g, "").trim(),
+      }))
+      .filter((m) => m.titleText.length > 2);
+
+    if (matches.length > 0) {
+      const slug = matches[0].slug;
+      if (env.DB) {
+        const now = new Date();
+        const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+        await env.DB.prepare(
+          `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+           VALUES (?, 'anikoto', ?, ?, 200, ?, ?)
+           ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json=excluded.response_json, expires_at=excluded.expires_at`
+        )
+          .bind(`pc_anikoto_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32)}`, cacheKey, JSON.stringify(slug), now.toISOString(), expires.toISOString())
+          .run()
+          .catch(() => {});
+      }
+      return slug;
+    }
+  } catch (err) {
+    console.error("Anikoto slug resolution error:", err);
+  }
+
+  return null;
 }

@@ -12,12 +12,13 @@ import {
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WebView } from 'react-native-webview';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { theme } from '../constants/theme';
 import { api, MediaDetailData, MediaNewsArticle } from '../services/api';
 import { getLanguageName } from '../utils/language';
+import { EmbeddedStreamPlayer } from './EmbeddedStreamPlayer';
 
 interface MediaTemplateSectionsProps {
   media: MediaDetailData['media'];
@@ -60,6 +61,14 @@ export function MediaTemplateSections({
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<number | null>(null);
 
   const isAnime = media.type === 'anime' || ext.category === 'anime';
+  const isMovie = media.type === 'movie' || ext.animeFormat === 'movie' || ext.format === 'MOVIE' || ext.anime?.format === 'MOVIE';
+
+  const { data: streamData } = useQuery({
+    queryKey: ['mediaStreamUrl', media?.id, isMovie],
+    queryFn: () => api.getStreamUrl(media.id, { isEpisode: false }),
+    enabled: Boolean(media?.id && isMovie),
+  });
+
   const animeData = ext.anime || {};
   const studios: any[] = animeData.studios || ext.studios || [];
   const titles: any = animeData.titles || {};
@@ -604,7 +613,18 @@ export function MediaTemplateSections({
         })()}
       </View>
 
-      {/* 5. TRAILER EMBEDDED PLAYER */}
+      {/* 5. EMBEDDED MOVIE STREAM PLAYER */}
+      {isMovie && streamData?.streamUrl && (
+        <EmbeddedStreamPlayer
+          url={streamData.streamUrl}
+          provider={streamData.provider}
+          title={`Watch ${media.title}`}
+          subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
+          height={225}
+        />
+      )}
+
+      {/* 6. TRAILER EMBEDDED PLAYER */}
       {trailer && (
         <View style={styles.sectionCard}>
           <View style={styles.trailerHeaderRow}>

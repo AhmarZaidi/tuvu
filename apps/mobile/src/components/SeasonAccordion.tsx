@@ -227,7 +227,14 @@ export function SeasonAccordion({
 
                     return (
                       <Pressable
-                        style={[styles.seasonCheckCircle, allWatched && styles.seasonCheckCircleWatched]}
+                        style={[
+                          styles.seasonCheckCircle,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.06)',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : colors.border,
+                          },
+                          allWatched && [styles.seasonCheckCircleWatched, { backgroundColor: isDark ? colors.accent : colors.accentDark, borderColor: isDark ? colors.accent : colors.accentDark }],
+                        ]}
                         onPress={() => handlePressSeasonCheck(seasonNumber, seasonName, allWatched)}
                         hitSlop={8}
                       >
@@ -237,7 +244,7 @@ export function SeasonAccordion({
                           <Ionicons
                             name="checkmark"
                             size={16}
-                            color={allWatched ? '#101112' : '#8b8e89'}
+                            color={allWatched ? '#101112' : colors.textSubtle}
                           />
                         )}
                       </Pressable>
@@ -246,13 +253,13 @@ export function SeasonAccordion({
                 </Pressable>
 
                 {/* Season Progress Bar along bottom of header */}
-                <View style={styles.seasonProgressTrack}>
+                <View style={[styles.seasonProgressTrack, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.08)' }]}>
                   <View style={[styles.seasonProgressFill, { width: `${seasonProgress}%` }]} />
                 </View>
 
                 {/* Episodes List */}
                 {isExpanded && (
-                  <View style={styles.episodesList}>
+                  <View style={[styles.episodesList, { borderTopColor: colors.border }]}>
                     {seasonEpisodes.map((ep) => {
                       const isWatched = Boolean(ep.activity?.watched);
                       const epWatchCount = isWatched ? 1 + (ep.activity?.rewatchCount ?? 0) : 0;
@@ -284,24 +291,24 @@ export function SeasonAccordion({
                       return (
                         <Pressable
                           key={ep.id}
-                          style={styles.episodeRow}
+                          style={[styles.episodeRow, { borderBottomColor: colors.border }]}
                           onPress={() => router.push(`/media/${mediaId}/episodes/${ep.id}` as any)}
                         >
                           {/* Thumbnail / Initials Box */}
                           {stillUrl ? (
                             <Image source={{ uri: stillUrl }} style={styles.thumbnail} contentFit="cover" />
                           ) : (
-                            <View style={styles.thumbnailPlaceholder}>
-                              <Text style={styles.initialsText}>{mediaInitials}</Text>
+                            <View style={[styles.thumbnailPlaceholder, { borderColor: isDark ? 'rgba(255, 191, 71, 0.25)' : colors.border }]}>
+                              <Text style={[styles.initialsText, { color: isDark ? colors.accent : colors.accentDark }]}>{mediaInitials}</Text>
                             </View>
                           )}
 
                           {/* Title & Code */}
                           <View style={styles.episodeMeta}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                              <Text style={styles.episodeCode}>{epCode}</Text>
+                              <Text style={[styles.episodeCode, { color: colors.textSubtle }]}>{epCode}</Text>
                               {formattedDate && (
-                                <Text style={styles.episodeDateText}>• {formattedDate}</Text>
+                                <Text style={[styles.episodeDateText, { color: colors.textMuted }]}>• {formattedDate}</Text>
                               )}
                               {isFiller && (
                                 <View style={styles.fillerBadge}>
@@ -331,7 +338,14 @@ export function SeasonAccordion({
                           {/* Watched Action Circle OR Countdown Pill */}
                           {isWatched || release.kind === 'released' || release.kind === 'tba' ? (
                             <Pressable
-                              style={[styles.episodeCheckCircle, isWatched && styles.episodeCheckCircleWatched]}
+                              style={[
+                                styles.episodeCheckCircle,
+                                {
+                                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.06)',
+                                  borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : colors.border,
+                                },
+                                isWatched && [styles.episodeCheckCircleWatched, { backgroundColor: isDark ? colors.accent : colors.accentDark, borderColor: isDark ? colors.accent : colors.accentDark }],
+                              ]}
                               onPress={() => handlePressEpisodeCheck(ep)}
                               disabled={isBusy}
                               hitSlop={6}
@@ -344,14 +358,14 @@ export function SeasonAccordion({
                                 <Ionicons
                                   name="checkmark"
                                   size={16}
-                                  color={isWatched ? '#101112' : '#8b8e89'}
+                                  color={isWatched ? '#101112' : colors.textSubtle}
                                 />
                               )}
                             </Pressable>
                           ) : (
                             <View style={styles.countdownBadge}>
-                              <Ionicons name="time-outline" size={11} color="#ffcf5c" />
-                              <Text style={styles.countdownBadgeText}>{release.label}</Text>
+                              <Ionicons name="time-outline" size={11} color={isDark ? colors.accent : colors.accentDark} />
+                              <Text style={[styles.countdownBadgeText, { color: isDark ? colors.accent : colors.accentDark }]}>{release.label}</Text>
                             </View>
                           )}
 
@@ -359,7 +373,7 @@ export function SeasonAccordion({
                           <Ionicons
                             name="chevron-forward"
                             size={16}
-                            color="#8b8e89"
+                            color={colors.textSubtle}
                             style={styles.chevron}
                           />
                         </Pressable>

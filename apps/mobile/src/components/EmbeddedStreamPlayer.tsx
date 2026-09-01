@@ -10,9 +10,11 @@ import {
   StatusBar,
   BackHandler,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as NavigationBar from 'expo-navigation-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
 import { StreamSourceItem, StreamServer } from '../services/api';
@@ -75,9 +77,12 @@ export function EmbeddedStreamPlayer({
     }
   }, [activeSource, activeServer, initialUrl]);
 
-  // Lock orientation strictly to landscape in fullscreen and portrait when normal
+  // Lock orientation strictly to landscape and hide Android navigation bar / gesture pill in fullscreen
   useEffect(() => {
     if (isFullscreen) {
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('hidden').catch(() => {});
+      }
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
       const sub = ScreenOrientation.addOrientationChangeListener((event) => {
         const o = event.orientationInfo.orientation;
@@ -93,6 +98,9 @@ export function EmbeddedStreamPlayer({
         ScreenOrientation.removeOrientationChangeListener(sub);
       };
     } else {
+      if (Platform.OS === 'android') {
+        NavigationBar.setVisibilityAsync('visible').catch(() => {});
+      }
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     }
   }, [isFullscreen]);
@@ -177,7 +185,7 @@ export function EmbeddedStreamPlayer({
     setShowControls(true);
     controlsTimeoutRef.current = setTimeout(() => {
       setShowControls(false);
-    }, 4000);
+    }, 2500);
   };
 
   // Reset to original stream link
@@ -522,6 +530,7 @@ export function EmbeddedStreamPlayer({
   return (
     <View style={isFullscreen ? styles.fullscreenContainer : styles.container}>
       <StatusBar hidden={isFullscreen} />
+      {Platform.OS === 'android' && <NavigationBar.NavigationBar hidden={isFullscreen} />}
 
       {/* Normal Mode Header */}
       {!isFullscreen && (
@@ -641,8 +650,6 @@ export function EmbeddedStreamPlayer({
           styles.playerBox,
           isFullscreen ? styles.playerBoxFullscreen : { height },
         ]}
-        onStartShouldSetResponderCapture={() => true}
-        onMoveShouldSetResponderCapture={() => false}
         onTouchEnd={() => {
           if (isFullscreen) {
             setShowControls(true);
@@ -1012,7 +1019,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    zIndex: 20,
+    zIndex: 9999999,
+    elevation: 9999999,
   },
   floatingLeft: {
     flexDirection: 'row',

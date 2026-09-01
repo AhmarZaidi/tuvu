@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { View, TextInput, StyleSheet, Pressable, Text, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 
 export type SortMode = 'updated' | 'title' | 'year' | 'progress';
 export type DashboardLayoutMode = 'grid' | 'sections';
@@ -40,6 +41,7 @@ export function DashboardToolbar({
   onCycleSort,
   placeholder = 'Filter shows...',
 }: DashboardToolbarProps) {
+  const { colors, isDark } = useAppTheme();
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [dropdownCoords, setDropdownCoords] = useState<{ x: number; y: number }>({ x: 16, y: 150 });
   const buttonRef = useRef<View>(null);
@@ -71,16 +73,24 @@ export function DashboardToolbar({
     setDropdownVisible(false);
   };
 
+  const buttonBg = isDark ? 'rgba(255, 255, 255, 0.055)' : colors.card;
+  const buttonActiveBg = isDark ? 'rgba(240, 168, 36, 0.12)' : 'rgba(240, 168, 36, 0.18)';
+  const buttonActiveBorder = isDark ? 'rgba(240, 168, 36, 0.35)' : colors.accent;
+
   return (
     <View style={styles.container}>
       {/* 1. Sort Menu Button (Square with gold active icon) */}
       <View ref={buttonRef} collapsable={false}>
         <Pressable
-          style={[styles.squareButton, dropdownVisible && styles.squareButtonActive]}
+          style={[
+            styles.squareButton,
+            { backgroundColor: buttonBg, borderColor: colors.border },
+            dropdownVisible && [styles.squareButtonActive, { backgroundColor: buttonActiveBg, borderColor: buttonActiveBorder }],
+          ]}
           onPress={handleOpenMenu}
           accessibilityLabel={`Sort: ${activeOption.label}`}
         >
-          <Ionicons name={activeOption.icon} size={17} color={theme.colors.accent} />
+          <Ionicons name={activeOption.icon} size={17} color={isDark ? colors.accent : colors.accentDark} />
         </Pressable>
       </View>
 
@@ -98,6 +108,8 @@ export function DashboardToolbar({
               {
                 top: dropdownCoords.y,
                 left: dropdownCoords.x,
+                backgroundColor: isDark ? '#191a1d' : colors.card,
+                borderColor: colors.cardBorder,
               },
             ]}
           >
@@ -106,16 +118,16 @@ export function DashboardToolbar({
               return (
                 <Pressable
                   key={opt.value}
-                  style={[styles.dropdownItem, isSelected && styles.dropdownItemActive]}
+                  style={[styles.dropdownItem, isSelected && [styles.dropdownItemActive, { backgroundColor: isDark ? 'rgba(240, 168, 36, 0.09)' : 'rgba(240, 168, 36, 0.14)' }]]}
                   onPress={() => handleSelect(opt.value)}
                 >
                   <Ionicons
                     name={opt.icon}
                     size={17}
-                    color={isSelected ? theme.colors.accent : '#94a3b8'}
+                    color={isSelected ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     style={styles.dropdownIcon}
                   />
-                  <Text style={[styles.dropdownText, isSelected && styles.dropdownTextActive]}>
+                  <Text style={[styles.dropdownText, { color: colors.textStrong }, isSelected && [styles.dropdownTextActive, { color: isDark ? colors.accent : colors.accentDark }]]}>
                     {opt.label}
                   </Text>
                 </Pressable>
@@ -126,12 +138,12 @@ export function DashboardToolbar({
       </Modal>
 
       {/* 2. In-Dashboard Search Pill (Squared off to match buttons) */}
-      <View style={styles.searchWrap}>
-        <Ionicons name="search" size={15} color={theme.colors.textSubtle} style={styles.searchIcon} />
+      <View style={[styles.searchWrap, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.055)' : colors.inputBg, borderColor: colors.border }]}>
+        <Ionicons name="search" size={15} color={colors.textSubtle} style={styles.searchIcon} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.textStrong }]}
           placeholder={placeholder}
-          placeholderTextColor={theme.colors.textSubtle}
+          placeholderTextColor={colors.textSubtle}
           value={search}
           onChangeText={onSearchChange}
           autoCorrect={false}
@@ -140,21 +152,25 @@ export function DashboardToolbar({
         />
         {search.length > 0 && (
           <Pressable onPress={() => onSearchChange('')} hitSlop={8}>
-            <Ionicons name="close-circle" size={15} color={theme.colors.textSubtle} />
+            <Ionicons name="close-circle" size={15} color={colors.textSubtle} />
           </Pressable>
         )}
       </View>
 
       {/* 3. Main View Mode Toggle: Grid with Top Chips vs Horizontal Section Carousels */}
       <Pressable
-        style={[styles.squareButton, layoutMode === 'sections' && styles.squareButtonActive]}
+        style={[
+          styles.squareButton,
+          { backgroundColor: buttonBg, borderColor: colors.border },
+          layoutMode === 'sections' && [styles.squareButtonActive, { backgroundColor: buttonActiveBg, borderColor: buttonActiveBorder }],
+        ]}
         onPress={onToggleLayoutMode}
         accessibilityLabel={layoutMode === 'grid' ? 'Switch to section carousels' : 'Switch to grid'}
       >
         <Ionicons
           name={layoutMode === 'grid' ? 'albums-outline' : 'grid-outline'}
           size={17}
-          color={layoutMode === 'sections' ? theme.colors.accent : theme.colors.textSubtle}
+          color={layoutMode === 'sections' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
         />
       </Pressable>
     </View>

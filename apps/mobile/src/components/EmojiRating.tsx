@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 
 interface EmojiRatingProps {
   value: number | null;
@@ -18,11 +19,12 @@ const RATING_LABELS: Record<number, string> = {
 };
 
 export function EmojiRating({ value, onChange, label = 'Your rating' }: EmojiRatingProps) {
+  const { colors, isDark } = useAppTheme();
   const normalized = value ? Math.min(5, Math.max(1, value)) : null;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      <Text style={[styles.label, { color: colors.textMuted }]}>{label}</Text>
       <View style={styles.emojiRow}>
         {RATING_EMOJIS.map((emoji, index) => {
           const rating = index + 1;
@@ -31,7 +33,20 @@ export function EmojiRating({ value, onChange, label = 'Your rating' }: EmojiRat
           return (
             <Pressable
               key={rating}
-              style={[styles.emojiButton, isSelected && styles.emojiButtonActive]}
+              style={[
+                styles.emojiButton,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.06)',
+                  borderColor: colors.border,
+                },
+                isSelected && [
+                  styles.emojiButtonActive,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 191, 71, 0.18)' : 'rgba(240, 168, 36, 0.22)',
+                    borderColor: isDark ? colors.accent : colors.accentDark,
+                  },
+                ],
+              ]}
               onPress={() => onChange(isSelected ? null : rating)}
               hitSlop={6}
             >
@@ -40,7 +55,7 @@ export function EmojiRating({ value, onChange, label = 'Your rating' }: EmojiRat
           );
         })}
       </View>
-      <Text style={styles.statusText}>
+      <Text style={[styles.statusText, { color: colors.textSubtle }]}>
         {normalized ? RATING_LABELS[normalized] : 'Not rated'}
       </Text>
     </View>

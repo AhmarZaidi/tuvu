@@ -18,6 +18,7 @@ import { Image } from '../../../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api, EpisodeWithActivity } from '../../../../services/api';
 import { theme } from '../../../../constants/theme';
+import { useAppTheme } from '../../../../context/ThemeContext';
 import { TopBar } from '../../../../components/TopBar';
 import { GoldenGlow } from '../../../../components/GoldenGlow';
 import { EmojiRating } from '../../../../components/EmojiRating';
@@ -33,6 +34,7 @@ export default function EpisodeDetailsScreen() {
   const { id: mediaId, episodeId } = useLocalSearchParams<{ id: string; episodeId: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors, isDark, theme } = useAppTheme();
   useSubpageBack(mediaId ? `/media/${mediaId}` : '/(tabs)');
 
   const {
@@ -260,9 +262,15 @@ export default function EpisodeDetailsScreen() {
         })
     : null;
 
+  const cardStyle = {
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : colors.cardBorder,
+  };
+  const titleStyle = { color: colors.textStrong };
+
   return (
-    <View style={[styles.container, isPlayerFullscreen && styles.containerFullscreen]}>
-      <StatusBar hidden={isPlayerFullscreen} />
+    <View style={[styles.container, { backgroundColor: colors.background }, isPlayerFullscreen && styles.containerFullscreen]}>
+      <StatusBar hidden={isPlayerFullscreen} barStyle={isDark ? 'light-content' : 'dark-content'} />
       {!isPlayerFullscreen && <GoldenGlow />}
 
       {/* Global TopBar matching app navigation */}
@@ -276,8 +284,17 @@ export default function EpisodeDetailsScreen() {
         {/* 1. Circular Back Button */}
         {!isPlayerFullscreen && (
           <View style={styles.topActionRow}>
-            <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-              <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+            <Pressable
+              style={[
+                styles.circularBackButton,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 31, 25, 0.08)',
+                },
+              ]}
+              onPress={() => router.back()}
+              hitSlop={8}
+            >
+              <Ionicons name="arrow-back" size={20} color={colors.textStrong} />
             </Pressable>
           </View>
         )}
@@ -286,7 +303,7 @@ export default function EpisodeDetailsScreen() {
         {!isPlayerFullscreen && (
           <View style={styles.headerSection}>
             <View style={styles.showNameRow}>
-              <Text style={styles.showNameEyebrow}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
+              <Text style={[styles.showNameEyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
               {isFiller && (
                 <View style={styles.fillerBadge}>
                   <Text style={styles.fillerBadgeText}>FILLER</Text>
@@ -298,39 +315,37 @@ export default function EpisodeDetailsScreen() {
                 </View>
               )}
             </View>
-            <Text style={styles.episodeTitle}>
+            <Text style={[styles.episodeTitle, { color: colors.textStrong }]}>
               {episode.title || episode.name || `Episode ${episode.episodeNumber}`}
             </Text>
             {romajiTitle && romajiTitle !== episode.title && (
-              <Text style={styles.episodeSubtitleRomaji}>
+              <Text style={[styles.episodeSubtitleRomaji, { color: colors.textMuted }]}>
                 {romajiTitle} {japaneseTitle ? `(${japaneseTitle})` : ''}
               </Text>
             )}
 
             {overview ? (
               <View style={styles.synopsisWrap}>
-                <Text style={styles.synopsisText}>{displayedOverview}</Text>
+                <Text style={[styles.synopsisText, { color: colors.textMuted }]}>{displayedOverview}</Text>
                 {isOverviewLong && (
                   <Pressable
                     onPress={() => setExpandedOverview(!expandedOverview)}
                     style={styles.readMoreBtn}
                     hitSlop={6}
                   >
-                    <Text style={styles.readMoreText}>
+                    <Text style={[styles.readMoreText, { color: isDark ? colors.accent : colors.accentDark }]}>
                       {expandedOverview ? 'Collapse' : '...Read More'}
                     </Text>
                   </Pressable>
                 )}
               </View>
-            ) : (
-              <Text style={styles.mutedText}>No synopsis available for this episode.</Text>
-            )}
+            ) : null}
           </View>
         )}
 
         {/* 3. Banner Image Card (16:9 Aspect Ratio with Season/Episode Badge) */}
         {!isPlayerFullscreen && (
-          <View style={styles.bannerImageCard}>
+          <View style={[styles.bannerImageCard, { backgroundColor: isDark ? '#18191b' : colors.card, borderColor: colors.cardBorder }]}>
             {imageList.length > 1 ? (
               <>
                 <ScrollView
@@ -360,8 +375,8 @@ export default function EpisodeDetailsScreen() {
             ) : imageList.length === 1 ? (
               <Image source={{ uri: imageList[0] }} style={StyleSheet.absoluteFill} contentFit="cover" />
             ) : (
-              <View style={styles.imagePlaceholder}>
-                <Ionicons name="tv-outline" size={42} color="#555" />
+              <View style={[styles.imagePlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
+                <Ionicons name="tv-outline" size={42} color={colors.textSubtle} />
               </View>
             )}
 
@@ -378,16 +393,16 @@ export default function EpisodeDetailsScreen() {
         {!isPlayerFullscreen && (
           <View style={styles.metaChipsRow}>
             {formattedAirDate && (
-              <View style={styles.metaChip}>
-                <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.metaChipText}>
+              <View style={[styles.metaChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="calendar-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.metaChipText, { color: colors.textMuted }]}>
                   {isAnime ? `Sub: ${formattedAirDate}` : formattedAirDate}
                 </Text>
               </View>
             )}
 
             {(formattedDubDate || hasDub) && (
-              <View style={[styles.metaChip, styles.dubMetaChip]}>
+              <View style={[styles.metaChip, styles.dubMetaChip, { backgroundColor: isDark ? 'rgba(34, 197, 94, 0.12)' : 'rgba(34, 197, 94, 0.12)', borderColor: 'rgba(34, 197, 94, 0.3)' }]}>
                 <Ionicons name="volume-high-outline" size={13} color="#22c55e" />
                 <Text style={[styles.metaChipText, { color: '#22c55e' }]}>
                   {formattedDubDate ? `Dub: ${formattedDubDate}` : 'Dub Available'}
@@ -396,32 +411,32 @@ export default function EpisodeDetailsScreen() {
             )}
 
             {episode.runtimeMinutes ? (
-              <View style={styles.metaChip}>
-                <Ionicons name="time-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.metaChipText}>{episode.runtimeMinutes}m</Text>
+              <View style={[styles.metaChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="time-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.metaChipText, { color: colors.textMuted }]}>{episode.runtimeMinutes}m</Text>
               </View>
             ) : null}
 
             {externalRating ? (
-              <View style={styles.metaChip}>
-                <Ionicons name="star" size={12} color={theme.colors.accent} />
-                <Text style={styles.metaChipText}>{Number(externalRating).toFixed(1)}/10</Text>
+              <View style={[styles.metaChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="star" size={12} color={isDark ? colors.accent : colors.accentDark} />
+                <Text style={[styles.metaChipText, { color: isDark ? colors.accent : colors.accentDark, fontWeight: '700' }]}>{Number(externalRating).toFixed(1)}/10</Text>
               </View>
             ) : null}
 
             {/* Primary Language */}
             {originalLanguageName && (
-              <View style={styles.metaChip}>
-                <Ionicons name="language-outline" size={13} color={theme.colors.accent} />
-                <Text style={styles.metaChipText}>{originalLanguageName}</Text>
+              <View style={[styles.metaChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="language-outline" size={13} color={isDark ? colors.accent : colors.accentDark} />
+                <Text style={[styles.metaChipText, { color: colors.textMuted }]}>{originalLanguageName}</Text>
               </View>
             )}
 
             {/* Available In */}
             {availableLanguagesList.length > 1 && (
-              <View style={styles.metaChip}>
-                <Ionicons name="globe-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.metaChipText}>
+              <View style={[styles.metaChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="globe-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.metaChipText, { color: colors.textMuted }]}>
                   Available in: {availableLanguagesList.slice(0, 3).join(', ')}
                   {availableLanguagesList.length > 3 ? ` +${availableLanguagesList.length - 3}` : ''}
                 </Text>
@@ -430,15 +445,22 @@ export default function EpisodeDetailsScreen() {
 
             {/* Small icon-only refresh button */}
             <Pressable
-              style={styles.iconRefreshBtn}
+              style={[
+                styles.iconRefreshBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.06)',
+                  borderColor: colors.border,
+                },
+                isRefetching && { opacity: 0.5 },
+              ]}
               onPress={() => void refetch()}
               hitSlop={6}
               disabled={isRefetching}
             >
               {isRefetching ? (
-                <ActivityIndicator size="small" color="#f8f7f2" />
+                <ActivityIndicator size="small" color={colors.textStrong} />
               ) : (
-                <Ionicons name="refresh-outline" size={15} color="#f8f7f2" />
+                <Ionicons name="refresh-outline" size={15} color={colors.textStrong} />
               )}
             </Pressable>
           </View>
@@ -460,11 +482,15 @@ export default function EpisodeDetailsScreen() {
         {!isPlayerFullscreen && (
           <>
             {/* 6. Watch Status Action Card */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>WATCH STATUS</Text>
           <Pressable
             style={[
               styles.watchStatusButton,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.surfaceGlass,
+                borderColor: colors.border,
+              },
               isWatched && styles.watchStatusButtonWatched,
             ]}
             onPress={() => setWatchSheetOpen(true)}
@@ -474,6 +500,10 @@ export default function EpisodeDetailsScreen() {
               <View
                 style={[
                   styles.watchStatusCheckCircle,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.06)',
+                    borderColor: colors.border,
+                  },
                   isWatched && styles.watchStatusCheckCircleActive,
                 ]}
               >
@@ -484,19 +514,19 @@ export default function EpisodeDetailsScreen() {
                     <Ionicons name="checkmark" size={16} color="#101112" />
                   )
                 ) : (
-                  <Ionicons name="checkmark" size={16} color="#8b8e89" />
+                  <Ionicons name="checkmark" size={16} color={colors.textSubtle} />
                 )}
               </View>
 
               <View>
-                <Text style={styles.watchStatusTitle}>
+                <Text style={[styles.watchStatusTitle, titleStyle]}>
                   {isWatched
                     ? rewatchCount > 0
                       ? `Rewatched (${1 + rewatchCount}x)`
                       : 'Watched'
                     : 'Mark as Watched'}
                 </Text>
-                <Text style={styles.watchStatusSubtitle}>
+                <Text style={[styles.watchStatusSubtitle, { color: colors.textMuted }]}>
                   {isWatched
                     ? 'Tap to change watch status or add rewatch'
                     : 'Tap to update watch status'}
@@ -504,12 +534,12 @@ export default function EpisodeDetailsScreen() {
               </View>
             </View>
 
-            <Ionicons name="chevron-forward" size={16} color="#8b8e89" />
+            <Ionicons name="chevron-forward" size={16} color={colors.textSubtle} />
           </Pressable>
         </View>
 
         {/* 6. Emoji Rating Card */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>RATING</Text>
           <EmojiRating
             value={rating}
@@ -520,9 +550,9 @@ export default function EpisodeDetailsScreen() {
 
         {/* 7. Cast & Characters */}
         {cast.length > 0 && (
-          <View style={styles.sectionCard}>
+          <View style={[styles.sectionCard, cardStyle]}>
             <Text style={styles.cardEyebrow}>GUEST STARS</Text>
-            <Text style={styles.cardTitle}>Episode Cast ({cast.length})</Text>
+            <Text style={[styles.cardTitle, titleStyle]}>Episode Cast ({cast.length})</Text>
 
             <ScrollView
               horizontal
@@ -542,16 +572,16 @@ export default function EpisodeDetailsScreen() {
                       contentFit="cover"
                     />
                   ) : (
-                    <View style={styles.castPlaceholder}>
+                    <View style={[styles.castPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
                       <Text style={styles.castInitials}>
                         {(actor.name || 'A').slice(0, 2).toUpperCase()}
                       </Text>
                     </View>
                   )}
-                  <Text style={styles.castName} numberOfLines={1}>
+                  <Text style={[styles.castName, titleStyle]} numberOfLines={1}>
                     {actor.name}
                   </Text>
-                  <Text style={styles.castRole} numberOfLines={1}>
+                  <Text style={[styles.castRole, { color: colors.textMuted }]} numberOfLines={1}>
                     {actor.role || 'Guest'}
                   </Text>
                 </Pressable>
@@ -562,13 +592,13 @@ export default function EpisodeDetailsScreen() {
 
         {/* 8. Crew (Directors & Writers) */}
         {crew.length > 0 && (
-          <View style={styles.sectionCard}>
+          <View style={[styles.sectionCard, cardStyle]}>
             <Text style={styles.cardEyebrow}>CREW</Text>
             <View style={styles.crewWrap}>
               {crew.map((member, idx) => (
-                <View key={`${member.id}-${idx}`} style={styles.crewChip}>
+                <View key={`${member.id}-${idx}`} style={[styles.crewChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)' }]}>
                   <Text style={styles.crewJob}>{member.job}:</Text>
-                  <Text style={styles.crewName}>{member.name}</Text>
+                  <Text style={[styles.crewName, { color: colors.textStrong }]}>{member.name}</Text>
                 </View>
               ))}
             </View>
@@ -576,12 +606,12 @@ export default function EpisodeDetailsScreen() {
         )}
 
         {/* 9. Personal Notes */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>PERSONAL NOTES</Text>
           <TextInput
-            style={styles.notesInput}
+            style={[styles.notesInput, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.inputBg, borderColor: colors.border, color: colors.textStrong }]}
             placeholder="Write notes on this episode..."
-            placeholderTextColor="#8b8e89"
+            placeholderTextColor={colors.textSubtle}
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -907,7 +937,6 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#f8f7f2',
     marginBottom: 10,
   },
   // Watch Status Button
@@ -952,11 +981,10 @@ const styles = StyleSheet.create({
   watchStatusTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#f8f7f2',
   },
   watchStatusSubtitle: {
     fontSize: 11,
-    color: '#8b8e89',
+    color: '#8f938e',
     marginTop: 1,
   },
   // Cast
@@ -972,14 +1000,12 @@ const styles = StyleSheet.create({
     width: 78,
     height: 100,
     borderRadius: 8,
-    backgroundColor: '#202326',
     marginBottom: 4,
   },
   castPlaceholder: {
     width: 78,
     height: 100,
     borderRadius: 8,
-    backgroundColor: '#202326',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 4,
@@ -992,12 +1018,11 @@ const styles = StyleSheet.create({
   castName: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#f8f7f2',
     textAlign: 'center',
   },
   castRole: {
     fontSize: 10,
-    color: '#8b8e89',
+    color: '#8f938e',
     textAlign: 'center',
   },
   // Crew
@@ -1022,7 +1047,7 @@ const styles = StyleSheet.create({
   },
   crewName: {
     fontSize: 11,
-    color: '#dcded9',
+    color: '#8f938e',
   },
   // Notes
   notesInput: {
@@ -1031,7 +1056,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: theme.borderRadius.sm,
     padding: 10,
-    color: '#f8f7f2',
     fontSize: 13,
     lineHeight: 19,
     minHeight: 70,
@@ -1068,13 +1092,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetActionText: {
-    color: '#f8f7f2',
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
   },
   sheetActionSub: {
-    color: '#8b8e89',
+    color: '#8f938e',
     fontSize: 12,
   },
 });

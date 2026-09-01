@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-nati
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAppTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
 import { DashboardEntry } from '../services/api';
 import { StatusBadge, StatusTone, resolveStatusTone } from './StatusBadge';
@@ -30,6 +31,7 @@ export function MediaCard({
   reserveActionSpace = false,
 }: MediaCardProps) {
   const router = useRouter();
+  const { colors, isDark } = useAppTheme();
   const [marking, setMarking] = useState(false);
 
   const posterUrl = resolveImageUrl(item.posterPath, 'w342');
@@ -89,12 +91,18 @@ export function MediaCard({
     return (
       <View style={styles.compactWrap}>
         <Pressable
-          style={styles.compactCard}
+          style={[
+            styles.compactCard,
+            {
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+              borderColor: colors.border,
+            },
+          ]}
           onPress={() => router.push(`/media/${item.mediaId}`)}
           android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
         >
           {/* Mini Poster with Progress Overlay */}
-          <View style={styles.compactPosterWrap}>
+          <View style={[styles.compactPosterWrap, { backgroundColor: isDark ? '#1c1d1e' : colors.surface }]}>
             {posterUrl ? (
               <>
                 <Image source={{ uri: posterUrl }} style={[styles.posterFill, { opacity: 0.25 }]} contentFit="cover" />
@@ -109,9 +117,9 @@ export function MediaCard({
 
           {/* Body */}
           <View style={styles.compactBody}>
-            <Text style={styles.compactTitle} numberOfLines={1}>{item.title}</Text>
+            <Text style={[styles.compactTitle, { color: colors.textStrong }]} numberOfLines={1}>{item.title}</Text>
             <View style={styles.metaRowCompact}>
-              <Text style={styles.compactMeta}>{nextLabel ?? displayYear}</Text>
+              <Text style={[styles.compactMeta, { color: colors.textMuted }]}>{nextLabel ?? displayYear}</Text>
               {isAnime && (
                 <View style={[styles.formatBadgeCompact, { backgroundColor: badgeStyle.bg, borderColor: badgeStyle.border }]}>
                   <Text style={[styles.formatBadgeTextCompact, { color: badgeStyle.color }]}>
@@ -145,7 +153,13 @@ export function MediaCard({
   return (
     <View style={[styles.gridCardContainer, { width }]}>
       <Pressable
-        style={styles.posterContainer}
+        style={[
+          styles.posterContainer,
+          {
+            backgroundColor: isDark ? '#171819' : colors.card,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : colors.cardBorder,
+          },
+        ]}
         onPress={() => router.push(`/media/${item.mediaId}`)}
         android_ripple={{ color: 'rgba(255, 207, 92, 0.1)' }}
       >

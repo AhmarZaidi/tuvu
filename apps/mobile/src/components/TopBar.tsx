@@ -104,15 +104,6 @@ export function TopBar({ onSearchPress }: TopBarProps) {
             <Text style={[styles.avatarInitial, { color: isDark ? colors.accent : colors.accentContrast }]}>{initial}</Text>
           )}
         </View>
-        <View
-          style={[
-            styles.notificationDot,
-            {
-              borderColor: isDark ? '#c4c4c4' : '#888888',
-              backgroundColor: 'transparent',
-            },
-          ]}
-        />
       </Pressable>
     </View>
   );
@@ -134,10 +125,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 2,
   },
   brandAppIcon: {
     width: '100%',

@@ -16,6 +16,7 @@ import { Image } from '../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../services/api';
 import { theme } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { TopBar } from '../../components/TopBar';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
@@ -26,6 +27,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 export default function CharacterDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { colors, isDark, theme } = useAppTheme();
   useSubpageBack('/(tabs)');
 
   const [expandedBio, setExpandedBio] = useState(false);
@@ -103,56 +105,67 @@ export default function CharacterDetailsScreen() {
     }
   };
 
+  const cardStyle = {
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : colors.cardBorder,
+  };
+  const titleStyle = { color: colors.textStrong };
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <GoldenGlow />
 
-      {/* TopBar matching mobile global navigation */}
       <TopBar />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {/* 1. Circular Back Button */}
         <View style={styles.topBar}>
-          <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+          <Pressable
+            style={[
+              styles.circularBackButton,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 31, 25, 0.08)',
+              },
+            ]}
+            onPress={() => router.back()}
+            hitSlop={8}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.textStrong} />
           </Pressable>
         </View>
 
-        {/* 2. Header Section: Eyebrow, Name, Details */}
         <View style={styles.headerSection}>
-          <Text style={styles.eyebrow}>CHARACTER</Text>
-          <Text style={styles.characterName}>{character.name}</Text>
+          <Text style={[styles.eyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>CHARACTER</Text>
+          <Text style={[styles.characterName, { color: colors.textStrong }]}>{character.name}</Text>
           {character.nativeName && (
-            <Text style={styles.nativeName}>{character.nativeName}</Text>
+            <Text style={[styles.nativeName, { color: colors.textMuted }]}>{character.nativeName}</Text>
           )}
 
           <View style={styles.detailsRow}>
             {character.gender && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="male-female-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText}>{character.gender}</Text>
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="male-female-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>{character.gender}</Text>
               </View>
             )}
 
             {character.age && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="sparkles-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText}>Age {character.age}</Text>
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="sparkles-outline" size={13} color={isDark ? colors.accent : colors.accentDark} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>Age {character.age}</Text>
               </View>
             )}
 
             {character.dateOfBirth && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText}>{character.dateOfBirth}</Text>
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="calendar-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>{character.dateOfBirth}</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* 3. Full Size Image Card (3:4 aspect ratio) */}
-        <View style={styles.mainImageCard}>
+        <View style={[styles.mainImageCard, { backgroundColor: isDark ? '#18191b' : colors.card, borderColor: colors.cardBorder }]}>
           {images.length > 1 ? (
             <>
               <ScrollView
@@ -173,7 +186,6 @@ export default function CharacterDetailsScreen() {
                 ))}
               </ScrollView>
 
-              {/* Dots indicator */}
               <View style={styles.dotsContainer}>
                 {images.map((_, idx) => (
                   <View
@@ -190,7 +202,7 @@ export default function CharacterDetailsScreen() {
               contentFit="cover"
             />
           ) : (
-            <View style={styles.imagePlaceholder}>
+            <View style={[styles.imagePlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
               <Text style={styles.placeholderInitials}>
                 {(character.name || 'C').slice(0, 2).toUpperCase()}
               </Text>
@@ -198,38 +210,36 @@ export default function CharacterDetailsScreen() {
           )}
         </View>
 
-        {/* 4. Profile Card (Biography, Also Known As, Links) */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>PROFILE</Text>
-          <Text style={styles.cardTitle}>Biography</Text>
+          <Text style={[styles.cardTitle, titleStyle]}>Biography</Text>
 
           {bio ? (
             <View style={styles.bioContainer}>
-              <Text style={styles.bioText}>{displayedBio}</Text>
+              <Text style={[styles.bioText, { color: colors.textMuted }]}>{displayedBio}</Text>
               {isBioLong && (
                 <Pressable
                   onPress={() => setExpandedBio(!expandedBio)}
                   style={styles.readMoreBtn}
                   hitSlop={6}
                 >
-                  <Text style={styles.readMoreText}>
+                  <Text style={[styles.readMoreText, { color: isDark ? colors.accent : colors.accentDark }]}>
                     {expandedBio ? 'Collapse' : '...Read More'}
                   </Text>
                 </Pressable>
               )}
             </View>
           ) : (
-            <Text style={styles.mutedText}>Biography is not available yet.</Text>
+            <Text style={[styles.mutedText, { color: colors.textMuted }]}>Biography is not available yet.</Text>
           )}
 
-          {/* Also Known As */}
           {character.alternativeNames && character.alternativeNames.length > 0 && (
-            <View style={styles.alsoKnownSection}>
-              <Text style={styles.subHeading}>Also Known As</Text>
+            <View style={[styles.alsoKnownSection, { borderTopColor: colors.border }]}>
+              <Text style={[styles.subHeading, { color: colors.textSubtle }]}>Also Known As</Text>
               <View style={styles.aliasesWrap}>
                 {character.alternativeNames.slice(0, 6).map((alias, idx) => (
-                  <View key={idx} style={styles.aliasChip}>
-                    <Text style={styles.aliasChipText}>{alias}</Text>
+                  <View key={idx} style={[styles.aliasChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)' }]}>
+                    <Text style={[styles.aliasChipText, { color: colors.text }]}>{alias}</Text>
                   </View>
                 ))}
               </View>
@@ -237,11 +247,10 @@ export default function CharacterDetailsScreen() {
           )}
         </View>
 
-        {/* 5. Voice Actors Section */}
         {character.voiceActors && character.voiceActors.length > 0 && (
-          <View style={styles.sectionCard}>
+          <View style={[styles.sectionCard, cardStyle]}>
             <Text style={styles.cardEyebrow}>VOICES</Text>
-            <Text style={styles.cardTitle}>Voice Actors</Text>
+            <Text style={[styles.cardTitle, titleStyle]}>Voice Actors</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -262,14 +271,14 @@ export default function CharacterDetailsScreen() {
                   {resolveImageUrl(va.image, 'h632') ? (
                     <Image source={{ uri: resolveImageUrl(va.image, 'h632')! }} style={styles.vaPortrait} contentFit="cover" />
                   ) : (
-                    <View style={styles.vaPlaceholder}>
+                    <View style={[styles.vaPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
                       <Text style={styles.vaInitials}>{(va.name || 'V').slice(0, 1)}</Text>
                     </View>
                   )}
-                  <Text style={styles.vaName} numberOfLines={1}>
+                  <Text style={[styles.vaName, titleStyle]} numberOfLines={1}>
                     {va.name}
                   </Text>
-                  <Text style={styles.vaLang} numberOfLines={1}>
+                  <Text style={[styles.vaLang, { color: colors.textMuted }]} numberOfLines={1}>
                     {va.language}
                   </Text>
                 </Pressable>
@@ -278,11 +287,10 @@ export default function CharacterDetailsScreen() {
           </View>
         )}
 
-        {/* 6. Anime Appearances Section */}
         {character.media && character.media.length > 0 && (
-          <View style={styles.sectionCard}>
+          <View style={[styles.sectionCard, cardStyle]}>
             <Text style={styles.cardEyebrow}>APPEARANCES</Text>
-            <Text style={styles.cardTitle}>Anime appearances</Text>
+            <Text style={[styles.cardTitle, titleStyle]}>Anime appearances</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -298,14 +306,19 @@ export default function CharacterDetailsScreen() {
                   {resolveImageUrl(item.posterPath, 'w342') ? (
                     <Image source={{ uri: resolveImageUrl(item.posterPath, 'w342')! }} style={styles.mediaPoster} contentFit="cover" />
                   ) : (
-                    <View style={styles.mediaPosterPlaceholder}>
-                      <Text style={styles.mediaInitials}>{(item.title || 'A').slice(0, 2)}</Text>
+                    <View style={[styles.mediaPosterPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
+                      <Text style={styles.mediaInitials}>{(item.title || 'A').slice(0, 2).toUpperCase()}</Text>
                     </View>
                   )}
-                  <Text style={styles.mediaTitle} numberOfLines={2}>
+                  {resolvingId === item.id && (
+                    <View style={styles.mediaLoadingOverlay}>
+                      <ActivityIndicator size="small" color={colors.accent} />
+                    </View>
+                  )}
+                  <Text style={[styles.mediaTitle, titleStyle]} numberOfLines={2}>
                     {item.title}
                   </Text>
-                  <Text style={styles.mediaFormat} numberOfLines={1}>
+                  <Text style={[styles.mediaFormat, { color: colors.textMuted }]} numberOfLines={1}>
                     {item.format || 'Anime'}
                   </Text>
                 </Pressable>

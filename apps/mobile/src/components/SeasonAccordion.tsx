@@ -10,6 +10,7 @@ import { Image } from './AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { EpisodeWithActivity, api } from '../services/api';
 import { BottomSheet } from './BottomSheet';
 import { resolveImageUrl } from '../utils/images';
@@ -47,6 +48,7 @@ export function SeasonAccordion({
   progressComponent,
 }: SeasonAccordionProps) {
   const router = useRouter();
+  const { colors, isDark, theme } = useAppTheme();
   // Collapsed by default: expandedSeasons starts empty
   const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set([1]));
   const [dateMode, setDateMode] = useState<'sub' | 'dub'>('sub');
@@ -140,10 +142,12 @@ export function SeasonAccordion({
   return (
     <View style={styles.container}>
       <View style={styles.headingRow}>
-        <View>
-          <Text style={styles.eyebrow}>EPISODE GUIDE</Text>
-          <Text style={styles.heading}>Seasons & Episodes</Text>
+        <View style={styles.headerRow}>
+          <Text style={[styles.heading, { color: colors.textStrong }]}>
+            {isAnime ? 'Episode Guide' : 'Seasons & Episodes'}
+          </Text>
         </View>
+
         {showDubToggle && (
           <View style={styles.dateModeToggle}>
             <Pressable
@@ -166,16 +170,16 @@ export function SeasonAccordion({
         )}
       </View>
 
-      <Text style={styles.subheading}>
+      <Text style={[styles.subheading, { color: colors.textMuted }]}>
         {totalWatched} of {totalEpisodes || episodes.length} available watched
       </Text>
 
       {progressComponent}
 
       {episodes.length === 0 && !progressComponent && (
-        <View style={styles.emptyGuideCard}>
-          <Text style={styles.emptyGuideTitle}>No episodes available</Text>
-          <Text style={styles.emptyGuideSub}>
+        <View style={[styles.emptyGuideCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : colors.card, borderColor: colors.cardBorder }]}>
+          <Text style={[styles.emptyGuideTitle, { color: colors.textStrong }]}>No episodes available</Text>
+          <Text style={[styles.emptyGuideSub, { color: colors.textMuted }]}>
             Episode details could not be found or have not been added yet.
           </Text>
         </View>
@@ -193,7 +197,7 @@ export function SeasonAccordion({
             const seasonName = seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`;
 
             return (
-              <View key={seasonNumber} style={styles.seasonCard}>
+              <View key={seasonNumber} style={[styles.seasonCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card, borderColor: colors.cardBorder }]}>
                 {/* Season Header */}
                 <Pressable
                   style={styles.seasonHeader}
@@ -203,9 +207,9 @@ export function SeasonAccordion({
                     <Ionicons
                       name={isExpanded ? 'chevron-down' : 'chevron-forward'}
                       size={16}
-                      color="#f8f7f2"
+                      color={colors.textStrong}
                     />
-                    <Text style={styles.seasonName}>
+                    <Text style={[styles.seasonName, { color: colors.textStrong }]}>
                       {seasonName}
                     </Text>
                     <Text style={styles.seasonCount}>
@@ -311,14 +315,14 @@ export function SeasonAccordion({
                               )}
                             </View>
                             <Text
-                              style={styles.episodeTitle}
+                              style={[styles.episodeTitle, { color: colors.textStrong }]}
                               numberOfLines={1}
                               ellipsizeMode="tail"
                             >
                               {ep.title || `Episode ${ep.episodeNumber}`}
                             </Text>
                             {altTitle && altTitle !== ep.title && (
-                              <Text style={styles.episodeAltTitle} numberOfLines={1}>
+                              <Text style={[styles.episodeAltTitle, { color: colors.textMuted }]} numberOfLines={1}>
                                 {altTitle}
                               </Text>
                             )}
@@ -459,12 +463,11 @@ const styles = StyleSheet.create({
   heading: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#f8f7f2',
     marginBottom: 2,
   },
   subheading: {
     fontSize: 13,
-    color: '#aeb1ac',
+    color: '#8f938e',
     marginBottom: 12,
   },
   emptyGuideCard: {
@@ -480,12 +483,11 @@ const styles = StyleSheet.create({
   emptyGuideTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#f8f7f2',
     marginBottom: 4,
   },
   emptyGuideSub: {
     fontSize: 12,
-    color: '#8b8e89',
+    color: '#8f938e',
     textAlign: 'center',
   },
   prepProgressBarTrack: {
@@ -527,12 +529,11 @@ const styles = StyleSheet.create({
   seasonName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#f8f7f2',
   },
   seasonCount: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#8b8e89',
+    color: '#8f938e',
   },
   seasonCheckCircle: {
     width: 30,
@@ -589,13 +590,12 @@ const styles = StyleSheet.create({
   episodeCode: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#8b8e89',
+    color: '#8f938e',
     marginBottom: 2,
   },
   episodeTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#f8f7f2',
     textAlign: 'left',
   },
   rewatchBadgeText: {
@@ -644,17 +644,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetActionText: {
-    color: '#f8f7f2',
     fontSize: 15,
     fontWeight: '600',
     marginBottom: 2,
   },
   sheetActionSub: {
-    color: '#8b8e89',
+    color: '#8f938e',
     fontSize: 12,
   },
   modalItemSubtitle: {
-    color: '#8b8e89',
+    color: '#8f938e',
     fontSize: 12,
     marginTop: 2,
   },

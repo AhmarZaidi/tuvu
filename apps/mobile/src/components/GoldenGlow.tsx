@@ -23,10 +23,10 @@ export function GoldenGlow() {
         'rgba(16, 17, 18, 0.92)',
       ]
     : [
-        `rgba(255, 191, 71, ${goldLight})`,
-        `rgba(247, 241, 228, ${midLight})`,
-        '#f5eee1',
-        '#eee5d4',
+        'rgba(255, 191, 71, 0.06)',
+        'rgba(247, 243, 234, 0.3)',
+        'rgba(247, 243, 234, 0.8)',
+        '#f7f3ea',
       ];
 
   return (

@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { HydrationProgress } from '../services/api';
 
 interface EpisodeGuideProgressProps {
@@ -10,6 +11,7 @@ interface EpisodeGuideProgressProps {
 }
 
 export function EpisodeGuideProgress({ progress, onRetry }: EpisodeGuideProgressProps) {
+  const { colors, isDark } = useAppTheme();
   const isRefreshing = progress.status === 'refreshing' || progress.activeJobs > 0;
   const isFailed = progress.status === 'needs_retry' || (progress.failedJobs > 0 && progress.activeJobs === 0);
 
@@ -19,16 +21,16 @@ export function EpisodeGuideProgress({ progress, onRetry }: EpisodeGuideProgress
         <View style={styles.errorHeader}>
           <View style={styles.labelRow}>
             <Ionicons name="alert-circle-outline" size={18} color="#ff6b6b" style={styles.spinner} />
-            <Text style={styles.errorTitle}>Could not load episode details</Text>
+            <Text style={[styles.errorTitle, { color: colors.danger }]}>Could not load episode details</Text>
           </View>
           {onRetry && (
             <Pressable style={styles.retryButton} onPress={onRetry}>
-              <Ionicons name="refresh-outline" size={13} color={theme.colors.accent} style={{ marginRight: 4 }} />
+              <Ionicons name="refresh-outline" size={13} color={colors.accent} style={{ marginRight: 4 }} />
               <Text style={styles.retryText}>Retry</Text>
             </Pressable>
           )}
         </View>
-        <Text style={styles.errorSub}>
+        <Text style={[styles.errorSub, { color: colors.textMuted }]}>
           {progress.lastError || 'Unable to retrieve complete episode information from provider.'}
         </Text>
       </View>
@@ -54,16 +56,16 @@ export function EpisodeGuideProgress({ progress, onRetry }: EpisodeGuideProgress
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.labelRow}>
-          <ActivityIndicator size="small" color={theme.colors.accent} style={styles.spinner} />
-          <Text style={styles.title}>{label}</Text>
+          <ActivityIndicator size="small" color={colors.accent} style={styles.spinner} />
+          <Text style={[styles.title, { color: colors.textStrong }]}>{label}</Text>
         </View>
-        <Text style={styles.percentText}>{pct}%</Text>
+        <Text style={[styles.percentText, { color: isDark ? colors.accent : colors.accentDark }]}>{pct}%</Text>
       </View>
 
-      <Text style={styles.detailText}>{detail}</Text>
+      <Text style={[styles.detailText, { color: colors.textMuted }]}>{detail}</Text>
 
-      <View style={styles.track}>
-        <View style={[styles.bar, { width: `${pct}%` }]} />
+      <View style={[styles.track, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 31, 25, 0.1)' }]}>
+        <View style={[styles.bar, { width: `${pct}%`, backgroundColor: colors.accent }]} />
       </View>
     </View>
   );

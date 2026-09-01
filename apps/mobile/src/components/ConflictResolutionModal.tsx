@@ -10,6 +10,7 @@ import {
 import { Image } from './AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { ConflictItem } from '../services/api';
 import { BottomSheet } from './BottomSheet';
 import { resolveImageUrl } from '../utils/images';
@@ -31,6 +32,7 @@ export function ConflictResolutionModal({
   mediaType,
   onTypeChange,
 }: ConflictResolutionModalProps) {
+  const { colors, isDark, theme } = useAppTheme();
   const [decisions, setDecisions] = useState<Record<string, 'accept' | 'keep'>>({});
   const [saving, setSaving] = useState(false);
   const [changingType, setChangingType] = useState(false);
@@ -127,7 +129,7 @@ export function ConflictResolutionModal({
           </View>
         )}
 
-        <Text style={styles.description}>
+        <Text style={[styles.description, { color: colors.textMuted }]}>
           Fresh details from TMDB conflict with values currently saved in your library.
           Choose which information to keep or update for each section.
         </Text>
@@ -138,32 +140,46 @@ export function ConflictResolutionModal({
               const isImage = isImageSection(item.section);
 
               return (
-                <View key={item.section} style={styles.conflictCard}>
-                  <Text style={styles.sectionLabel}>{item.label}</Text>
+                <View
+                  key={item.section}
+                  style={[
+                    styles.conflictCard,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+                      borderColor: colors.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.sectionLabel, { color: colors.textStrong }]}>{item.label}</Text>
 
                   {/* Comparison Row */}
                   <View style={styles.compareRow}>
                     {/* Current Column */}
-                    <View style={styles.compareCol}>
-                      <Text style={styles.colHeader}>CURRENT SAVED</Text>
+                    <View style={[styles.compareCol, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(34, 31, 25, 0.04)' }]}>
+                      <Text style={[styles.colHeader, { color: colors.textSubtle }]}>CURRENT SAVED</Text>
                       {isImage ? (
                         <Image source={{ uri: resolveImageUrl(item.current) || item.current }} style={styles.previewImage} contentFit="cover" />
                       ) : (
-                        <Text style={styles.valText} numberOfLines={4}>
+                        <Text style={[styles.valText, { color: colors.textMuted }]} numberOfLines={4}>
                           {item.current || '(empty)'}
                         </Text>
                       )}
                       <Pressable
                         style={[
                           styles.choiceButton,
-                          currentChoice === 'keep' && styles.choiceButtonSelected,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                            borderColor: colors.border,
+                          },
+                          currentChoice === 'keep' && (isDark ? styles.choiceButtonSelected : { backgroundColor: 'rgba(34, 31, 25, 0.15)', borderColor: colors.textStrong }),
                         ]}
                         onPress={() => handleSelect(item.section, 'keep')}
                       >
                         <Text
                           style={[
                             styles.choiceButtonText,
-                            currentChoice === 'keep' && styles.choiceButtonTextSelected,
+                            { color: colors.textMuted },
+                            currentChoice === 'keep' && { color: colors.textStrong, fontWeight: '700' },
                           ]}
                         >
                           Keep Current
@@ -172,18 +188,22 @@ export function ConflictResolutionModal({
                     </View>
 
                     {/* Incoming Column */}
-                    <View style={styles.compareCol}>
-                      <Text style={[styles.colHeader, { color: theme.colors.accent }]}>INCOMING TMDB</Text>
+                    <View style={[styles.compareCol, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(34, 31, 25, 0.04)' }]}>
+                      <Text style={[styles.colHeader, { color: isDark ? colors.accent : colors.accentDark }]}>INCOMING TMDB</Text>
                       {isImage ? (
                         <Image source={{ uri: resolveImageUrl(item.incoming) || item.incoming }} style={styles.previewImage} contentFit="cover" />
                       ) : (
-                        <Text style={styles.valText} numberOfLines={4}>
+                        <Text style={[styles.valText, { color: colors.textMuted }]} numberOfLines={4}>
                           {item.incoming || '(empty)'}
                         </Text>
                       )}
                       <Pressable
                         style={[
                           styles.choiceButton,
+                          {
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                            borderColor: colors.border,
+                          },
                           currentChoice === 'accept' && styles.choiceButtonSelectedAccent,
                         ]}
                         onPress={() => handleSelect(item.section, 'accept')}
@@ -191,6 +211,7 @@ export function ConflictResolutionModal({
                         <Text
                           style={[
                             styles.choiceButtonText,
+                            { color: colors.textMuted },
                             currentChoice === 'accept' && styles.choiceButtonTextSelectedAccent,
                           ]}
                         >
@@ -205,9 +226,18 @@ export function ConflictResolutionModal({
           </ScrollView>
 
           {/* Footer Actions */}
-          <View style={styles.footer}>
-            <Pressable style={styles.acceptAllButton} onPress={handleAcceptAll} disabled={saving}>
-              <Text style={styles.acceptAllText}>Accept All New</Text>
+          <View style={[styles.footer, { borderTopColor: colors.border }]}>
+            <Pressable
+              style={[
+                styles.acceptAllButton,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.07)',
+                },
+              ]}
+              onPress={handleAcceptAll}
+              disabled={saving}
+            >
+              <Text style={[styles.acceptAllText, { color: colors.textStrong }]}>Accept All New</Text>
             </Pressable>
 
             <Pressable style={styles.saveButton} onPress={handleSave} disabled={saving}>
@@ -300,7 +330,6 @@ export function ConflictResolutionModal({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#f8f7f2',
   },
   closeButton: {
     padding: 6,
@@ -309,7 +338,7 @@ export function ConflictResolutionModal({
   },
   description: {
     fontSize: 12,
-    color: '#aeb1ac',
+    color: '#8f938e',
     lineHeight: 17,
     marginBottom: 12,
   },
@@ -330,7 +359,6 @@ export function ConflictResolutionModal({
   sectionLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#f8f7f2',
     marginBottom: 10,
   },
   compareRow: {
@@ -347,13 +375,13 @@ export function ConflictResolutionModal({
   colHeader: {
     fontSize: 9,
     fontWeight: '700',
-    color: '#8b8e89',
+    color: '#8f938e',
     letterSpacing: 0.5,
     marginBottom: 6,
   },
   valText: {
     fontSize: 12,
-    color: '#dcded9',
+    color: '#8f938e',
     lineHeight: 16,
     minHeight: 50,
     marginBottom: 8,
@@ -384,7 +412,7 @@ export function ConflictResolutionModal({
   choiceButtonText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#aeb1ac',
+    color: '#8f938e',
   },
   choiceButtonTextSelected: {
     color: '#ffffff',
@@ -410,7 +438,6 @@ export function ConflictResolutionModal({
   acceptAllText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#f8f7f2',
   },
   saveButton: {
     flex: 1.3,

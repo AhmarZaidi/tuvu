@@ -18,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { api, ConflictItem, EpisodeWithActivity, HydrationProgress, MediaNewsArticle } from '../../services/api';
 import { theme } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import { TopBar } from '../../components/TopBar';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { PosterPlaceholder } from '../../components/PosterPlaceholder';
@@ -34,6 +35,7 @@ export default function MediaDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors, isDark, theme } = useAppTheme();
   useSubpageBack('/(tabs)');
 
   // Local interactive states
@@ -438,8 +440,8 @@ export default function MediaDetailsScreen() {
   const formattedReleaseDate = formatMediaDateRange(media, regularEpisodes);
 
   return (
-    <View style={[styles.container, isPlayerFullscreen && styles.containerFullscreen]}>
-      <StatusBar hidden={isPlayerFullscreen} />
+    <View style={[styles.container, { backgroundColor: colors.background }, isPlayerFullscreen && styles.containerFullscreen]}>
+      <StatusBar hidden={isPlayerFullscreen} barStyle={isDark ? 'light-content' : 'dark-content'} />
       {!isPlayerFullscreen && <GoldenGlow />}
 
       {/* Atmospheric Background with vibrant portrait poster image covering full screen */}
@@ -452,11 +454,19 @@ export default function MediaDetailsScreen() {
             blurRadius={12}
           />
           <LinearGradient
-            colors={[
-              'rgba(16, 17, 18, 0.3)',
-              'rgba(16, 17, 18, 0.75)',
-              '#101112',
-            ]}
+            colors={
+              isDark
+                ? [
+                    'rgba(16, 17, 18, 0.3)',
+                    'rgba(16, 17, 18, 0.75)',
+                    '#101112',
+                  ]
+                : [
+                    'rgba(247, 243, 234, 0.35)',
+                    'rgba(247, 243, 234, 0.85)',
+                    '#f7f3ea',
+                  ]
+            }
             locations={[0, 0.45, 0.9]}
             style={StyleSheet.absoluteFill}
           />
@@ -474,8 +484,17 @@ export default function MediaDetailsScreen() {
         {/* Circular Back Button */}
         {!isPlayerFullscreen && (
           <View style={styles.topActionRow}>
-            <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-              <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+            <Pressable
+              style={[
+                styles.circularBackButton,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 31, 25, 0.08)',
+                },
+              ]}
+              onPress={() => router.back()}
+              hitSlop={8}
+            >
+              <Ionicons name="arrow-back" size={20} color={colors.textStrong} />
             </Pressable>
           </View>
         )}
@@ -484,11 +503,11 @@ export default function MediaDetailsScreen() {
           <>
             {/* 1. Header Information */}
             <View style={styles.headerInfoSection}>
-              <Text style={styles.mediaTypeEyebrow}>{media.type.toUpperCase()}</Text>
-              <Text style={styles.mediaTitle}>{media.title}</Text>
+              <Text style={[styles.mediaTypeEyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>{media.type.toUpperCase()}</Text>
+              <Text style={[styles.mediaTitle, { color: colors.textStrong }]}>{media.title}</Text>
               {media.overview ? (
                 <View style={styles.overviewContainer}>
-                  <Text style={styles.mediaOverview}>
+                  <Text style={[styles.mediaOverview, { color: colors.textMuted }]}>
                     {media.overview.length > 260 && !expandedOverview
                       ? `${media.overview.slice(0, 260)}...`
                       : media.overview}
@@ -499,7 +518,7 @@ export default function MediaDetailsScreen() {
                       style={styles.readMoreBtn}
                       hitSlop={6}
                     >
-                      <Text style={styles.readMoreText}>
+                      <Text style={[styles.readMoreText, { color: isDark ? colors.accent : colors.accentDark }]}>
                         {expandedOverview ? 'Collapse' : '...Read More'}
                       </Text>
                     </Pressable>
@@ -509,7 +528,7 @@ export default function MediaDetailsScreen() {
             </View>
 
             {/* 2. Banner Card (16:9) with Options Button (matching Screenshot 1) */}
-            <View style={styles.bannerContainer}>
+            <View style={[styles.bannerContainer, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : colors.card, borderColor: colors.cardBorder }]}>
           {backdropUrl || posterUrl ? (
             <Image
               source={{ uri: (backdropUrl || posterUrl) as string }}
@@ -524,11 +543,17 @@ export default function MediaDetailsScreen() {
 
           {/* Three-dots Menu Button on top right */}
           <Pressable
-            style={styles.bannerMenuButton}
+            style={[
+              styles.bannerMenuButton,
+              {
+                backgroundColor: isDark ? 'rgba(16, 17, 18, 0.75)' : 'rgba(255, 255, 255, 0.88)',
+                borderColor: colors.border,
+              },
+            ]}
             onPress={() => setMenuOpen(true)}
             hitSlop={8}
           >
-            <Ionicons name="ellipsis-horizontal" size={18} color="#f8f7f2" />
+            <Ionicons name="ellipsis-horizontal" size={18} color={colors.textStrong} />
           </Pressable>
         </View>
 
@@ -555,18 +580,18 @@ export default function MediaDetailsScreen() {
 
         {/* 3. Metadata & Tracking Status Card */}
         {!userMedia ? (
-          <View style={styles.untrackedCard}>
+          <View style={[styles.untrackedCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card, borderColor: colors.cardBorder }]}>
             <View style={styles.metaRow}>
               {formattedReleaseDate && (
                 <View style={styles.metaItem}>
-                  <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
-                  <Text style={styles.metaItemText}>{formattedReleaseDate}</Text>
+                  <Ionicons name="calendar-outline" size={14} color={colors.textSubtle} />
+                  <Text style={[styles.metaItemText, { color: colors.textMuted }]}>{formattedReleaseDate}</Text>
                 </View>
               )}
               {media.language && (
-                <Text style={styles.metaItemText}>{media.language.toUpperCase()}</Text>
+                <Text style={[styles.metaItemText, { color: colors.textMuted }]}>{media.language.toUpperCase()}</Text>
               )}
-              <Text style={styles.metaItemText}>
+              <Text style={[styles.metaItemText, { color: colors.textMuted }]}>
                 {media.source ? media.source.toUpperCase() : 'TMDB'}
               </Text>
             </View>
@@ -587,29 +612,33 @@ export default function MediaDetailsScreen() {
             </Pressable>
           </View>
         ) : (
-          <View style={styles.trackingCard}>
+          <View style={[styles.trackingCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card, borderColor: colors.cardBorder }]}>
             {/* Metadata Row: Calendar Date, Language, TMDB source */}
             <View style={styles.metaRow}>
               {formattedReleaseDate && (
                 <View style={styles.metaItem}>
-                  <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
-                  <Text style={styles.metaItemText}>{formattedReleaseDate}</Text>
+                  <Ionicons name="calendar-outline" size={14} color={colors.textSubtle} />
+                  <Text style={[styles.metaItemText, { color: colors.textMuted }]}>{formattedReleaseDate}</Text>
                 </View>
               )}
               {media.language && (
-                <Text style={styles.metaItemText}>{media.language.toUpperCase()}</Text>
+                <Text style={[styles.metaItemText, { color: colors.textMuted }]}>{media.language.toUpperCase()}</Text>
               )}
-              <Text style={styles.metaItemText}>
+              <Text style={[styles.metaItemText, { color: colors.textMuted }]}>
                 {media.source ? media.source.toUpperCase() : 'TMDB'}
               </Text>
             </View>
 
             {/* MANUAL STATUS & Favorite Heart */}
             <View style={styles.statusHeaderRow}>
-              <Text style={styles.sectionEyebrow}>MANUAL STATUS</Text>
+              <Text style={[styles.sectionEyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>MANUAL STATUS</Text>
               <Pressable
                 style={[
                   styles.favoriteButton,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                    borderColor: colors.border,
+                  },
                   userMedia.isFavorite && styles.favoriteButtonActive,
                 ]}
                 onPress={handleToggleFavorite}
@@ -618,7 +647,7 @@ export default function MediaDetailsScreen() {
                 <Ionicons
                   name={userMedia.isFavorite ? 'heart' : 'heart-outline'}
                   size={18}
-                  color={userMedia.isFavorite ? '#ff4b4b' : '#aeb1ac'}
+                  color={userMedia.isFavorite ? '#ff4b4b' : colors.textSubtle}
                 />
               </Pressable>
             </View>
@@ -630,6 +659,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'watched' && styles.statusPillActiveWatched,
                     ]}
                     onPress={() => handleManualStatus('watched')}
@@ -637,11 +670,12 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name={userMedia?.status === 'watched' ? 'checkmark-circle' : 'checkmark-circle-outline'}
                       size={15}
-                      color={userMedia?.status === 'watched' ? '#22c55e' : '#aeb1ac'}
+                      color={userMedia?.status === 'watched' ? '#22c55e' : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
+                        { color: colors.textMuted },
                         userMedia?.status === 'watched' && styles.statusPillTextActiveWatched,
                       ]}
                     >
@@ -652,6 +686,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'watch_later' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('watch_later')}
@@ -659,12 +697,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="time-outline"
                       size={14}
-                      color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'watch_later' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'watch_later' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'watch_later' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Watch Later
@@ -674,6 +713,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'stopped' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('stopped')}
@@ -681,12 +724,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="square-outline"
                       size={14}
-                      color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'stopped' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'stopped' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'stopped' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Stopped
@@ -698,6 +742,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'reading' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('reading')}
@@ -705,12 +753,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="book-outline"
                       size={14}
-                      color={userMedia?.status === 'reading' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'reading' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'reading' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'reading' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Reading
@@ -720,6 +769,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'finished' && styles.statusPillActiveWatched,
                     ]}
                     onPress={() => handleManualStatus('finished')}
@@ -727,11 +780,12 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="checkmark-circle-outline"
                       size={14}
-                      color={userMedia?.status === 'finished' ? '#22c55e' : '#aeb1ac'}
+                      color={userMedia?.status === 'finished' ? '#22c55e' : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
+                        { color: colors.textMuted },
                         userMedia?.status === 'finished' && styles.statusPillTextActiveWatched,
                       ]}
                     >
@@ -742,6 +796,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'want_to_read' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('want_to_read')}
@@ -749,12 +807,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="time-outline"
                       size={14}
-                      color={userMedia?.status === 'want_to_read' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'want_to_read' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'want_to_read' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'want_to_read' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Want to Read
@@ -766,6 +825,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'playing' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('playing')}
@@ -773,12 +836,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="game-controller-outline"
                       size={14}
-                      color={userMedia?.status === 'playing' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'playing' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'playing' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'playing' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Playing
@@ -788,6 +852,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'completed' && styles.statusPillActiveWatched,
                     ]}
                     onPress={() => handleManualStatus('completed')}
@@ -795,11 +863,12 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="checkmark-circle-outline"
                       size={14}
-                      color={userMedia?.status === 'completed' ? '#22c55e' : '#aeb1ac'}
+                      color={userMedia?.status === 'completed' ? '#22c55e' : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
+                        { color: colors.textMuted },
                         userMedia?.status === 'completed' && styles.statusPillTextActiveWatched,
                       ]}
                     >
@@ -810,6 +879,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'planned' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('planned')}
@@ -817,12 +890,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="time-outline"
                       size={14}
-                      color={userMedia?.status === 'planned' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'planned' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'planned' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'planned' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Planned
@@ -834,6 +908,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'watch_later' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('watch_later')}
@@ -841,12 +919,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="time-outline"
                       size={14}
-                      color={userMedia?.status === 'watch_later' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'watch_later' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'watch_later' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'watch_later' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Watch Later
@@ -856,6 +935,10 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.statusPill,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
                       userMedia?.status === 'stopped' && styles.statusPillActive,
                     ]}
                     onPress={() => handleManualStatus('stopped')}
@@ -863,12 +946,13 @@ export default function MediaDetailsScreen() {
                     <Ionicons
                       name="square-outline"
                       size={14}
-                      color={userMedia?.status === 'stopped' ? theme.colors.accent : '#aeb1ac'}
+                      color={userMedia?.status === 'stopped' ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
                     />
                     <Text
                       style={[
                         styles.statusPillText,
-                        userMedia?.status === 'stopped' && styles.statusPillTextActive,
+                        { color: colors.textMuted },
+                        userMedia?.status === 'stopped' && [styles.statusPillTextActive, { color: isDark ? colors.accent : colors.accentDark }],
                       ]}
                     >
                       Stopped
@@ -889,12 +973,12 @@ export default function MediaDetailsScreen() {
             {isSeries && (
               <View style={styles.progressSection}>
                 <View style={styles.progressHeaderRow}>
-                  <Text style={styles.progressLabel}>Progress</Text>
-                  <Text style={styles.progressCountText}>
+                  <Text style={[styles.progressLabel, { color: colors.textStrong }]}>Progress</Text>
+                  <Text style={[styles.progressCountText, { color: isDark ? colors.accent : colors.accentDark }]}>
                     {watchedRegularCount} / {totalRegularCount} available episodes ({progressPercent}%)
                   </Text>
                 </View>
-                <View style={styles.progressTrack}>
+                <View style={[styles.progressTrack, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.1)' }]}>
                   <View style={[styles.progressFill, { width: `${progressPercent}%` }]} />
                 </View>
               </View>
@@ -902,8 +986,8 @@ export default function MediaDetailsScreen() {
 
             {/* UP NEXT Card */}
             {isSeries && nextEpisode && (
-              <View style={styles.upNextCard}>
-                <Text style={styles.upNextEyebrow}>UP NEXT</Text>
+              <View style={[styles.upNextCard, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.28)' : colors.backgroundElevated, borderColor: colors.border }]}>
+                <Text style={[styles.upNextEyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>UP NEXT</Text>
                 <Pressable
                   style={styles.upNextRow}
                   onPress={() => router.push(`/media/${id}/episodes/${nextEpisode.id}` as any)}
@@ -916,19 +1000,19 @@ export default function MediaDetailsScreen() {
                       contentFit="cover"
                     />
                   ) : (
-                    <View style={styles.upNextInitialsBox}>
-                      <Text style={styles.upNextInitialsText}>{mediaInitials}</Text>
+                    <View style={[styles.upNextInitialsBox, { borderColor: isDark ? 'rgba(255, 191, 71, 0.3)' : colors.border }]}>
+                      <Text style={[styles.upNextInitialsText, { color: isDark ? colors.accent : colors.accentDark }]}>{mediaInitials}</Text>
                     </View>
                   )}
 
                   {/* Details */}
                   <View style={styles.upNextMeta}>
-                    <Text style={styles.upNextCode}>
+                    <Text style={[styles.upNextCode, { color: colors.textSubtle }]}>
                       S{String(nextEpisode.seasonNumber ?? 0).padStart(2, '0')}xE{String(
                         nextEpisode.episodeNumber
                       ).padStart(2, '0')}
                     </Text>
-                    <Text style={styles.upNextTitle} numberOfLines={1} ellipsizeMode="tail">
+                    <Text style={[styles.upNextTitle, { color: colors.textStrong }]} numberOfLines={1} ellipsizeMode="tail">
                       {nextEpisode.title || `Episode ${nextEpisode.episodeNumber}`}
                     </Text>
                   </View>
@@ -937,7 +1021,11 @@ export default function MediaDetailsScreen() {
                   <Pressable
                     style={[
                       styles.upNextCheckButton,
-                      nextEpisode.activity?.watched && styles.upNextCheckButtonWatched,
+                      {
+                        backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.06)',
+                        borderColor: colors.border,
+                      },
+                      nextEpisode.activity?.watched && [styles.upNextCheckButtonWatched, { backgroundColor: isDark ? colors.accent : colors.accentDark, borderColor: isDark ? colors.accent : colors.accentDark }],
                     ]}
                     onPress={(e) => {
                       e.stopPropagation();
@@ -957,7 +1045,7 @@ export default function MediaDetailsScreen() {
                         <Ionicons name="checkmark" size={18} color="#101112" />
                       )
                     ) : (
-                      <Ionicons name="checkmark" size={18} color="#8b8e89" />
+                      <Ionicons name="checkmark" size={18} color={colors.textSubtle} />
                     )}
                   </Pressable>
                 </Pressable>
@@ -966,13 +1054,20 @@ export default function MediaDetailsScreen() {
 
             {/* PRIVATE NOTES */}
             <View style={styles.notesSection}>
-              <Text style={styles.sectionEyebrow}>PRIVATE NOTES</Text>
+              <Text style={[styles.sectionEyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>PRIVATE NOTES</Text>
               <TextInput
-                style={styles.notesInput}
+                style={[
+                  styles.notesInput,
+                  {
+                    backgroundColor: isDark ? 'rgba(0, 0, 0, 0.25)' : colors.inputBg,
+                    borderColor: colors.border,
+                    color: colors.textStrong,
+                  },
+                ]}
                 multiline
                 numberOfLines={4}
                 placeholder="Add your private notes or review here. Auto-saves on blur."
-                placeholderTextColor="#8b8e89"
+                placeholderTextColor={colors.textSubtle}
                 value={notesText}
                 onChangeText={setNotesText}
                 onBlur={handleSaveNotes}
@@ -1352,7 +1447,7 @@ const styles = StyleSheet.create({
   },
   conflictBannerSub: {
     fontSize: 11,
-    color: '#dcded9',
+    color: '#aeb1ac',
     marginTop: 2,
   },
   // Untracked Card (When userMedia is null)
@@ -1400,7 +1495,7 @@ const styles = StyleSheet.create({
   metaItemText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#aeb1ac',
+    color: '#8f938e',
   },
   statusHeaderRow: {
     flexDirection: 'row',
@@ -1453,13 +1548,15 @@ const styles = StyleSheet.create({
   statusPillText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#aeb1ac',
+    color: '#8f938e',
   },
   statusPillTextActive: {
-    color: '#f8f7f2',
+    color: theme.colors.accent,
+    fontWeight: '700',
   },
   statusPillTextActiveWatched: {
     color: '#22c55e',
+    fontWeight: '700',
   },
   // Progress
   progressSection: {
@@ -1474,7 +1571,6 @@ const styles = StyleSheet.create({
   progressLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#f8f7f2',
   },
   progressCountText: {
     fontSize: 12,
@@ -1540,12 +1636,11 @@ const styles = StyleSheet.create({
   upNextCode: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#aeb1ac',
+    color: '#8f938e',
   },
   upNextTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#f8f7f2',
     maxWidth: '100%',
   },
   upNextCheckButton: {
@@ -1578,7 +1673,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: theme.borderRadius.sm,
     padding: 10,
-    color: '#f8f7f2',
     fontSize: 12,
     lineHeight: 18,
     minHeight: 70,
@@ -1597,7 +1691,6 @@ const styles = StyleSheet.create({
   sectionHeading: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#f8f7f2',
     marginBottom: 10,
     marginTop: 2,
   },
@@ -1617,7 +1710,6 @@ const styles = StyleSheet.create({
   },
   unitTitle: {
     fontSize: 13,
-    color: '#f8f7f2',
   },
   // Sheet Styles
   sheetContent: {
@@ -1662,7 +1754,7 @@ const styles = StyleSheet.create({
   typeChipText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#dcded9',
+    color: '#8f938e',
   },
   typeChipTextSelected: {
     color: '#101112',
@@ -1686,7 +1778,6 @@ const styles = StyleSheet.create({
   sheetActionItemText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#f8f7f2',
   },
 });
 

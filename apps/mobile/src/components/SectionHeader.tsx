@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 
 interface SectionHeaderProps {
   title: string;
@@ -9,13 +9,25 @@ interface SectionHeaderProps {
 }
 
 export function SectionHeader({ title, count, rightAction }: SectionHeaderProps) {
+  const { colors, isDark, theme } = useAppTheme();
+
   return (
     <View style={styles.container}>
       <View style={styles.leftGroup}>
-        <Text style={styles.title}>{title}</Text>
+        <Text style={[styles.title, { color: colors.textStrong }]}>{title}</Text>
         {typeof count === 'number' && (
-          <View style={styles.countBadge}>
-            <Text style={styles.countText}>{count}</Text>
+          <View
+            style={[
+              styles.countBadge,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.07)',
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <Text style={[styles.countText, { color: isDark ? colors.accent : colors.accentDark }]}>
+              {count}
+            </Text>
           </View>
         )}
       </View>
@@ -43,20 +55,16 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '800',
-    color: theme.colors.textStrong,
     letterSpacing: -0.2,
   },
   countBadge: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: theme.borderRadius.pill,
+    borderRadius: 9999,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
   countText: {
     fontSize: 11,
     fontWeight: '700',
-    color: theme.colors.accent,
   },
 });

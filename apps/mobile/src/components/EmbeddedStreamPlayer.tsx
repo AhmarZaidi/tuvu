@@ -17,6 +17,7 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 import * as NavigationBar from 'expo-navigation-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { StreamSourceItem, StreamServer } from '../services/api';
 
 const RNWebView: any = WebView;
@@ -40,6 +41,7 @@ export function EmbeddedStreamPlayer({
   sources = [],
   onFullscreenChange,
 }: EmbeddedStreamPlayerProps) {
+  const { colors, isDark } = useAppTheme();
   // Source & Server State
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
   const [activeServerIndex, setActiveServerIndex] = useState(0);
@@ -638,20 +640,20 @@ export function EmbeddedStreamPlayer({
   };
 
   return (
-    <View style={isFullscreen ? styles.fullscreenContainer : styles.container}>
+    <View style={isFullscreen ? styles.fullscreenContainer : [styles.container, { backgroundColor: isDark ? '#141517' : colors.card, borderColor: colors.cardBorder }]}>
       <StatusBar hidden={isFullscreen} />
       {Platform.OS === 'android' && <NavigationBar.NavigationBar hidden={isFullscreen} />}
 
       {/* Normal Mode Header */}
       {!isFullscreen && (
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, { borderBottomColor: colors.border }]}>
           <View style={styles.titleWrap}>
-            <Text style={styles.eyebrow}>STREAM PLAYER</Text>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.eyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>STREAM PLAYER</Text>
+            <Text style={[styles.title, { color: colors.textStrong }]} numberOfLines={1}>
               {title}
             </Text>
             {subtitle && (
-              <Text style={styles.subtitle} numberOfLines={1}>
+              <Text style={[styles.subtitle, { color: colors.textMuted }]} numberOfLines={1}>
                 {subtitle}
               </Text>
             )}
@@ -660,17 +662,17 @@ export function EmbeddedStreamPlayer({
           <View style={styles.actionsRow}>
             {/* Reset to stream button */}
             <Pressable
-              style={styles.iconBtn}
+              style={[styles.iconBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
               onPress={handleResetToStream}
               hitSlop={6}
               accessibilityLabel="Reset to stream"
             >
-              <Ionicons name="home-outline" size={15} color="#dcded9" />
+              <Ionicons name="home-outline" size={15} color={colors.textMuted} />
             </Pressable>
 
             {/* Reload button */}
             <Pressable
-              style={styles.iconBtn}
+              style={[styles.iconBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
               onPress={() => {
                 setLoading(true);
                 setHasError(false);
@@ -678,17 +680,17 @@ export function EmbeddedStreamPlayer({
               }}
               hitSlop={6}
             >
-              <Ionicons name="reload-outline" size={15} color="#dcded9" />
+              <Ionicons name="reload-outline" size={15} color={colors.textMuted} />
             </Pressable>
 
             {/* Fullscreen Button */}
-            <Pressable style={styles.iconBtnAccent} onPress={toggleFullscreen} hitSlop={6}>
-              <Ionicons name="expand" size={15} color="#101112" />
+            <Pressable style={[styles.iconBtnAccent, { backgroundColor: isDark ? colors.accent : colors.accentDark }]} onPress={toggleFullscreen} hitSlop={6}>
+              <Ionicons name="expand" size={15} color={colors.accentContrast} />
             </Pressable>
 
             {/* External browser button */}
-            <Pressable style={styles.iconBtn} onPress={handleOpenExternal} hitSlop={6}>
-              <Ionicons name="open-outline" size={15} color="#dcded9" />
+            <Pressable style={[styles.iconBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]} onPress={handleOpenExternal} hitSlop={6}>
+              <Ionicons name="open-outline" size={15} color={colors.textMuted} />
             </Pressable>
           </View>
         </View>
@@ -696,23 +698,30 @@ export function EmbeddedStreamPlayer({
 
       {/* Row 1: Primary Source Selector Chips */}
       {!isFullscreen && sourceList.length > 1 && (
-        <View style={styles.sourceScrollWrap}>
+        <View style={[styles.sourceScrollWrap, { backgroundColor: isDark ? '#0f1011' : colors.backgroundElevated, borderBottomColor: colors.border }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceRow}>
             {sourceList.map((src, idx) => {
               const isSelected = idx === activeSourceIndex;
               return (
                 <Pressable
                   key={src.id || idx}
-                  style={[styles.sourceChip, isSelected && styles.sourceChipActive]}
+                  style={[
+                    styles.sourceChip,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)',
+                      borderColor: colors.border,
+                    },
+                    isSelected && styles.sourceChipActive,
+                  ]}
                   onPress={() => handleSelectSource(idx)}
                 >
-                  {isSelected && <Ionicons name="play" size={10} color="#ffcf5c" style={{ marginRight: 4 }} />}
-                  <Text style={[styles.sourceChipText, isSelected && styles.sourceChipTextActive]}>
+                  {isSelected && <Ionicons name="play" size={10} color={isDark ? colors.accent : colors.accentDark} style={{ marginRight: 4 }} />}
+                  <Text style={[styles.sourceChipText, { color: colors.textMuted }, isSelected && [styles.sourceChipTextActive, { color: isDark ? colors.accent : colors.accentDark }]]}>
                     {src.name}
                   </Text>
                   {src.badge && (
                     <View style={[styles.sourceBadge, isSelected && styles.sourceBadgeActive]}>
-                      <Text style={[styles.sourceBadgeText, isSelected && styles.sourceBadgeTextActive]}>
+                      <Text style={[styles.sourceBadgeText, isSelected && [styles.sourceBadgeTextActive, { color: isDark ? colors.accent : colors.accentDark }]]}>
                         {src.badge}
                       </Text>
                     </View>
@@ -726,23 +735,30 @@ export function EmbeddedStreamPlayer({
 
       {/* Row 2: Server / Mirror Selector Chips for Selected Source */}
       {!isFullscreen && activeServers.length > 1 && (
-        <View style={styles.serverScrollWrap}>
+        <View style={[styles.serverScrollWrap, { backgroundColor: isDark ? '#0a0b0c' : colors.background, borderBottomColor: colors.border }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serverRow}>
-            <Text style={styles.serverLabel}>SERVER:</Text>
+            <Text style={[styles.serverLabel, { color: colors.textSubtle }]}>SERVER:</Text>
             {activeServers.map((srv, sIdx) => {
               const isServerActive = sIdx === activeServerIndex;
               return (
                 <Pressable
                   key={srv.id || sIdx}
-                  style={[styles.serverChip, isServerActive && styles.serverChipActive]}
+                  style={[
+                    styles.serverChip,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(34, 31, 25, 0.04)',
+                      borderColor: colors.border,
+                    },
+                    isServerActive && styles.serverChipActive,
+                  ]}
                   onPress={() => handleSelectServer(sIdx)}
                 >
-                  <Text style={[styles.serverChipText, isServerActive && styles.serverChipTextActive]}>
+                  <Text style={[styles.serverChipText, { color: colors.textSubtle }, isServerActive && [styles.serverChipTextActive, { color: isDark ? colors.accent : colors.accentDark }]]}>
                     {srv.name}
                   </Text>
                   {srv.badge && (
                     <View style={[styles.serverBadge, isServerActive && styles.serverBadgeActive]}>
-                      <Text style={[styles.serverBadgeText, isServerActive && styles.serverBadgeTextActive]}>
+                      <Text style={[styles.serverBadgeText, isServerActive && [styles.serverBadgeTextActive, { color: isDark ? colors.accent : colors.accentDark }]]}>
                         {srv.badge}
                       </Text>
                     </View>

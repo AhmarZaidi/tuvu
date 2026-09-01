@@ -36,7 +36,7 @@ export function DashboardView({ kind, title, mediaType, emptyMessage }: Dashboar
   const router = useRouter();
   const queryClient = useQueryClient();
   const { width: windowWidth } = useWindowDimensions();
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
 
   // Keep action button spacing aligned for shows and anime
   const reserveActionSpace = kind === 'shows' || kind === 'anime';
@@ -269,11 +269,11 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
 
   if (isLoading && !data) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <TopBar />
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={theme.colors.accent} />
-          <Text style={styles.loadingText}>Opening your library...</Text>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Opening your library...</Text>
         </View>
       </View>
     );
@@ -281,12 +281,12 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
 
   if (isError && !data) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <TopBar />
         <View style={styles.centerContainer}>
-          <View style={styles.errorBox}>
+          <View style={[styles.errorBox, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
             <Text style={styles.errorTitle}>Could not load {title.toLowerCase()}</Text>
-            <Text style={styles.errorSubtitle}>
+            <Text style={[styles.errorSubtitle, { color: colors.textMuted }]}>
               {(error as Error)?.message || 'Please check that the local server is running.'}
             </Text>
             <Pressable style={styles.retryButton} onPress={() => refetch()}>
@@ -298,20 +298,20 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
     );
   }
 
-  // Calculate 3-column card width on mobile with 16px screen padding and 8px gaps
-  const cardWidth = Math.max(96, Math.floor((windowWidth - 32 - 16) / 3));
+  // 3-column responsive card width calculation for grid
+  const cardWidth = Math.floor((windowWidth - theme.spacing.md * 2 - 16) / 3);
 
+  // Header Component
   const headerContent = (
     <View>
-      {/* 2. Page Heading & + Add Media Action */}
+      {/* 2. Page Header: Title + action */}
       <PageHeader
-        eyebrow="Library"
         title={title}
         actionLabel={`+ Add ${mediaType}`}
         onAction={handleAddMedia}
       />
 
-      {/* 3. Stats Grid (Next up, Favorites, Tracked) */}
+      {/* 3. Dashboard Stats Row (Collapsible) */}
       {firstPage && (
         <DashboardStats
           entries={allEntries}
@@ -349,10 +349,23 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
             return (
               <Pressable
                 key={fmt}
-                style={[styles.animeFormatChip, isSelected && styles.animeFormatChipActive]}
+                style={[
+                  styles.animeFormatChip,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)',
+                    borderColor: colors.border,
+                  },
+                  isSelected && styles.animeFormatChipActive,
+                ]}
                 onPress={() => setFormatFilter(fmt)}
               >
-                <Text style={[styles.animeFormatChipText, isSelected && styles.animeFormatChipTextActive]}>
+                <Text
+                  style={[
+                    styles.animeFormatChipText,
+                    { color: colors.textMuted },
+                    isSelected && { color: isDark ? colors.accent : colors.accentDark, fontWeight: '700' },
+                  ]}
+                >
                   {label}
                 </Text>
               </Pressable>
@@ -375,11 +388,11 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
   );
 
   const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyTitle}>
+    <View style={[styles.emptyState, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+      <Text style={[styles.emptyTitle, { color: colors.textStrong }]}>
         {search.trim() ? 'No matching titles' : `Nothing in ${currentSection?.label ?? title} yet`}
       </Text>
-      <Text style={styles.emptySubtitle}>
+      <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>
         {search.trim()
           ? 'Try a different title or clear the filter.'
           : emptyMessage || `Add a ${mediaType} to fill this section.`}
@@ -407,6 +420,10 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
       <Pressable
         style={[
           styles.collapseButton,
+          {
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.055)' : 'rgba(34, 31, 25, 0.055)',
+            borderColor: colors.border,
+          },
           !hasMultipleRows && styles.collapseButtonDisabled,
           isCollapsed && styles.collapseButtonActive,
         ]}
@@ -426,10 +443,10 @@ function resolveAnimeFormat(item: DashboardEntry): 'movie' | 'series' | 'ova' | 
           size={14}
           color={
             !hasMultipleRows
-              ? 'rgba(255, 255, 255, 0.2)'
+              ? colors.textSubtle
               : isCollapsed
-              ? theme.colors.accent
-              : 'rgba(255, 255, 255, 0.65)'
+              ? isDark ? colors.accent : colors.accentDark
+              : colors.textMuted
           }
         />
       </Pressable>

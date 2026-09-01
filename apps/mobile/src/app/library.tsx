@@ -38,7 +38,7 @@ const STATUS_FILTERS = [
 
 export default function AllLibraryScreen() {
   useSubpageBack('/(tabs)');
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [search, setSearch] = useState('');
@@ -58,35 +58,28 @@ export default function AllLibraryScreen() {
         type: m.type || 'show',
         title: m.title || '',
         overview: m.overview || null,
-        posterPath: m.posterPath || m.poster_path || null,
-        backdropPath: m.backdropPath || m.backdrop_path || null,
-        airStatus: m.airStatus || m.air_status || null,
-        releaseDate: m.releaseDate || m.release_date || null,
-        year: m.year || null,
-        status: item.status || 'watch_later',
-        isFavorite: Boolean(item.isFavorite || item.is_favorite),
-        rating: item.rating || null,
-        progressEpisodes: item.progressEpisodes || item.progress_episodes || 0,
-        progressValue: item.progressValue || item.progress_value || null,
-        progressTotal: item.progressTotal || item.progress_total || null,
-        progressUnit: item.progressUnit || item.progress_unit || null,
-        platform: item.platform || null,
-        startedAt: item.startedAt || null,
-        purchaseLibrary: item.purchaseLibrary || null,
-        updatedAt: item.updatedAt || item.updated_at || '',
+        posterPath: m.posterPath || null,
+        backdropPath: m.backdropPath || null,
+        rating: m.rating || null,
+        updatedAt: item.updatedAt || new Date().toISOString(),
+        activity: {
+          status: item.status || 'planning',
+          rating: item.rating || null,
+          progress: item.progress || 0,
+          notes: item.notes || null,
+        },
       } as DashboardEntry;
     });
   }, [data]);
 
   const filteredEntries = useMemo(() => {
-    let list = [...rawEntries];
+    let list = rawEntries;
     if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter((e: DashboardEntry) => e.title.toLowerCase().includes(q));
+      const q = search.toLowerCase();
+      list = list.filter((e) => e.media.title.toLowerCase().includes(q));
     }
-    const parseTime = (dateStr?: string | null) => {
-      if (!dateStr) return 0;
-      const str = String(dateStr);
+    const parseTime = (str: string | undefined) => {
+      if (!str) return 0;
       const normalized = str.includes('T') ? str : str.replace(' ', 'T') + 'Z';
       const t = new Date(normalized).getTime();
       return isNaN(t) ? 0 : t;
@@ -99,18 +92,18 @@ export default function AllLibraryScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <GoldenGlow />
       {/* Search Input */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={16} color={theme.colors.textSubtle} style={{ marginRight: 8 }} />
+      <View style={[styles.searchBar, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.055)' : colors.inputBg, borderColor: colors.border }]}>
+        <Ionicons name="search" size={16} color={colors.textSubtle} style={{ marginRight: 8 }} />
         <TextInput
-          style={styles.searchInput}
+          style={[styles.searchInput, { color: colors.textStrong }]}
           placeholder="Filter entire library..."
-          placeholderTextColor={theme.colors.textSubtle}
+          placeholderTextColor={colors.textSubtle}
           value={search}
           onChangeText={setSearch}
         />
         {search.length > 0 && (
           <Pressable onPress={() => setSearch('')}>
-            <Ionicons name="close-circle" size={16} color={theme.colors.textSubtle} />
+            <Ionicons name="close-circle" size={16} color={colors.textSubtle} />
           </Pressable>
         )}
       </View>
@@ -127,10 +120,23 @@ export default function AllLibraryScreen() {
           return (
             <Pressable
               key={t.key}
-              style={[styles.filterChip, isActive && styles.filterChipActive]}
+              style={[
+                styles.filterChip,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(34, 31, 25, 0.04)',
+                  borderColor: colors.border,
+                },
+                isActive && styles.filterChipActive,
+              ]}
               onPress={() => setSelectedType(t.key)}
             >
-              <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+              <Text
+                style={[
+                  styles.filterChipText,
+                  { color: colors.textMuted },
+                  isActive && styles.filterChipTextActive,
+                ]}
+              >
                 {t.label}
               </Text>
             </Pressable>
@@ -150,10 +156,22 @@ export default function AllLibraryScreen() {
           return (
             <Pressable
               key={s.key}
-              style={[styles.statusChip, isActive && styles.statusChipActive]}
+              style={[
+                styles.statusChip,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(34, 31, 25, 0.04)',
+                },
+                isActive && styles.statusChipActive,
+              ]}
               onPress={() => setSelectedStatus(s.key)}
             >
-              <Text style={[styles.statusChipText, isActive && styles.statusChipTextActive]}>
+              <Text
+                style={[
+                  styles.statusChipText,
+                  { color: colors.textSubtle },
+                  isActive && [styles.statusChipTextActive, { color: isDark ? colors.accent : colors.accentDark }],
+                ]}
+              >
                 {s.label}
               </Text>
             </Pressable>
@@ -164,8 +182,8 @@ export default function AllLibraryScreen() {
       {/* Main Grid */}
       {isLoading ? (
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={theme.colors.accent} />
-          <Text style={styles.loadingText}>Loading library...</Text>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={[styles.loadingText, { color: colors.textMuted }]}>Loading library...</Text>
         </View>
       ) : (
         <FlatList
@@ -180,8 +198,8 @@ export default function AllLibraryScreen() {
           )}
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No items match filters</Text>
-              <Text style={styles.emptySubtitle}>Try choosing a different type or status.</Text>
+              <Text style={[styles.emptyTitle, { color: colors.textStrong }]}>No items match filters</Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textMuted }]}>Try choosing a different type or status.</Text>
             </View>
           }
         />

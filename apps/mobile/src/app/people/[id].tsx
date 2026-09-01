@@ -17,6 +17,7 @@ import { Image } from '../../components/AppImage';
 import { Ionicons } from '@expo/vector-icons';
 import { api, PersonCredit } from '../../services/api';
 import { theme } from '../../constants/theme';
+import { useAppTheme } from '../../context/ThemeContext';
 import { GoldenGlow } from '../../components/GoldenGlow';
 import { TopBar } from '../../components/TopBar';
 import { useSubpageBack } from '../../hooks/useSubpageBack';
@@ -27,6 +28,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 export default function PersonDetailsScreen() {
   const { id, provider, name } = useLocalSearchParams<{ id: string; provider?: string; name?: string }>();
   const router = useRouter();
+  const { colors, isDark, theme } = useAppTheme();
   useSubpageBack('/(tabs)');
 
   const [expandedBio, setExpandedBio] = useState(false);
@@ -84,7 +86,7 @@ export default function PersonDetailsScreen() {
   const isBioLong = bio.length > 280;
   const displayedBio = isBioLong && !expandedBio ? `${bio.slice(0, 260)}...` : bio;
 
-  const images: string[] =
+  const allImages: string[] =
     person.images && person.images.length > 0
       ? person.images.map((img) => resolveImageUrl(img, 'h632') || img).filter(Boolean) as string[]
       : person.profilePath
@@ -95,65 +97,89 @@ export default function PersonDetailsScreen() {
     const cardWidth = SCREEN_WIDTH - theme.spacing.md * 2;
     const offset = e.nativeEvent.contentOffset.x;
     const index = Math.round(offset / cardWidth);
-    if (index !== activeImageIndex && index >= 0 && index < images.length) {
+    if (index !== activeImageIndex && index >= 0 && index < allImages.length) {
       setActiveImageIndex(index);
     }
   };
 
   const cardWidth = SCREEN_WIDTH - theme.spacing.md * 2;
+  const cardStyle = {
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : colors.cardBorder,
+  };
+  const titleStyle = { color: colors.textStrong };
+  const formattedBirth = person.birthday;
+  const formattedDeath = person.deathday;
+  const age = person.birthday ? new Date().getFullYear() - parseInt(person.birthday.split('-')[0]) : null;
+  const initials = (person.name || 'P').slice(0, 2).toUpperCase();
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <GoldenGlow />
-
-      {/* TopBar matching mobile global navigation */}
       <TopBar />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* 1. Circular Back Button */}
         <View style={styles.topBar}>
-          <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+          <Pressable
+            style={[
+              styles.circularBackButton,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 31, 25, 0.08)',
+              },
+            ]}
+            onPress={() => router.back()}
+            hitSlop={8}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.textStrong} />
           </Pressable>
         </View>
 
-        {/* 2. Header Section: Eyebrow, Name, Details */}
+        {/* 2. Person Name & Eyebrow Header */}
         <View style={styles.headerSection}>
-          <Text style={styles.eyebrow}>{person.knownForDepartment?.toUpperCase() || 'ACTING'}</Text>
-          <Text style={styles.personName}>{person.name}</Text>
+          <Text style={[styles.eyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>PEOPLE & CAST</Text>
+          <Text style={[styles.personName, { color: colors.textStrong }]}>{person.name}</Text>
 
+          {/* Quick Details Badges (Known for Department, Birthday/Death, Birthplace) */}
           <View style={styles.detailsRow}>
-            {person.birthday && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText}>
-                  {person.birthday}
-                  {person.deathday ? ` – ${person.deathday}` : ''}
+            {person.knownForDepartment && (
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="sparkles-outline" size={13} color={isDark ? colors.accent : colors.accentDark} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>{person.knownForDepartment}</Text>
+              </View>
+            )}
+
+            {formattedBirth && (
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="calendar-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>
+                  {formattedBirth}
+                  {age ? ` (age ${age})` : ''}
                 </Text>
+              </View>
+            )}
+
+            {formattedDeath && (
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="flower-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]}>Died: {formattedDeath}</Text>
               </View>
             )}
 
             {person.placeOfBirth && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="location-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText} numberOfLines={1}>
+              <View style={[styles.detailBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+                <Ionicons name="location-outline" size={13} color={colors.textSubtle} />
+                <Text style={[styles.detailBadgeText, { color: colors.text }]} numberOfLines={1}>
                   {person.placeOfBirth}
                 </Text>
-              </View>
-            )}
-
-            {person.knownForDepartment && (
-              <View style={styles.detailBadge}>
-                <Ionicons name="film-outline" size={13} color="#aeb1ac" />
-                <Text style={styles.detailBadgeText}>{person.knownForDepartment}</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* 3. Full Size Image Card (Covering full width with fixed portrait 3:4 aspect ratio) */}
-        <View style={styles.mainImageCard}>
-          {images.length > 1 ? (
+        {/* 3. Full Size Image Card (3:4 Portrait with Carousel or Placeholder) */}
+        <View style={[styles.mainImageCard, { backgroundColor: isDark ? '#18191b' : colors.card, borderColor: colors.cardBorder }]}>
+          {allImages.length > 1 ? (
             <>
               <ScrollView
                 horizontal
@@ -162,7 +188,7 @@ export default function PersonDetailsScreen() {
                 onMomentumScrollEnd={handleScroll}
                 style={StyleSheet.absoluteFill}
               >
-                {images.map((imgUrl, idx) => (
+                {allImages.map((imgUrl, idx) => (
                   <View key={`${imgUrl}-${idx}`} style={{ width: cardWidth, height: '100%' }}>
                     <Image
                       source={{ uri: imgUrl }}
@@ -175,64 +201,59 @@ export default function PersonDetailsScreen() {
 
               {/* Dots indicator */}
               <View style={styles.dotsContainer}>
-                {images.slice(0, 10).map((_, idx) => (
+                {allImages.map((_, idx) => (
                   <View
                     key={idx}
-                    style={[
-                      styles.dot,
-                      idx === activeImageIndex && styles.dotActive,
-                    ]}
+                    style={[styles.dot, idx === activeImageIndex && styles.dotActive]}
                   />
                 ))}
               </View>
             </>
-          ) : images.length === 1 ? (
+          ) : allImages.length === 1 ? (
             <Image
-              source={{ uri: images[0] }}
+              source={{ uri: allImages[0] }}
               style={StyleSheet.absoluteFill}
               contentFit="cover"
             />
           ) : (
-            <View style={styles.imagePlaceholder}>
-              <Text style={styles.placeholderInitials}>
-                {(person.name || 'P').slice(0, 2).toUpperCase()}
-              </Text>
+            <View style={[styles.imagePlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
+              <Text style={styles.placeholderInitials}>{initials}</Text>
             </View>
           )}
         </View>
 
         {/* 4. Profile Card (Biography, Also Known As, Links) */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>PROFILE</Text>
-          <Text style={styles.cardTitle}>Biography</Text>
+          <Text style={[styles.cardTitle, titleStyle]}>Biography</Text>
 
           {bio ? (
             <View style={styles.bioContainer}>
-              <Text style={styles.bioText}>{displayedBio}</Text>
+              <Text style={[styles.bioText, { color: colors.textMuted }]}>{displayedBio}</Text>
               {isBioLong && (
                 <Pressable
                   onPress={() => setExpandedBio(!expandedBio)}
                   style={styles.readMoreBtn}
                   hitSlop={6}
                 >
-                  <Text style={styles.readMoreText}>
+                  <Text style={[styles.readMoreText, { color: isDark ? colors.accent : colors.accentDark }]}>
                     {expandedBio ? 'Collapse' : '...Read More'}
                   </Text>
                 </Pressable>
               )}
             </View>
           ) : (
-            <Text style={styles.mutedText}>Biography is not available yet.</Text>
+            <Text style={[styles.mutedText, { color: colors.textMuted }]}>Biography is not available yet.</Text>
           )}
 
           {/* Also Known As */}
           {person.alsoKnownAs && person.alsoKnownAs.length > 0 && (
-            <View style={styles.alsoKnownSection}>
-              <Text style={styles.subHeading}>Also Known As</Text>
+            <View style={[styles.alsoKnownSection, { borderTopColor: colors.border }]}>
+              <Text style={[styles.subHeading, { color: colors.textSubtle }]}>Also Known As</Text>
               <View style={styles.aliasesWrap}>
                 {person.alsoKnownAs.slice(0, 6).map((alias, idx) => (
-                  <View key={idx} style={styles.aliasChip}>
-                    <Text style={styles.aliasChipText}>{alias}</Text>
+                  <View key={idx} style={[styles.aliasChip, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)' }]}>
+                    <Text style={[styles.aliasChipText, { color: colors.text }]}>{alias}</Text>
                   </View>
                 ))}
               </View>
@@ -241,27 +262,27 @@ export default function PersonDetailsScreen() {
 
           {/* External Links */}
           {(person.imdbId || person.homepage) && (
-            <View style={styles.linksRow}>
+            <View style={[styles.linksRow, { borderTopColor: colors.border }]}>
               {person.imdbId && (
                 <Pressable
-                  style={styles.externalLinkBtn}
+                  style={[styles.externalLinkBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
                   onPress={() => {
                     Linking.openURL(`https://www.imdb.com/name/${person.imdbId}`).catch(() => {});
                   }}
                 >
-                  <Ionicons name="link-outline" size={14} color={theme.colors.accent} />
-                  <Text style={styles.externalLinkText}>IMDb Profile</Text>
+                  <Ionicons name="link-outline" size={14} color={isDark ? colors.accent : colors.accentDark} />
+                  <Text style={[styles.externalLinkText, { color: colors.textStrong }]}>IMDb Profile</Text>
                 </Pressable>
               )}
               {person.homepage && (
                 <Pressable
-                  style={styles.externalLinkBtn}
+                  style={[styles.externalLinkBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
                   onPress={() => {
                     Linking.openURL(person.homepage!).catch(() => {});
                   }}
                 >
-                  <Ionicons name="globe-outline" size={14} color="#aeb1ac" />
-                  <Text style={styles.externalLinkText}>Official Website</Text>
+                  <Ionicons name="globe-outline" size={14} color={colors.textSubtle} />
+                  <Text style={[styles.externalLinkText, { color: colors.textStrong }]}>Official Website</Text>
                 </Pressable>
               )}
             </View>
@@ -269,9 +290,9 @@ export default function PersonDetailsScreen() {
         </View>
 
         {/* 5. Credits Card ("Known for") */}
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>CREDITS</Text>
-          <Text style={styles.cardTitle}>Known for ({person.credits.length})</Text>
+          <Text style={[styles.cardTitle, titleStyle]}>Known for ({person.credits.length})</Text>
 
           {person.credits.length > 0 ? (
             <ScrollView
@@ -295,7 +316,7 @@ export default function PersonDetailsScreen() {
                         contentFit="cover"
                       />
                     ) : (
-                      <View style={styles.creditPosterPlaceholder}>
+                      <View style={[styles.creditPosterPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
                         <Text style={styles.creditInitials}>
                           {(credit.title || 'M').slice(0, 2).toUpperCase()}
                         </Text>
@@ -304,14 +325,14 @@ export default function PersonDetailsScreen() {
 
                     {isResolving && (
                       <View style={styles.creditLoadingOverlay}>
-                        <ActivityIndicator size="small" color={theme.colors.accent} />
+                        <ActivityIndicator size="small" color={colors.accent} />
                       </View>
                     )}
 
-                    <Text style={styles.creditTitle} numberOfLines={1}>
+                    <Text style={[styles.creditTitle, { color: colors.textStrong }]} numberOfLines={1}>
                       {credit.title}
                     </Text>
-                    <Text style={styles.creditRole} numberOfLines={1}>
+                    <Text style={[styles.creditRole, { color: colors.textMuted }]} numberOfLines={1}>
                       {credit.character || credit.type}
                       {credit.year ? ` • ${credit.year}` : ''}
                     </Text>
@@ -320,7 +341,7 @@ export default function PersonDetailsScreen() {
               })}
             </ScrollView>
           ) : (
-            <Text style={styles.mutedText}>Credits will appear after provider hydration.</Text>
+            <Text style={[styles.mutedText, { color: colors.textMuted }]}>Credits are not available yet.</Text>
           )}
         </View>
       </ScrollView>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useAppTheme } from '../context/ThemeContext';
 import { theme } from '../constants/theme';
 
 export type StatusTone = 'watching' | 'planned' | 'complete' | 'paused' | 'stopped' | 'neutral';
@@ -21,16 +22,17 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ label, tone = 'neutral', numberOfLines = 1, compact = false }: StatusBadgeProps) {
-  let styleTone = theme.colors.status.planned;
+  const { colors } = useAppTheme();
+  let styleTone = colors.status.planned;
 
   if (tone === 'watching') {
-    styleTone = theme.colors.status.watching;
+    styleTone = colors.status.watching;
   } else if (tone === 'complete') {
-    styleTone = theme.colors.status.complete;
+    styleTone = colors.status.complete;
   } else if (tone === 'paused') {
-    styleTone = theme.colors.status.paused;
+    styleTone = colors.status.paused;
   } else if (tone === 'stopped') {
-    styleTone = theme.colors.status.stopped;
+    styleTone = colors.status.stopped;
   }
 
   return (

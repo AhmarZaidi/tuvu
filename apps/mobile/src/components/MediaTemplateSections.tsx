@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { WebView } from 'react-native-webview';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { theme } from '../constants/theme';
+import { useAppTheme } from '../context/ThemeContext';
 import { api, MediaDetailData, MediaNewsArticle } from '../services/api';
 import { getLanguageName } from '../utils/language';
 import { EmbeddedStreamPlayer } from './EmbeddedStreamPlayer';
@@ -42,6 +43,7 @@ export function MediaTemplateSections({
 }: MediaTemplateSectionsProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { colors, isDark, theme } = useAppTheme();
 
   let ext: Record<string, any> = {};
   try {
@@ -199,24 +201,37 @@ export function MediaTemplateSections({
     );
   }
 
+  const cardStyle = {
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : colors.cardBorder,
+  };
+  const titleStyle = { color: colors.textStrong };
+  const mutedStyle = { color: colors.textMuted };
+
   return (
     <View style={styles.container}>
       {/* 1. NEWS SECTION */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <View style={styles.sectionHeaderRow}>
           <View>
             <Text style={styles.eyebrow}>NEWS</Text>
-            <Text style={styles.sectionTitle}>Latest articles</Text>
+            <Text style={[styles.sectionTitle, titleStyle]}>Latest articles</Text>
           </View>
           <Pressable
-            style={styles.reloadButton}
+            style={[
+              styles.reloadButton,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(34, 31, 25, 0.06)',
+                borderColor: colors.border,
+              },
+            ]}
             onPress={onReloadNews}
             disabled={newsLoading}
           >
             {newsLoading ? (
-              <ActivityIndicator size="small" color="#f8f7f2" />
+              <ActivityIndicator size="small" color={colors.textStrong} />
             ) : (
-              <Text style={styles.reloadButtonText}>Reload</Text>
+              <Text style={[styles.reloadButtonText, { color: colors.textStrong }]}>Reload</Text>
             )}
           </Pressable>
         </View>
@@ -256,7 +271,7 @@ export function MediaTemplateSections({
           </ScrollView>
         ) : (
           <View style={styles.emptyCard}>
-            <Text style={styles.mutedText}>
+            <Text style={[styles.mutedText, mutedStyle]}>
               No cached news yet. Reload to fetch the latest articles.
             </Text>
           </View>
@@ -264,30 +279,39 @@ export function MediaTemplateSections({
       </View>
 
       {/* 2. WHERE TO WATCH / STREAMING */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <Text style={styles.eyebrow}>WHERE TO WATCH</Text>
-        <Text style={styles.sectionTitle}>Streaming</Text>
+        <Text style={[styles.sectionTitle, titleStyle]}>Streaming</Text>
 
         {watchProviders.length > 0 ? (
           <View style={styles.providersWrap}>
             {watchProviders.map((provider: any, idx: number) => (
-              <View key={`${provider.name}-${idx}`} style={styles.providerChip}>
+              <View
+                key={`${provider.name}-${idx}`}
+                style={[
+                  styles.providerChip,
+                  {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)',
+                    borderColor: colors.border,
+                  },
+                ]}
+              >
                 {resolveImageUrl(provider.logoPath, 'w92') && (
                   <Image source={{ uri: resolveImageUrl(provider.logoPath, 'w92')! }} style={styles.providerLogo} contentFit="cover" />
                 )}
-                <Text style={styles.providerName}>{provider.name}</Text>
+                <Text style={[styles.providerName, { color: colors.textStrong }]}>{provider.name}</Text>
               </View>
             ))}
           </View>
         ) : (
-          <Text style={styles.mutedText}>Availability has not been hydrated yet.</Text>
+          <Text style={[styles.mutedText, mutedStyle]}>Availability has not been hydrated yet.</Text>
         )}
       </View>
 
       {/* 3. SHOW INFO BADGES */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <Text style={styles.eyebrow}>INFO</Text>
-        <Text style={styles.sectionTitle}>
+        <Text style={[styles.sectionTitle, titleStyle]}>
           {media.type === 'game'
             ? 'Game info'
             : media.type === 'book'
@@ -301,8 +325,8 @@ export function MediaTemplateSections({
           {/* Anime Format Badge */}
           {isAnime && (
             <View style={[styles.infoBadge, styles.infoBadgeAccent]}>
-              <Ionicons name={animeFormatLabel === 'Anime Movie' ? 'film-outline' : 'tv-outline'} size={14} color={theme.colors.accent} />
-              <Text style={[styles.infoBadgeText, { color: theme.colors.accent, fontWeight: '700' }]}>
+              <Ionicons name={animeFormatLabel === 'Anime Movie' ? 'film-outline' : 'tv-outline'} size={14} color={isDark ? colors.accent : colors.accentDark} />
+              <Text style={[styles.infoBadgeText, { color: isDark ? colors.accent : colors.accentDark, fontWeight: '700' }]}>
                 {animeFormatLabel}
               </Text>
             </View>
@@ -314,9 +338,9 @@ export function MediaTemplateSections({
               <Ionicons
                 name={hasDub ? 'volume-high-outline' : 'chatbubble-ellipses-outline'}
                 size={14}
-                color={hasDub ? '#22c55e' : '#aeb1ac'}
+                color={hasDub ? '#22c55e' : colors.textSubtle}
               />
-              <Text style={[styles.infoBadgeText, hasDub && { color: '#22c55e', fontWeight: '700' }]}>
+              <Text style={[styles.infoBadgeText, { color: hasDub ? '#22c55e' : colors.textMuted }, hasDub && { fontWeight: '700' }]}>
                 {hasDub ? 'Sub & Dub Available' : 'Subtitled'}
               </Text>
             </View>
@@ -324,67 +348,67 @@ export function MediaTemplateSections({
 
           {/* Anime Studio Badge */}
           {isAnime && studios.length > 0 && (
-            <View style={styles.infoBadge}>
-              <Ionicons name="business-outline" size={14} color="#aeb1ac" />
-              <Text style={styles.infoBadgeText} numberOfLines={1}>
+            <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+              <Ionicons name="business-outline" size={14} color={colors.textSubtle} />
+              <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
                 Studio: {studios.map((s: any) => s.name || s).join(', ')}
               </Text>
             </View>
           )}
 
           {/* Release Date */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="calendar-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="calendar-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]}>
               {dateRangeLabel || media.releaseDate || (media.year ? String(media.year) : 'Release TBA')}
             </Text>
           </View>
 
           {/* Runtime */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="time-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="time-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]}>
               {media.runtimeMinutes ? `${media.runtimeMinutes} min avg` : 'Runtime TBA'}
             </Text>
           </View>
 
           {/* Genres */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="sparkles-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText} numberOfLines={1}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="sparkles-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
               {genres.length > 0 ? genres.map((g: any) => g.name || g).join(', ') : 'Genres TBA'}
             </Text>
           </View>
 
           {/* Director */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="videocam-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText} numberOfLines={1}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="videocam-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
               Director: {directors.join(', ') || 'TBA'}
             </Text>
           </View>
 
           {/* Writer */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="book-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText} numberOfLines={1}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="book-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
               Writer: {writers.join(', ') || 'TBA'}
             </Text>
           </View>
 
           {/* Producer */}
-          <View style={styles.infoBadge}>
-            <Ionicons name="star-outline" size={14} color="#aeb1ac" />
-            <Text style={styles.infoBadgeText} numberOfLines={1}>
+          <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+            <Ionicons name="star-outline" size={14} color={colors.textSubtle} />
+            <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
               Producer: {producers.join(', ') || 'TBA'}
             </Text>
           </View>
 
           {/* Creator */}
           {creatorNames.length > 0 && (
-            <View style={styles.infoBadge}>
-              <Ionicons name="person-outline" size={14} color="#aeb1ac" />
-              <Text style={styles.infoBadgeText} numberOfLines={1}>
+            <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+              <Ionicons name="person-outline" size={14} color={colors.textSubtle} />
+              <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
                 Creator: {creatorNames.join(', ')}
               </Text>
             </View>
@@ -392,9 +416,9 @@ export function MediaTemplateSections({
 
           {/* Network / Platform */}
           {networkName ? (
-            <View style={styles.infoBadge}>
-              <Ionicons name="tv-outline" size={14} color="#aeb1ac" />
-              <Text style={styles.infoBadgeText} numberOfLines={1}>
+            <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+              <Ionicons name="tv-outline" size={14} color={colors.textSubtle} />
+              <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
                 {networkName}
               </Text>
             </View>
@@ -402,9 +426,9 @@ export function MediaTemplateSections({
 
           {/* Primary Language */}
           {originalLanguageName && (
-            <View style={styles.infoBadge}>
-              <Ionicons name="language-outline" size={14} color={theme.colors.accent} />
-              <Text style={styles.infoBadgeText} numberOfLines={1}>
+            <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+              <Ionicons name="language-outline" size={14} color={isDark ? colors.accent : colors.accentDark} />
+              <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
                 Primary: {originalLanguageName}
               </Text>
             </View>
@@ -412,9 +436,9 @@ export function MediaTemplateSections({
 
           {/* Available Languages */}
           {availableLanguagesList.length > 0 && (
-            <View style={styles.infoBadge}>
-              <Ionicons name="globe-outline" size={14} color="#aeb1ac" />
-              <Text style={styles.infoBadgeText} numberOfLines={1}>
+            <View style={[styles.infoBadge, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.05)', borderColor: colors.border }]}>
+              <Ionicons name="globe-outline" size={14} color={colors.textSubtle} />
+              <Text style={[styles.infoBadgeText, { color: colors.text }]} numberOfLines={1}>
                 Available in: {availableLanguagesList.slice(0, 4).join(', ')}
                 {availableLanguagesList.length > 4 ? ` +${availableLanguagesList.length - 4}` : ''}
               </Text>
@@ -425,26 +449,26 @@ export function MediaTemplateSections({
 
       {/* ANIME ALTERNATIVE TITLES */}
       {isAnime && Boolean(titles.english || titles.romaji || titles.native) && (
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.eyebrow}>TITLES</Text>
-          <Text style={styles.sectionTitle}>Alternative titles</Text>
+          <Text style={[styles.sectionTitle, titleStyle]}>Alternative titles</Text>
           <View style={styles.titlesList}>
             {titles.english && titles.english !== media.title && (
               <View style={styles.titleRow}>
                 <Text style={styles.titleRowLabel}>English</Text>
-                <Text style={styles.titleRowVal}>{titles.english}</Text>
+                <Text style={[styles.titleRowVal, { color: colors.textStrong }]}>{titles.english}</Text>
               </View>
             )}
             {titles.romaji && titles.romaji !== media.title && (
               <View style={styles.titleRow}>
                 <Text style={styles.titleRowLabel}>Romaji</Text>
-                <Text style={styles.titleRowVal}>{titles.romaji}</Text>
+                <Text style={[styles.titleRowVal, { color: colors.textStrong }]}>{titles.romaji}</Text>
               </View>
             )}
             {titles.native && (
               <View style={styles.titleRow}>
                 <Text style={styles.titleRowLabel}>Japanese</Text>
-                <Text style={[styles.titleRowVal, { color: theme.colors.accent }]}>{titles.native}</Text>
+                <Text style={[styles.titleRowVal, { color: isDark ? colors.accent : colors.accentDark }]}>{titles.native}</Text>
               </View>
             )}
           </View>
@@ -453,9 +477,9 @@ export function MediaTemplateSections({
 
       {/* CHARACTERS (ANIME) */}
       {characters.length > 0 && (
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.eyebrow}>CHARACTERS</Text>
-          <Text style={styles.sectionTitle}>In-show characters</Text>
+          <Text style={[styles.sectionTitle, titleStyle]}>In-show characters</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -470,14 +494,14 @@ export function MediaTemplateSections({
                 {resolveImageUrl(char.image) ? (
                   <Image source={{ uri: resolveImageUrl(char.image)! }} style={styles.characterPortrait} contentFit="cover" />
                 ) : (
-                  <View style={styles.characterPlaceholder}>
+                  <View style={[styles.characterPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
                     <Text style={styles.characterInitials}>{(char.name || 'C').slice(0, 1)}</Text>
                   </View>
                 )}
-                <Text style={styles.characterName} numberOfLines={1}>
+                <Text style={[styles.characterName, { color: colors.textStrong }]} numberOfLines={1}>
                   {char.name}
                 </Text>
-                <Text style={styles.characterRole} numberOfLines={1}>
+                <Text style={[styles.characterRole, { color: isDark ? colors.accent : colors.accentDark }]} numberOfLines={1}>
                   {char.role || 'Character'}
                 </Text>
               </Pressable>
@@ -488,30 +512,30 @@ export function MediaTemplateSections({
 
       {/* ANIME DUB & AUDIO INFO */}
       {isAnime && (
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.eyebrow}>AUDIO & DUBBING</Text>
-          <Text style={styles.sectionTitle}>Languages & Availability</Text>
+          <Text style={[styles.sectionTitle, titleStyle]}>Languages & Availability</Text>
           <View style={styles.titlesList}>
             <View style={styles.titleRow}>
               <Text style={styles.titleRowLabel}>Original Audio</Text>
-              <Text style={styles.titleRowVal}>Japanese</Text>
+              <Text style={[styles.titleRowVal, { color: colors.textStrong }]}>Japanese</Text>
             </View>
             <View style={styles.titleRow}>
               <Text style={styles.titleRowLabel}>Dubbing</Text>
-              <Text style={[styles.titleRowVal, { color: hasDub ? '#22c55e' : '#aeb1ac', fontWeight: '700' }]}>
+              <Text style={[styles.titleRowVal, { color: hasDub ? '#22c55e' : colors.textMuted, fontWeight: '700' }]}>
                 {hasDub ? 'English Dub Available' : 'Japanese Audio (Subtitled)'}
               </Text>
             </View>
             {hasDub && (
               <View style={styles.titleRow}>
                 <Text style={styles.titleRowLabel}>Simuldub / Release</Text>
-                <Text style={styles.titleRowVal}>Simuldub Tracked (Sub & Dub)</Text>
+                <Text style={[styles.titleRowVal, { color: colors.textStrong }]}>Simuldub Tracked (Sub & Dub)</Text>
               </View>
             )}
             {availableLanguagesList.length > 0 && (
               <View style={styles.titleRow}>
                 <Text style={styles.titleRowLabel}>Audio Tracks</Text>
-                <Text style={styles.titleRowVal} numberOfLines={2}>
+                <Text style={[styles.titleRowVal, { color: colors.textStrong }]} numberOfLines={2}>
                   {availableLanguagesList.join(', ')}
                 </Text>
               </View>
@@ -521,16 +545,16 @@ export function MediaTemplateSections({
       )}
 
       {/* 4. CAST & VOICES */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <View style={styles.castHeaderRow}>
           <View>
             <Text style={styles.eyebrow}>{isAnime ? 'VOICES' : 'CAST'}</Text>
-            <Text style={styles.sectionTitle}>{isAnime ? 'Voice Cast' : 'Cast & Characters'}</Text>
+            <Text style={[styles.sectionTitle, titleStyle]}>{isAnime ? 'Voice Cast' : 'Cast & Characters'}</Text>
           </View>
 
           {/* Anime Sub vs Dub Switcher */}
           {isAnime && (
-            <View style={styles.voiceTabSwitcher}>
+            <View style={[styles.voiceTabSwitcher, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)' }]}>
               <Pressable
                 style={[styles.voiceTab, voiceCastTab === 'sub' && styles.voiceTabActive]}
                 onPress={() => setVoiceCastTab('sub')}
@@ -610,14 +634,14 @@ export function MediaTemplateSections({
                     {resolveImageUrl(actor.profilePath, 'w185') ? (
                       <Image source={{ uri: resolveImageUrl(actor.profilePath, 'w185')! }} style={styles.castPortrait} contentFit="cover" />
                     ) : (
-                      <View style={styles.castPortraitPlaceholder}>
+                      <View style={[styles.castPortraitPlaceholder, { backgroundColor: isDark ? '#202326' : '#e7e2d6' }]}>
                         <Text style={styles.castInitials}>{(actor.name || 'A').slice(0, 1)}</Text>
                       </View>
                     )}
-                    <Text style={styles.castName} numberOfLines={1}>
+                    <Text style={[styles.castName, { color: colors.textStrong }]} numberOfLines={1}>
                       {actor.name}
                     </Text>
-                    <Text style={styles.castRole} numberOfLines={1}>
+                    <Text style={[styles.castRole, { color: colors.textMuted }]} numberOfLines={1}>
                       {actor.role || (isAnime ? 'Voice' : 'Cast')}
                     </Text>
                   </Pressable>
@@ -627,7 +651,7 @@ export function MediaTemplateSections({
           }
 
           return (
-            <Text style={styles.mutedText}>
+            <Text style={[styles.mutedText, mutedStyle]}>
               {isAnime && voiceCastTab === 'dub'
                 ? 'English Dub cast not indexed for this anime.'
                 : 'Cast will appear after provider hydration.'}
@@ -651,11 +675,11 @@ export function MediaTemplateSections({
 
       {/* 6. TRAILER EMBEDDED PLAYER */}
       {trailer && (
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <View style={styles.trailerHeaderRow}>
             <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
               <Text style={styles.eyebrow}>TRAILER</Text>
-              <Text style={styles.sectionTitle} numberOfLines={1} ellipsizeMode="tail">
+              <Text style={[styles.sectionTitle, titleStyle]} numberOfLines={1} ellipsizeMode="tail">
                 {trailer.name || 'Official Trailer'}
               </Text>
             </View>
@@ -666,7 +690,7 @@ export function MediaTemplateSections({
               }}
               hitSlop={6}
             >
-              <Ionicons name="open-outline" size={16} color="#aeb1ac" />
+              <Ionicons name="open-outline" size={16} color={colors.textSubtle} />
             </Pressable>
           </View>
 
@@ -685,9 +709,9 @@ export function MediaTemplateSections({
       )}
 
       {/* 6. RELATED MEDIA */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <Text style={styles.eyebrow}>RELATED</Text>
-        <Text style={styles.sectionTitle}>Related media</Text>
+        <Text style={[styles.sectionTitle, titleStyle]}>Related media</Text>
 
         {related.length > 0 ? (
           <ScrollView
@@ -716,7 +740,7 @@ export function MediaTemplateSections({
                   {resolveImageUrl(item.posterPath, 'w342') ? (
                     <Image source={{ uri: resolveImageUrl(item.posterPath, 'w342')! }} style={styles.relatedPoster} contentFit="cover" />
                   ) : (
-                    <View style={styles.relatedPosterPlaceholder}>
+                    <View style={[styles.relatedPosterPlaceholder, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)' }]}>
                       <Text style={styles.relatedInitials}>{(item.title || 'M').slice(0, 2)}</Text>
                     </View>
                   )}
@@ -754,15 +778,15 @@ export function MediaTemplateSections({
             })}
           </ScrollView>
         ) : (
-          <Text style={styles.mutedText}>Related media will appear after provider hydration.</Text>
+          <Text style={[styles.mutedText, mutedStyle]}>Related media will appear after provider hydration.</Text>
         )}
       </View>
 
       {/* 7. MEDIA GALLERY */}
       {galleryImages.length > 0 && (
-        <View style={styles.sectionCard}>
+        <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.eyebrow}>MEDIA GALLERY</Text>
-          <Text style={styles.sectionTitle}>Backdrops & Posters ({galleryImages.length})</Text>
+          <Text style={[styles.sectionTitle, titleStyle]}>Backdrops & Posters ({galleryImages.length})</Text>
 
           <ScrollView
             horizontal
@@ -841,9 +865,9 @@ export function MediaTemplateSections({
       </Modal>
 
       {/* 8. EXTERNAL RATINGS */}
-      <View style={styles.sectionCard}>
+      <View style={[styles.sectionCard, cardStyle]}>
         <Text style={styles.eyebrow}>RATINGS</Text>
-        <Text style={styles.sectionTitle}>External ratings</Text>
+        <Text style={[styles.sectionTitle, titleStyle]}>External ratings</Text>
 
         <View style={styles.ratingsRow}>
           <View style={styles.ratingChip}>
@@ -852,18 +876,16 @@ export function MediaTemplateSections({
             </Text>
           </View>
           {voteCount ? (
-            <Text style={styles.voteCountText}>
-              {voteCount.toLocaleString()} votes
-            </Text>
+            <Text style={[styles.voteCountText, mutedStyle]}>({voteCount.toLocaleString()} votes)</Text>
           ) : null}
         </View>
       </View>
 
-      {/* 7. COMMUNITY COMMENTS */}
-      <View style={styles.sectionCard}>
+      {/* 9. COMMUNITY COMMENTS */}
+      <View style={[styles.sectionCard, cardStyle]}>
         <Text style={styles.eyebrow}>COMMUNITY</Text>
-        <Text style={styles.sectionTitle}>Comments</Text>
-        <Text style={styles.mutedText}>Spoiler-aware comments arrive in Phase 8.</Text>
+        <Text style={[styles.sectionTitle, titleStyle]}>Comments</Text>
+        <Text style={[styles.mutedText, mutedStyle]}>Spoiler-aware comments arrive in Phase 8.</Text>
       </View>
     </View>
   );
@@ -897,25 +919,21 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#f8f7f2',
     marginBottom: 8,
   },
   reloadButton: {
     paddingVertical: 5,
     paddingHorizontal: 12,
     borderRadius: 6,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   reloadButtonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#f8f7f2',
   },
   mutedText: {
     fontSize: 13,
-    color: '#8b8e89',
+    color: '#8f938e',
     marginTop: 4,
   },
   emptyCard: {
@@ -966,13 +984,12 @@ const styles = StyleSheet.create({
   newsHeadline: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#f8f7f2',
     lineHeight: 16,
     marginBottom: 4,
   },
   newsDate: {
     fontSize: 10,
-    color: '#8b8e89',
+    color: '#8f938e',
   },
   // Streaming providers
   providersWrap: {
@@ -1000,7 +1017,6 @@ const styles = StyleSheet.create({
   providerName: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#f8f7f2',
   },
   // Info Chips
   infoGrid: {
@@ -1022,7 +1038,6 @@ const styles = StyleSheet.create({
   },
   infoBadgeText: {
     fontSize: 12,
-    color: '#dcded9',
     fontWeight: '500',
   },
   trailerButton: {
@@ -1052,14 +1067,12 @@ const styles = StyleSheet.create({
     width: 82,
     height: 110,
     borderRadius: 8,
-    backgroundColor: '#202326',
     marginBottom: 6,
   },
   castPortraitPlaceholder: {
     width: 82,
     height: 110,
     borderRadius: 8,
-    backgroundColor: '#202326',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
@@ -1072,12 +1085,11 @@ const styles = StyleSheet.create({
   castName: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#f8f7f2',
     textAlign: 'center',
   },
   castRole: {
     fontSize: 10,
-    color: '#8b8e89',
+    color: '#8f938e',
     textAlign: 'center',
   },
   // Related
@@ -1214,7 +1226,7 @@ const styles = StyleSheet.create({
   galleryCounterText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#aeb1ac',
+    color: '#8f938e',
     marginTop: 12,
   },
   galleryNavRow: {
@@ -1256,7 +1268,7 @@ const styles = StyleSheet.create({
   },
   voteCountText: {
     fontSize: 12,
-    color: '#8b8e89',
+    color: '#8f938e',
   },
   infoBadgeAccent: {
     backgroundColor: 'rgba(255, 191, 71, 0.12)',
@@ -1276,14 +1288,13 @@ const styles = StyleSheet.create({
   },
   titleRowLabel: {
     width: 65,
-    color: '#aeb1ac',
+    color: '#8f938e',
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   titleRowVal: {
     flex: 1,
-    color: '#f8f7f2',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -1295,14 +1306,12 @@ const styles = StyleSheet.create({
     width: 76,
     height: 104,
     borderRadius: 8,
-    backgroundColor: '#202326',
     marginBottom: 6,
   },
   characterPlaceholder: {
     width: 76,
     height: 104,
     borderRadius: 8,
-    backgroundColor: '#202326',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 6,
@@ -1315,7 +1324,6 @@ const styles = StyleSheet.create({
   characterName: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#f8f7f2',
     textAlign: 'center',
   },
   characterRole: {
@@ -1331,7 +1339,6 @@ const styles = StyleSheet.create({
   },
   voiceTabSwitcher: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
     borderRadius: 8,
     padding: 2,
     gap: 2,
@@ -1347,7 +1354,7 @@ const styles = StyleSheet.create({
   voiceTabText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#aeb1ac',
+    color: '#8f938e',
   },
   voiceTabTextActive: {
     color: theme.colors.accent,

@@ -17,12 +17,12 @@ export function PageHeader({
   actionLabel,
   onAction,
 }: PageHeaderProps) {
-  const { colors } = useAppTheme();
+  const { colors, isDark } = useAppTheme();
 
   return (
     <View style={styles.container}>
       <View style={styles.titles}>
-        <Text style={[styles.eyebrow, { color: colors.accent }]}>{eyebrow}</Text>
+        <Text style={[styles.eyebrow, { color: isDark ? colors.accent : colors.accentDark }]}>{eyebrow}</Text>
         <Text style={[styles.title, { color: colors.textStrong }]}>{title}</Text>
       </View>
 
@@ -31,15 +31,15 @@ export function PageHeader({
           style={[
             styles.circularAddButton,
             {
-              backgroundColor: colors.isDark ? 'rgba(255, 255, 255, 0.055)' : 'rgba(34, 31, 25, 0.055)',
-              borderColor: colors.border,
+              backgroundColor: isDark ? 'rgba(255, 255, 255, 0.055)' : colors.card,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : colors.border,
             },
           ]}
           onPress={onAction}
           accessibilityLabel={actionLabel || 'Add Media'}
           hitSlop={8}
         >
-          <Ionicons name="add" size={22} color={colors.accent} />
+          <Ionicons name="add" size={22} color={isDark ? colors.accent : colors.accentDark} />
         </Pressable>
       )}
     </View>

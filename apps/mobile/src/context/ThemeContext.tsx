@@ -44,7 +44,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       .catch(() => {});
   }, []);
 
-  const isDark = mode === 'system' ? systemScheme !== 'light' : mode === 'dark';
+  const isDark = mode === 'system' ? systemScheme === 'dark' : mode === 'dark';
   const colors = isDark ? darkColors : lightColors;
 
   const setMode = async (newMode: ThemeMode) => {

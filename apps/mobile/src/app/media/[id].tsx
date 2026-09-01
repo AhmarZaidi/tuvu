@@ -9,6 +9,7 @@ import {
   TextInput,
   Modal,
   Alert,
+  StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -47,6 +48,7 @@ export default function MediaDetailsScreen() {
   const [expandedOverview, setExpandedOverview] = useState(false);
   const [isAddingToLibrary, setIsAddingToLibrary] = useState(false);
   const [busyEpisodeId, setBusyEpisodeId] = useState<string | null>(null);
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
 
   const hydrationPollingRef = useRef<boolean>(false);
   const autoHydrateTriedRef = useRef<Set<string>>(new Set());
@@ -431,17 +433,17 @@ export default function MediaDetailsScreen() {
     .slice()
     .sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0) || a.episodeNumber - b.episodeNumber)
     .find((ep) => !ep.activity?.watched && !ep.isSpecial && (ep.seasonNumber ?? 0) > 0);
-
   const mediaInitials = (media.title || 'TU').slice(0, 2).toUpperCase();
 
   const formattedReleaseDate = formatMediaDateRange(media, regularEpisodes);
 
   return (
-    <View style={styles.container}>
-      <GoldenGlow />
+    <View style={[styles.container, isPlayerFullscreen && styles.containerFullscreen]}>
+      <StatusBar hidden={isPlayerFullscreen} />
+      {!isPlayerFullscreen && <GoldenGlow />}
 
       {/* Atmospheric Background with vibrant portrait poster image covering full screen */}
-      {(posterUrl || backdropUrl) && (
+      {!isPlayerFullscreen && (posterUrl || backdropUrl) && (
         <View style={styles.atmosphericBackdropContainer} pointerEvents="none">
           <Image
             source={{ uri: (posterUrl || backdropUrl) as string }}
@@ -462,15 +464,21 @@ export default function MediaDetailsScreen() {
       )}
 
       {/* TopBar matching mobile global navigation */}
-      <TopBar />
+      {!isPlayerFullscreen && <TopBar />}
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={isPlayerFullscreen ? styles.contentFullscreen : styles.content}
+        scrollEnabled={!isPlayerFullscreen}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Circular Back Button */}
-        <View style={styles.topActionRow}>
-          <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
-          </Pressable>
-        </View>
+        {!isPlayerFullscreen && (
+          <View style={styles.topActionRow}>
+            <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
+              <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+            </Pressable>
+          </View>
+        )}
 
         {/* 1. Header Information */}
         <View style={styles.headerInfoSection}>
@@ -1014,6 +1022,7 @@ export default function MediaDetailsScreen() {
           newsLoading={newsLoading}
           onReloadNews={() => void loadNews(true)}
           dateRangeLabel={formattedReleaseDate}
+          onFullscreenChange={setIsPlayerFullscreen}
         />
       </ScrollView>
 
@@ -1222,6 +1231,16 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: theme.spacing.md,
     paddingBottom: 40,
+  },
+  containerFullscreen: {
+    backgroundColor: '#000000',
+  },
+  contentFullscreen: {
+    flexGrow: 1,
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    margin: 0,
+    backgroundColor: '#000000',
   },
   topActionRow: {
     marginTop: 8,

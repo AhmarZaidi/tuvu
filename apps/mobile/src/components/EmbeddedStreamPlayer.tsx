@@ -7,9 +7,9 @@ import {
   Pressable,
   Linking,
   ScrollView,
-  Modal,
   StatusBar,
   BackHandler,
+  Dimensions,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import * as ScreenOrientation from 'expo-screen-orientation';
@@ -26,6 +26,7 @@ interface EmbeddedStreamPlayerProps {
   subtitle?: string;
   height?: number;
   sources?: StreamSourceItem[];
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export function EmbeddedStreamPlayer({
@@ -35,6 +36,7 @@ export function EmbeddedStreamPlayer({
   subtitle,
   height = 230,
   sources = [],
+  onFullscreenChange,
 }: EmbeddedStreamPlayerProps) {
   // Source & Server State
   const [activeSourceIndex, setActiveSourceIndex] = useState(0);
@@ -50,7 +52,6 @@ export function EmbeddedStreamPlayer({
   const [showControls, setShowControls] = useState(true);
 
   const webViewRef = useRef<any>(null);
-  const fullscreenWebViewRef = useRef<any>(null);
   const controlsTimeoutRef = useRef<any>(null);
 
   // Normalize source list
@@ -74,7 +75,29 @@ export function EmbeddedStreamPlayer({
     }
   }, [activeSource, activeServer, initialUrl]);
 
-  // Clean up orientation when unmounting
+  // Lock orientation strictly to landscape in fullscreen and portrait when normal
+  useEffect(() => {
+    if (isFullscreen) {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+      const sub = ScreenOrientation.addOrientationChangeListener((event) => {
+        const o = event.orientationInfo.orientation;
+        if (
+          isFullscreen &&
+          o !== ScreenOrientation.Orientation.LANDSCAPE_LEFT &&
+          o !== ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+        }
+      });
+      return () => {
+        ScreenOrientation.removeOrientationChangeListener(sub);
+      };
+    } else {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+    }
+  }, [isFullscreen]);
+
+  // Handle hardware back button in fullscreen
   useEffect(() => {
     const handleBack = () => {
       if (isFullscreen) {
@@ -86,7 +109,6 @@ export function EmbeddedStreamPlayer({
     const sub = BackHandler.addEventListener('hardwareBackPress', handleBack);
     return () => {
       sub.remove();
-      ScreenOrientation.unlockAsync().catch(() => {});
     };
   }, [isFullscreen]);
 
@@ -138,16 +160,15 @@ export function EmbeddedStreamPlayer({
   }, [activeServerIndex, activeServers, activeSourceIndex, sourceList]);
 
   const toggleFullscreen = async () => {
-    if (isFullscreen) {
-      // Exit fullscreen -> portrait
-      setIsFullscreen(false);
-      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-    } else {
-      // Enter fullscreen -> landscape
-      setIsFullscreen(true);
+    const nextState = !isFullscreen;
+    setIsFullscreen(nextState);
+    onFullscreenChange?.(nextState);
+    if (nextState) {
       setShowControls(true);
       resetControlsTimer();
-      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_RIGHT).catch(() => {});
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+    } else {
+      await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     }
   };
 
@@ -157,16 +178,6 @@ export function EmbeddedStreamPlayer({
     controlsTimeoutRef.current = setTimeout(() => {
       setShowControls(false);
     }, 4000);
-  };
-
-  const handleScreenTouch = () => {
-    if (isFullscreen) {
-      if (showControls) {
-        setShowControls(false);
-      } else {
-        resetControlsTimer();
-      }
-    }
   };
 
   // Reset to original stream link
@@ -392,6 +403,7 @@ export function EmbeddedStreamPlayer({
     javaScriptEnabled: true,
     domStorageEnabled: true,
     allowsInlineMediaPlayback: true,
+    allowsFullscreenVideo: true,
     mediaPlaybackRequiresUserAction: false,
     injectedJavaScript: injectedJS,
     injectedJavaScriptBeforeContentLoaded: `
@@ -418,59 +430,63 @@ export function EmbeddedStreamPlayer({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={isFullscreen ? styles.fullscreenContainer : styles.container}>
+      <StatusBar hidden={isFullscreen} />
+
       {/* Normal Mode Header */}
-      <View style={styles.headerRow}>
-        <View style={styles.titleWrap}>
-          <Text style={styles.eyebrow}>STREAM PLAYER</Text>
-          <Text style={styles.title} numberOfLines={1}>
-            {title}
-          </Text>
-          {subtitle && (
-            <Text style={styles.subtitle} numberOfLines={1}>
-              {subtitle}
+      {!isFullscreen && (
+        <View style={styles.headerRow}>
+          <View style={styles.titleWrap}>
+            <Text style={styles.eyebrow}>STREAM PLAYER</Text>
+            <Text style={styles.title} numberOfLines={1}>
+              {title}
             </Text>
-          )}
+            {subtitle && (
+              <Text style={styles.subtitle} numberOfLines={1}>
+                {subtitle}
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.actionsRow}>
+            {/* Reset to stream button */}
+            <Pressable
+              style={styles.iconBtn}
+              onPress={handleResetToStream}
+              hitSlop={6}
+              accessibilityLabel="Reset to stream"
+            >
+              <Ionicons name="home-outline" size={15} color="#dcded9" />
+            </Pressable>
+
+            {/* Reload button */}
+            <Pressable
+              style={styles.iconBtn}
+              onPress={() => {
+                setLoading(true);
+                setHasError(false);
+                webViewRef.current?.reload?.();
+              }}
+              hitSlop={6}
+            >
+              <Ionicons name="reload-outline" size={15} color="#dcded9" />
+            </Pressable>
+
+            {/* Fullscreen Button */}
+            <Pressable style={styles.iconBtnAccent} onPress={toggleFullscreen} hitSlop={6}>
+              <Ionicons name="expand" size={15} color="#101112" />
+            </Pressable>
+
+            {/* External browser button */}
+            <Pressable style={styles.iconBtn} onPress={handleOpenExternal} hitSlop={6}>
+              <Ionicons name="open-outline" size={15} color="#dcded9" />
+            </Pressable>
+          </View>
         </View>
-
-        <View style={styles.actionsRow}>
-          {/* Reset to stream button */}
-          <Pressable
-            style={styles.iconBtn}
-            onPress={handleResetToStream}
-            hitSlop={6}
-            accessibilityLabel="Reset to stream"
-          >
-            <Ionicons name="home-outline" size={15} color="#dcded9" />
-          </Pressable>
-
-          {/* Reload button */}
-          <Pressable
-            style={styles.iconBtn}
-            onPress={() => {
-              setLoading(true);
-              setHasError(false);
-              webViewRef.current?.reload?.();
-            }}
-            hitSlop={6}
-          >
-            <Ionicons name="reload-outline" size={15} color="#dcded9" />
-          </Pressable>
-
-          {/* Fullscreen Button */}
-          <Pressable style={styles.iconBtnAccent} onPress={toggleFullscreen} hitSlop={6}>
-            <Ionicons name="expand" size={15} color="#101112" />
-          </Pressable>
-
-          {/* External browser button */}
-          <Pressable style={styles.iconBtn} onPress={handleOpenExternal} hitSlop={6}>
-            <Ionicons name="open-outline" size={15} color="#dcded9" />
-          </Pressable>
-        </View>
-      </View>
+      )}
 
       {/* Row 1: Primary Source Selector Chips */}
-      {sourceList.length > 1 && (
+      {!isFullscreen && sourceList.length > 1 && (
         <View style={styles.sourceScrollWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.sourceRow}>
             {sourceList.map((src, idx) => {
@@ -500,7 +516,7 @@ export function EmbeddedStreamPlayer({
       )}
 
       {/* Row 2: Server / Mirror Selector Chips for Selected Source */}
-      {activeServers.length > 1 && (
+      {!isFullscreen && activeServers.length > 1 && (
         <View style={styles.serverScrollWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serverRow}>
             <Text style={styles.serverLabel}>SERVER:</Text>
@@ -529,123 +545,101 @@ export function EmbeddedStreamPlayer({
         </View>
       )}
 
-      {/* Normal Embedded Player Box */}
-      {!isFullscreen && (
-        <View
-          style={[styles.playerBox, { height }]}
-          onStartShouldSetResponderCapture={() => true}
-          onMoveShouldSetResponderCapture={() => false}
-        >
-          <RNWebView key={`webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`} ref={webViewRef} {...webViewProps} />
-
-          {/* Fallback Toast Banner */}
-          {fallbackToast && (
-            <View style={styles.fallbackToast} pointerEvents="none">
-              <Ionicons name="swap-horizontal" size={14} color="#ffcf5c" />
-              <Text style={styles.fallbackToastText}>{fallbackToast}</Text>
-            </View>
-          )}
-
-          {/* Loading Overlay */}
-          {loading && (
-            <View style={styles.overlayCenter} pointerEvents="none">
-              <ActivityIndicator size="small" color={theme.colors.accent} />
-              <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
-            </View>
-          )}
-
-          {/* Error Fallback */}
-          {hasError && (
-            <View style={styles.overlayCenter}>
-              <Ionicons name="alert-circle-outline" size={28} color="#ff6b6b" />
-              <Text style={styles.errorText}>Could not load stream from {activeSource.name}.</Text>
-              <View style={styles.errorActionsRow}>
-                <Pressable style={styles.retryBtn} onPress={handleResetToStream}>
-                  <Text style={styles.retryBtnText}>Retry</Text>
-                </Pressable>
-                {activeSourceIndex < sourceList.length - 1 && (
-                  <Pressable
-                    style={[styles.retryBtn, { backgroundColor: 'rgba(255, 207, 92, 0.15)', borderColor: '#ffcf5c' }]}
-                    onPress={() => handleSelectSource(activeSourceIndex + 1)}
-                  >
-                    <Text style={[styles.retryBtnText, { color: '#ffcf5c' }]}>Try Next Source</Text>
-                  </Pressable>
-                )}
-              </View>
-            </View>
-          )}
-        </View>
-      )}
-
-      {/* Native Immersive Landscape Fullscreen Modal */}
-      <Modal
-        visible={isFullscreen}
-        animationType="fade"
-        transparent={false}
-        statusBarTranslucent={true}
-        hardwareAccelerated={true}
-        onRequestClose={toggleFullscreen}
+      {/* Persistent Single Embedded Player Box (Never unmounts on fullscreen toggle) */}
+      <View
+        style={[
+          styles.playerBox,
+          isFullscreen ? styles.playerBoxFullscreen : { height },
+        ]}
+        onStartShouldSetResponderCapture={() => true}
+        onMoveShouldSetResponderCapture={() => false}
       >
-        <StatusBar hidden={true} />
-        <View style={styles.fullscreenModalContainer} onTouchEnd={handleScreenTouch}>
-          <RNWebView
-            key={`fullscreen-webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`}
-            ref={fullscreenWebViewRef}
-            {...webViewProps}
-          />
+        <RNWebView
+          key={`webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`}
+          ref={webViewRef}
+          {...webViewProps}
+        />
 
-          {/* Fullscreen Loading Overlay */}
-          {loading && (
-            <View style={styles.overlayCenter} pointerEvents="none">
-              <ActivityIndicator size="large" color={theme.colors.accent} />
-              <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
-            </View>
-          )}
+        {/* Floating Controls HUD in Fullscreen Mode */}
+        {isFullscreen && showControls && (
+          <View style={styles.floatingFullscreenBar}>
+            <View style={styles.floatingLeft}>
+              <Pressable style={styles.floatingCloseBtn} onPress={toggleFullscreen}>
+                <Ionicons name="contract" size={16} color="#f8f7f2" />
+                <Text style={styles.floatingCloseText}>Exit</Text>
+              </Pressable>
 
-          {/* Floating Controls HUD in Fullscreen Mode */}
-          {showControls && (
-            <View style={styles.floatingFullscreenBar}>
-              <View style={styles.floatingLeft}>
-                <Pressable style={styles.floatingCloseBtn} onPress={toggleFullscreen}>
-                  <Ionicons name="contract" size={16} color="#f8f7f2" />
-                  <Text style={styles.floatingCloseText}>Exit</Text>
-                </Pressable>
-
-                <View style={styles.floatingSourceBadge}>
-                  <Text style={styles.floatingSourceText}>
-                    {activeSource.name} • {activeServer.name}
-                  </Text>
-                </View>
+              <View style={styles.floatingSourceBadge}>
+                <Text style={styles.floatingSourceText}>
+                  {activeSource.name} • {activeServer.name}
+                </Text>
               </View>
+            </View>
 
-              <View style={styles.floatingRight}>
-                {/* Reset to stream button */}
-                <Pressable style={styles.floatingIconBtn} onPress={handleResetToStream} hitSlop={6}>
-                  <Ionicons name="home-outline" size={16} color="#f8f7f2" />
-                </Pressable>
+            <View style={styles.floatingRight}>
+              {/* Reset to stream button */}
+              <Pressable style={styles.floatingIconBtn} onPress={handleResetToStream} hitSlop={6}>
+                <Ionicons name="home-outline" size={16} color="#f8f7f2" />
+              </Pressable>
 
-                {/* Reload button */}
+              {/* Reload button */}
+              <Pressable
+                style={styles.floatingIconBtn}
+                onPress={() => {
+                  setLoading(true);
+                  setHasError(false);
+                  webViewRef.current?.reload?.();
+                }}
+                hitSlop={6}
+              >
+                <Ionicons name="reload-outline" size={16} color="#f8f7f2" />
+              </Pressable>
+
+              {/* External browser button */}
+              <Pressable style={styles.floatingIconBtn} onPress={handleOpenExternal} hitSlop={6}>
+                <Ionicons name="open-outline" size={16} color="#f8f7f2" />
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Fallback Toast Banner */}
+        {fallbackToast && (
+          <View style={styles.fallbackToast} pointerEvents="none">
+            <Ionicons name="swap-horizontal" size={14} color="#ffcf5c" />
+            <Text style={styles.fallbackToastText}>{fallbackToast}</Text>
+          </View>
+        )}
+
+        {/* Loading Overlay */}
+        {loading && (
+          <View style={styles.overlayCenter} pointerEvents="none">
+            <ActivityIndicator size={isFullscreen ? 'large' : 'small'} color={theme.colors.accent} />
+            <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
+          </View>
+        )}
+
+        {/* Error Fallback */}
+        {hasError && (
+          <View style={styles.overlayCenter}>
+            <Ionicons name="alert-circle-outline" size={28} color="#ff6b6b" />
+            <Text style={styles.errorText}>Could not load stream from {activeSource.name}.</Text>
+            <View style={styles.errorActionsRow}>
+              <Pressable style={styles.retryBtn} onPress={handleResetToStream}>
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </Pressable>
+              {activeSourceIndex < sourceList.length - 1 && (
                 <Pressable
-                  style={styles.floatingIconBtn}
-                  onPress={() => {
-                    setLoading(true);
-                    setHasError(false);
-                    fullscreenWebViewRef.current?.reload?.();
-                  }}
-                  hitSlop={6}
+                  style={[styles.retryBtn, { backgroundColor: 'rgba(255, 207, 92, 0.15)', borderColor: '#ffcf5c' }]}
+                  onPress={() => handleSelectSource(activeSourceIndex + 1)}
                 >
-                  <Ionicons name="reload-outline" size={16} color="#f8f7f2" />
+                  <Text style={[styles.retryBtnText, { color: '#ffcf5c' }]}>Try Next Source</Text>
                 </Pressable>
-
-                {/* External browser button */}
-                <Pressable style={styles.floatingIconBtn} onPress={handleOpenExternal} hitSlop={6}>
-                  <Ionicons name="open-outline" size={16} color="#f8f7f2" />
-                </Pressable>
-              </View>
+              )}
             </View>
-          )}
-        </View>
-      </Modal>
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -659,12 +653,16 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 16,
   },
-  fullscreenModalContainer: {
+  fullscreenContainer: {
     flex: 1,
     width: '100%',
     height: '100%',
     backgroundColor: '#000000',
-    position: 'relative',
+    borderWidth: 0,
+    borderRadius: 0,
+    margin: 0,
+    padding: 0,
+    overflow: 'hidden',
   },
   headerRow: {
     flexDirection: 'row',
@@ -840,6 +838,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#000000',
     position: 'relative',
     overflow: 'hidden',
+  },
+  playerBoxFullscreen: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
   },
   webView: {
     flex: 1,

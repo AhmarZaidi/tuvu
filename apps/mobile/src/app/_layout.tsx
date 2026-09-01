@@ -40,6 +40,8 @@ function RootNavigation() {
           contentStyle: {
             backgroundColor: colors.background,
           },
+          animation: 'fade',
+          animationDuration: 150,
         }}
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

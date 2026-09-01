@@ -10,6 +10,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  StatusBar,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -66,6 +67,7 @@ export default function EpisodeDetailsScreen() {
   const [expandedOverview, setExpandedOverview] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [watchSheetOpen, setWatchSheetOpen] = useState(false);
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
 
   useEffect(() => {
     if (data?.activity?.notes) {
@@ -259,175 +261,188 @@ export default function EpisodeDetailsScreen() {
     : null;
 
   return (
-    <View style={styles.container}>
-      <GoldenGlow />
+    <View style={[styles.container, isPlayerFullscreen && styles.containerFullscreen]}>
+      <StatusBar hidden={isPlayerFullscreen} />
+      {!isPlayerFullscreen && <GoldenGlow />}
 
       {/* Global TopBar matching app navigation */}
-      <TopBar />
+      {!isPlayerFullscreen && <TopBar />}
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={isPlayerFullscreen ? styles.contentFullscreen : styles.content}
+        scrollEnabled={!isPlayerFullscreen}
+        showsVerticalScrollIndicator={false}
+      >
         {/* 1. Circular Back Button */}
-        <View style={styles.topActionRow}>
-          <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
-            <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
-          </Pressable>
-        </View>
+        {!isPlayerFullscreen && (
+          <View style={styles.topActionRow}>
+            <Pressable style={styles.circularBackButton} onPress={() => router.back()} hitSlop={8}>
+              <Ionicons name="arrow-back" size={20} color="#f8f7f2" />
+            </Pressable>
+          </View>
+        )}
 
         {/* 2. Show Name, Episode Name & Synopsis Header */}
-        <View style={styles.headerSection}>
-          <View style={styles.showNameRow}>
-            <Text style={styles.showNameEyebrow}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
-            {isFiller && (
-              <View style={styles.fillerBadge}>
-                <Text style={styles.fillerBadgeText}>FILLER</Text>
-              </View>
-            )}
-            {isRecap && (
-              <View style={styles.recapBadge}>
-                <Text style={styles.recapBadgeText}>RECAP</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.episodeTitle}>
-            {episode.title || episode.name || `Episode ${episode.episodeNumber}`}
-          </Text>
-          {romajiTitle && romajiTitle !== episode.title && (
-            <Text style={styles.episodeSubtitleRomaji}>
-              {romajiTitle} {japaneseTitle ? `(${japaneseTitle})` : ''}
-            </Text>
-          )}
-
-          {overview ? (
-            <View style={styles.synopsisWrap}>
-              <Text style={styles.synopsisText}>{displayedOverview}</Text>
-              {isOverviewLong && (
-                <Pressable
-                  onPress={() => setExpandedOverview(!expandedOverview)}
-                  style={styles.readMoreBtn}
-                  hitSlop={6}
-                >
-                  <Text style={styles.readMoreText}>
-                    {expandedOverview ? 'Collapse' : '...Read More'}
-                  </Text>
-                </Pressable>
+        {!isPlayerFullscreen && (
+          <View style={styles.headerSection}>
+            <View style={styles.showNameRow}>
+              <Text style={styles.showNameEyebrow}>{media?.title?.toUpperCase() || 'SERIES'}</Text>
+              {isFiller && (
+                <View style={styles.fillerBadge}>
+                  <Text style={styles.fillerBadgeText}>FILLER</Text>
+                </View>
+              )}
+              {isRecap && (
+                <View style={styles.recapBadge}>
+                  <Text style={styles.recapBadgeText}>RECAP</Text>
+                </View>
               )}
             </View>
-          ) : (
-            <Text style={styles.mutedText}>No synopsis available for this episode.</Text>
-          )}
-        </View>
+            <Text style={styles.episodeTitle}>
+              {episode.title || episode.name || `Episode ${episode.episodeNumber}`}
+            </Text>
+            {romajiTitle && romajiTitle !== episode.title && (
+              <Text style={styles.episodeSubtitleRomaji}>
+                {romajiTitle} {japaneseTitle ? `(${japaneseTitle})` : ''}
+              </Text>
+            )}
+
+            {overview ? (
+              <View style={styles.synopsisWrap}>
+                <Text style={styles.synopsisText}>{displayedOverview}</Text>
+                {isOverviewLong && (
+                  <Pressable
+                    onPress={() => setExpandedOverview(!expandedOverview)}
+                    style={styles.readMoreBtn}
+                    hitSlop={6}
+                  >
+                    <Text style={styles.readMoreText}>
+                      {expandedOverview ? 'Collapse' : '...Read More'}
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <Text style={styles.mutedText}>No synopsis available for this episode.</Text>
+            )}
+          </View>
+        )}
 
         {/* 3. Banner Image Card (16:9 Aspect Ratio with Season/Episode Badge) */}
-        <View style={styles.bannerImageCard}>
-          {imageList.length > 1 ? (
-            <>
-              <ScrollView
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                onMomentumScrollEnd={handleScroll}
-                style={StyleSheet.absoluteFill}
-              >
-                {imageList.map((imgUrl, idx) => (
-                  <View key={`${imgUrl}-${idx}`} style={{ width: cardWidth, height: '100%' }}>
-                    <Image source={{ uri: imgUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                  </View>
-                ))}
-              </ScrollView>
+        {!isPlayerFullscreen && (
+          <View style={styles.bannerImageCard}>
+            {imageList.length > 1 ? (
+              <>
+                <ScrollView
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onMomentumScrollEnd={handleScroll}
+                  style={StyleSheet.absoluteFill}
+                >
+                  {imageList.map((imgUrl, idx) => (
+                    <View key={`${imgUrl}-${idx}`} style={{ width: cardWidth, height: '100%' }}>
+                      <Image source={{ uri: imgUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                    </View>
+                  ))}
+                </ScrollView>
 
-              {/* Dots indicator */}
-              <View style={styles.dotsContainer}>
-                {imageList.map((_, idx) => (
-                  <View
-                    key={idx}
-                    style={[styles.dot, idx === activeImageIndex && styles.dotActive]}
-                  />
-                ))}
+                {/* Dots indicator */}
+                <View style={styles.dotsContainer}>
+                  {imageList.map((_, idx) => (
+                    <View
+                      key={idx}
+                      style={[styles.dot, idx === activeImageIndex && styles.dotActive]}
+                    />
+                  ))}
+                </View>
+              </>
+            ) : imageList.length === 1 ? (
+              <Image source={{ uri: imageList[0] }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Ionicons name="tv-outline" size={42} color="#555" />
               </View>
-            </>
-          ) : imageList.length === 1 ? (
-            <Image source={{ uri: imageList[0] }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : (
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="tv-outline" size={42} color="#555" />
-            </View>
-          )}
+            )}
 
-          {/* Season & Episode overlay badge */}
-          <View style={styles.seasonEpisodeBadge}>
-            <Text style={styles.seasonEpisodeBadgeText}>
-              S{String(episode.seasonNumber ?? 1).padStart(2, '0')} • E{String(episode.episodeNumber).padStart(2, '0')}
-            </Text>
+            {/* Season & Episode overlay badge */}
+            <View style={styles.seasonEpisodeBadge}>
+              <Text style={styles.seasonEpisodeBadgeText}>
+                S{String(episode.seasonNumber ?? 1).padStart(2, '0')} • E{String(episode.episodeNumber).padStart(2, '0')}
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* 4. Metadata Chips & Refresh Info Button */}
-        <View style={styles.metaChipsRow}>
-          {formattedAirDate && (
-            <View style={styles.metaChip}>
-              <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
-              <Text style={styles.metaChipText}>
-                {isAnime ? `Sub: ${formattedAirDate}` : formattedAirDate}
-              </Text>
-            </View>
-          )}
-
-          {(formattedDubDate || hasDub) && (
-            <View style={[styles.metaChip, styles.dubMetaChip]}>
-              <Ionicons name="volume-high-outline" size={13} color="#22c55e" />
-              <Text style={[styles.metaChipText, { color: '#22c55e' }]}>
-                {formattedDubDate ? `Dub: ${formattedDubDate}` : 'Dub Available'}
-              </Text>
-            </View>
-          )}
-
-          {episode.runtimeMinutes ? (
-            <View style={styles.metaChip}>
-              <Ionicons name="time-outline" size={13} color="#aeb1ac" />
-              <Text style={styles.metaChipText}>{episode.runtimeMinutes}m</Text>
-            </View>
-          ) : null}
-
-          {externalRating ? (
-            <View style={styles.metaChip}>
-              <Ionicons name="star" size={12} color={theme.colors.accent} />
-              <Text style={styles.metaChipText}>{Number(externalRating).toFixed(1)}/10</Text>
-            </View>
-          ) : null}
-
-          {/* Primary Language */}
-          {originalLanguageName && (
-            <View style={styles.metaChip}>
-              <Ionicons name="language-outline" size={13} color={theme.colors.accent} />
-              <Text style={styles.metaChipText}>{originalLanguageName}</Text>
-            </View>
-          )}
-
-          {/* Available In */}
-          {availableLanguagesList.length > 1 && (
-            <View style={styles.metaChip}>
-              <Ionicons name="globe-outline" size={13} color="#aeb1ac" />
-              <Text style={styles.metaChipText}>
-                Available in: {availableLanguagesList.slice(0, 3).join(', ')}
-                {availableLanguagesList.length > 3 ? ` +${availableLanguagesList.length - 3}` : ''}
-              </Text>
-            </View>
-          )}
-
-          {/* Small icon-only refresh button */}
-          <Pressable
-            style={styles.iconRefreshBtn}
-            onPress={() => void refetch()}
-            hitSlop={6}
-            disabled={isRefetching}
-          >
-            {isRefetching ? (
-              <ActivityIndicator size="small" color="#f8f7f2" />
-            ) : (
-              <Ionicons name="refresh-outline" size={15} color="#f8f7f2" />
+        {!isPlayerFullscreen && (
+          <View style={styles.metaChipsRow}>
+            {formattedAirDate && (
+              <View style={styles.metaChip}>
+                <Ionicons name="calendar-outline" size={13} color="#aeb1ac" />
+                <Text style={styles.metaChipText}>
+                  {isAnime ? `Sub: ${formattedAirDate}` : formattedAirDate}
+                </Text>
+              </View>
             )}
-          </Pressable>
-        </View>
+
+            {(formattedDubDate || hasDub) && (
+              <View style={[styles.metaChip, styles.dubMetaChip]}>
+                <Ionicons name="volume-high-outline" size={13} color="#22c55e" />
+                <Text style={[styles.metaChipText, { color: '#22c55e' }]}>
+                  {formattedDubDate ? `Dub: ${formattedDubDate}` : 'Dub Available'}
+                </Text>
+              </View>
+            )}
+
+            {episode.runtimeMinutes ? (
+              <View style={styles.metaChip}>
+                <Ionicons name="time-outline" size={13} color="#aeb1ac" />
+                <Text style={styles.metaChipText}>{episode.runtimeMinutes}m</Text>
+              </View>
+            ) : null}
+
+            {externalRating ? (
+              <View style={styles.metaChip}>
+                <Ionicons name="star" size={12} color={theme.colors.accent} />
+                <Text style={styles.metaChipText}>{Number(externalRating).toFixed(1)}/10</Text>
+              </View>
+            ) : null}
+
+            {/* Primary Language */}
+            {originalLanguageName && (
+              <View style={styles.metaChip}>
+                <Ionicons name="language-outline" size={13} color={theme.colors.accent} />
+                <Text style={styles.metaChipText}>{originalLanguageName}</Text>
+              </View>
+            )}
+
+            {/* Available In */}
+            {availableLanguagesList.length > 1 && (
+              <View style={styles.metaChip}>
+                <Ionicons name="globe-outline" size={13} color="#aeb1ac" />
+                <Text style={styles.metaChipText}>
+                  Available in: {availableLanguagesList.slice(0, 3).join(', ')}
+                  {availableLanguagesList.length > 3 ? ` +${availableLanguagesList.length - 3}` : ''}
+                </Text>
+              </View>
+            )}
+
+            {/* Small icon-only refresh button */}
+            <Pressable
+              style={styles.iconRefreshBtn}
+              onPress={() => void refetch()}
+              hitSlop={6}
+              disabled={isRefetching}
+            >
+              {isRefetching ? (
+                <ActivityIndicator size="small" color="#f8f7f2" />
+              ) : (
+                <Ionicons name="refresh-outline" size={15} color="#f8f7f2" />
+              )}
+            </Pressable>
+          </View>
+        )}
 
         {/* 5. EMBEDDED STREAM PLAYER */}
         {streamData?.streamUrl && (
@@ -438,10 +453,13 @@ export default function EpisodeDetailsScreen() {
             subtitle={`Season ${episode.seasonNumber || 1} • Episode ${episode.episodeNumber || 1} • ${streamData.sourceLabel}`}
             sources={streamData.sources}
             height={235}
+            onFullscreenChange={setIsPlayerFullscreen}
           />
         )}
 
-        {/* 6. Watch Status Action Card */}
+        {!isPlayerFullscreen && (
+          <>
+            {/* 6. Watch Status Action Card */}
         <View style={styles.sectionCard}>
           <Text style={styles.cardEyebrow}>WATCH STATUS</Text>
           <Pressable
@@ -580,11 +598,13 @@ export default function EpisodeDetailsScreen() {
             )}
           </Pressable>
         </View>
+          </>
+        )}
       </ScrollView>
 
       {/* Watch Action Bottom Sheet */}
       <BottomSheet
-        visible={watchSheetOpen}
+        visible={watchSheetOpen && !isPlayerFullscreen}
         onClose={() => setWatchSheetOpen(false)}
         title={episode.title || `Episode ${episode.episodeNumber}`}
         subtitle={`Season ${episode.seasonNumber} • Episode ${episode.episodeNumber}`}
@@ -637,9 +657,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#101112',
   },
+  containerFullscreen: {
+    backgroundColor: '#000000',
+  },
   content: {
     paddingHorizontal: theme.spacing.md,
     paddingBottom: 48,
+  },
+  contentFullscreen: {
+    flexGrow: 1,
+    paddingHorizontal: 0,
+    paddingBottom: 0,
+    margin: 0,
+    backgroundColor: '#000000',
   },
   centerContainer: {
     flex: 1,

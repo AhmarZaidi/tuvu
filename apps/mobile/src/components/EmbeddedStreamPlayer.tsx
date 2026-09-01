@@ -236,7 +236,7 @@ export function EmbeddedStreamPlayer({
       setInterval(attachIframeTouches, 1000);
       attachIframeTouches();
 
-      // 2. Global video fit rule (Letterbox/Pillarbox without cropping like YouTube)
+      // 2. Global video fit rule & hide player's internal fullscreen button
       var globalStyle = document.getElementById('tuvu-global-fit-style');
       if (!globalStyle) {
         globalStyle = document.createElement('style');
@@ -261,19 +261,94 @@ export function EmbeddedStreamPlayer({
             max-width: 100vw !important;
             max-height: 100vh !important;
           }
+          /* Hide in-player internal fullscreen buttons across all players */
+          [data-plyr="fullscreen"],
+          .vjs-fullscreen-control,
+          .jw-icon-fullscreen,
+          .jw-btn-fullscreen,
+          .art-control-fullscreen,
+          .dplayer-full-icon,
+          .dplayer-full-in-icon,
+          .dplayer-full,
+          .fullscreen-btn,
+          .btn-fullscreen,
+          .fullscreen-button,
+          .player-fullscreen,
+          .jw-display-icon-fullscreen,
+          .shaka-fullscreen-button,
+          .plyr__controls__item--fullscreen,
+          button[title*="ullscreen" i],
+          button[title*="ull screen" i],
+          button[aria-label*="ullscreen" i],
+          button[aria-label*="ull screen" i],
+          [class*="fullscreen-btn" i],
+          [class*="btn-fullscreen" i],
+          [class*="fullscreen-toggle" i],
+          [class*="fullscreen-button" i] {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+          }
         \`;
         document.head.appendChild(globalStyle);
       }
 
-      // Continuously ensure any dynamically loaded video elements use object-fit contain
+      // Continuously ensure video contain and hide in-player fullscreen buttons
+      function hidePlayerFullscreenButtons(root) {
+        try {
+          var targetRoot = root || document;
+          var buttons = targetRoot.querySelectorAll('button, [role="button"], a, div');
+          for (var i = 0; i < buttons.length; i++) {
+            var b = buttons[i];
+            var title = (b.getAttribute('title') || '').toLowerCase();
+            var aria = (b.getAttribute('aria-label') || '').toLowerCase();
+            var cls = (b.className || '').toString().toLowerCase();
+            if (
+              title.includes('fullscreen') ||
+              title.includes('full screen') ||
+              aria.includes('fullscreen') ||
+              aria.includes('full screen') ||
+              cls.includes('fullscreen-btn') ||
+              cls.includes('vjs-fullscreen') ||
+              cls.includes('art-control-fullscreen') ||
+              cls.includes('jw-icon-fullscreen') ||
+              cls.includes('dplayer-full')
+            ) {
+              b.style.setProperty('display', 'none', 'important');
+              b.style.setProperty('visibility', 'hidden', 'important');
+              b.style.setProperty('pointer-events', 'none', 'important');
+            }
+          }
+        } catch(e) {}
+      }
+
       function applyVideoContain() {
         var videos = document.querySelectorAll('video');
         for (var v = 0; v < videos.length; v++) {
           videos[v].style.setProperty('object-fit', 'contain', 'important');
         }
       }
-      setInterval(applyVideoContain, 500);
+
+      function processIframes() {
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+          try {
+            var doc = iframes[i].contentDocument || iframes[i].contentWindow.document;
+            if (doc) {
+              hidePlayerFullscreenButtons(doc);
+            }
+          } catch(e) {}
+        }
+      }
+
+      setInterval(function() {
+        applyVideoContain();
+        hidePlayerFullscreenButtons(document);
+        processIframes();
+      }, 500);
       applyVideoContain();
+      hidePlayerFullscreenButtons(document);
 
       var isAnikoto = window.location.hostname.includes('anikoto');
       var is7reels = window.location.hostname.includes('7reels');
@@ -500,7 +575,7 @@ export function EmbeddedStreamPlayer({
     javaScriptEnabled: true,
     domStorageEnabled: true,
     allowsInlineMediaPlayback: true,
-    allowsFullscreenVideo: true,
+    allowsFullscreenVideo: false,
     mediaPlaybackRequiresUserAction: false,
     injectedJavaScript: injectedJS,
     injectedJavaScriptBeforeContentLoaded: `

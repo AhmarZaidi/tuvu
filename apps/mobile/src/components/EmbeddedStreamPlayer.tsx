@@ -181,122 +181,97 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
-  // Injected JavaScript: removes site chrome for 7reels/Anikoto, neutralizes popups, and scales direct players
+  // Injected JavaScript: only cleans site chrome when loading 7reels or Anikoto wrapper sites
   const injectedJS = `
     (function() {
-      // 1. Block unwanted popups and external redirects
-      window.open = function() { return null; };
-      window.alert = function() {};
-      window.confirm = function() { return true; };
-      window.prompt = function() { return null; };
+      var is7reels = window.location.hostname.includes('7reels');
+      var isAnikoto = window.location.hostname.includes('anikoto');
 
-      // 2. Inject fit CSS
-      var style = document.getElementById('tuvu-embed-style');
-      if (!style) {
-        style = document.createElement('style');
-        style.id = 'tuvu-embed-style';
-        style.innerHTML = \`
-          header, nav, footer, .navbar, .nav-bar, #header, #footer,
-          #disqus_thread, #smart-tv-controls, .related-shows, .sidebar,
-          .back-btn, .back-button, a[href^="/tv/"], a[href^="/movie/"] {
-            display: none !important;
-          }
-          html, body, #root, #player, .player, #player-wrapper, #w-player, video {
-            background: #000000 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            overflow: hidden !important;
-          }
-        \`;
-        document.head.appendChild(style);
-      }
-
-      // 3. For 7reels / nested frames, pin player to viewport
-      function fitPlayer() {
-        var playerContainers = document.querySelectorAll('div[data-player-fs], .aspect-video, #w-player, .watch-container');
-        for (var c = 0; c < playerContainers.length; c++) {
-          var pc = playerContainers[c];
-          pc.style.position = 'fixed';
-          pc.style.top = '0';
-          pc.style.left = '0';
-          pc.style.right = '0';
-          pc.style.bottom = '0';
-          pc.style.width = '100%';
-          pc.style.height = '100%';
-          pc.style.margin = '0';
-          pc.style.padding = '0';
-          pc.style.borderRadius = '0';
-          pc.style.zIndex = '99999';
+      if (is7reels || isAnikoto) {
+        var style = document.getElementById('tuvu-embed-style');
+        if (!style) {
+          style = document.createElement('style');
+          style.id = 'tuvu-embed-style';
+          style.innerHTML = \`
+            header, nav, footer, .navbar, .nav-bar, #header, #footer,
+            #disqus_thread, #smart-tv-controls, .related-shows, .sidebar,
+            .back-btn, .back-button, a[href^="/tv/"], a[href^="/movie/"] {
+              display: none !important;
+            }
+          \`;
+          document.head.appendChild(style);
         }
 
-        var iframe = document.querySelector('iframe');
-        if (iframe && !iframe.src.includes('videasy') && !iframe.src.includes('vidnest')) {
-          iframe.style.position = 'absolute';
-          iframe.style.top = '0';
-          iframe.style.left = '0';
-          iframe.style.right = '0';
-          iframe.style.bottom = '0';
-          iframe.style.width = '100%';
-          iframe.style.height = '100%';
-          iframe.style.margin = '0';
-          iframe.style.padding = '0';
-          iframe.style.border = 'none';
-        }
+        function fit7reels() {
+          var playerContainers = document.querySelectorAll('div[data-player-fs], #w-player, .watch-container');
+          for (var c = 0; c < playerContainers.length; c++) {
+            var pc = playerContainers[c];
+            pc.style.position = 'fixed';
+            pc.style.top = '0';
+            pc.style.left = '0';
+            pc.style.right = '0';
+            pc.style.bottom = '0';
+            pc.style.width = '100%';
+            pc.style.height = '100%';
+            pc.style.margin = '0';
+            pc.style.padding = '0';
+            pc.style.borderRadius = '0';
+            pc.style.zIndex = '99999';
+          }
 
-        // Hide floating corner buttons (outside iframe)
-        var allButtons = document.querySelectorAll('button, a');
-        for (var i = 0; i < allButtons.length; i++) {
-          var btn = allButtons[i];
-          if (btn.closest && !btn.closest('iframe')) {
-            var rect = btn.getBoundingClientRect();
-            if (rect.top >= 0 && rect.top < 90 && rect.left >= 0 && rect.left < 90) {
-              btn.style.display = 'none';
+          var allButtons = document.querySelectorAll('button, a');
+          for (var i = 0; i < allButtons.length; i++) {
+            var btn = allButtons[i];
+            if (btn.closest && !btn.closest('iframe')) {
+              var rect = btn.getBoundingClientRect();
+              if (rect.top >= 0 && rect.top < 90 && rect.left >= 0 && rect.left < 90) {
+                btn.style.display = 'none';
+              }
             }
           }
         }
-      }
 
-      setInterval(fitPlayer, 400);
-      fitPlayer();
+        setInterval(fit7reels, 500);
+        fit7reels();
+      }
     })();
     true;
   `;
 
-  // Safe navigation filter allowing all streaming CDNs and player embeds
+  // Navigation filter that allows all streaming CDNs, worker scripts, and internal probes
   const handleShouldStartLoad = (req: any) => {
     const u = (req.url || '').toLowerCase();
-    if (!u || u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) return true;
+    // Always allow internal data, blob, and about:blank
+    if (!u || u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) {
+      return true;
+    }
 
     // Block android intent / market hijackers
     if (u.startsWith('intent:') || u.startsWith('market:') || u.startsWith('vnd.youtube:')) {
       return false;
     }
 
-    // Block explicit search engines / ad domains
-    if (
-      u.includes('google.com') ||
-      u.includes('google.co') ||
-      u.includes('doubleclick') ||
-      u.includes('adservice') ||
-      u.includes('bing.com') ||
-      u.includes('yahoo.com') ||
-      u.includes('bet')
-    ) {
+    // Only block external search engines on top frame
+    if (req.isTopFrame && (u.includes('google.com') || u.includes('bing.com') || u.includes('yahoo.com'))) {
       return false;
     }
 
-    // Allow all embed and media requests
+    // Allow all embed, CDN, worker, and media requests
     return true;
   };
 
+  const getRefererHeader = (url: string) => {
+    if (url.includes('anikoto') || url.includes('megaplay')) return 'https://anikototv.to/';
+    if (url.includes('videasy')) return 'https://player.videasy.to/';
+    if (url.includes('vidnest')) return 'https://vidnest.fun/';
+    if (url.includes('strigil')) return 'https://strigil.cc/';
+    return undefined;
+  };
+
+  const referer = getRefererHeader(currentUrl);
   const webViewSource: any = {
     uri: currentUrl,
-    headers:
-      currentUrl.includes('anikoto') || currentUrl.includes('megaplay')
-        ? { Referer: 'https://anikototv.to/' }
-        : undefined,
+    headers: referer ? { Referer: referer } : undefined,
   };
 
   const webViewProps: any = {
@@ -307,10 +282,10 @@ export function EmbeddedStreamPlayer({
     allowsInlineMediaPlayback: true,
     mediaPlaybackRequiresUserAction: false,
     injectedJavaScript: injectedJS,
-    injectedJavaScriptBeforeContentLoaded: `
-      window.open = function() { return null; };
-    `,
     onShouldStartLoadWithRequest: handleShouldStartLoad,
+    onOpenWindow: (syntheticEvent: any) => {
+      syntheticEvent?.preventDefault?.();
+    },
     onLoadStart: () => setLoading(true),
     onLoadEnd: () => setLoading(false),
     onError: () => {
@@ -318,11 +293,8 @@ export function EmbeddedStreamPlayer({
       handleAutoFallback();
     },
     setSupportMultipleWindows: false,
-    scrollEnabled: false,
     nestedScrollEnabled: true,
     overScrollMode: 'never',
-    showsHorizontalScrollIndicator: false,
-    showsVerticalScrollIndicator: false,
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   };
@@ -441,7 +413,11 @@ export function EmbeddedStreamPlayer({
 
       {/* Normal Embedded Player Box */}
       {!isFullscreen && (
-        <View style={[styles.playerBox, { height }]}>
+        <View
+          style={[styles.playerBox, { height }]}
+          onStartShouldSetResponderCapture={() => true}
+          onMoveShouldSetResponderCapture={() => false}
+        >
           <RNWebView key={`webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`} ref={webViewRef} {...webViewProps} />
 
           {/* Fallback Toast Banner */}

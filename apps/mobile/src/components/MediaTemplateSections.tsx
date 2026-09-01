@@ -28,6 +28,7 @@ interface MediaTemplateSectionsProps {
   onReloadNews: () => void;
   dateRangeLabel?: string | null;
   onFullscreenChange?: (isFullscreen: boolean) => void;
+  isPlayerFullscreen?: boolean;
 }
 
 export function MediaTemplateSections({
@@ -37,6 +38,7 @@ export function MediaTemplateSections({
   onReloadNews,
   dateRangeLabel,
   onFullscreenChange,
+  isPlayerFullscreen = false,
 }: MediaTemplateSectionsProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -62,7 +64,6 @@ export function MediaTemplateSections({
   const posters: string[] = ext.images?.posters || [];
   const galleryImages = [...backdrops, ...posters];
   const [activeGalleryIndex, setActiveGalleryIndex] = useState<number | null>(null);
-  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
 
   const isAnime = media.type === 'anime' || ext.category === 'anime';
   const isMovie = media.type === 'movie' || ext.animeFormat === 'movie' || ext.format === 'MOVIE' || ext.anime?.format === 'MOVIE';
@@ -79,25 +80,6 @@ export function MediaTemplateSections({
   const characters: any[] = animeData.characters || ext.characters || [];
   const japaneseCast: any[] = animeData.japaneseCast || [];
   const dubCast: any[] = animeData.dubCast || [];
-
-  if (isPlayerFullscreen && isMovie && streamData?.streamUrl) {
-    return (
-      <View style={{ flex: 1, width: '100%', height: '100%', backgroundColor: '#000000' }}>
-        <EmbeddedStreamPlayer
-          url={streamData.streamUrl}
-          provider={streamData.provider}
-          title={`Watch ${media.title}`}
-          subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
-          sources={streamData.sources}
-          height={230}
-          onFullscreenChange={(fs) => {
-            setIsPlayerFullscreen(fs);
-            onFullscreenChange?.(fs);
-          }}
-        />
-      </View>
-    );
-  }
   const hasDub = Boolean(ext.hasDub || animeData.hasDub || dubCast.length > 0 || ext.audioLanguages?.includes('English'));
   const animeFormatLabel = useMemo(() => {
     const fmt = (ext.animeFormat || ext.format || animeData.format || '').toUpperCase();
@@ -200,6 +182,22 @@ export function MediaTemplateSections({
     .map((c: any) => c.name)
     .slice(0, 3);
   const creatorNames = creators.map((c: any) => c.name).slice(0, 3);
+
+  if (isPlayerFullscreen && isMovie && streamData?.streamUrl) {
+    return (
+      <View style={{ flex: 1, width: '100%', height: '100%', backgroundColor: '#000000' }}>
+        <EmbeddedStreamPlayer
+          url={streamData.streamUrl}
+          provider={streamData.provider}
+          title={`Watch ${media.title}`}
+          subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
+          sources={streamData.sources}
+          height={230}
+          onFullscreenChange={onFullscreenChange}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -554,8 +552,9 @@ export function MediaTemplateSections({
         </View>
 
         {(() => {
-          const activeDubCast = dubCast.length > 0
-            ? dubCast
+          const rawDub = (typeof dubCast !== 'undefined' ? dubCast : animeData?.dubCast) || [];
+          const activeDubCast = rawDub.length > 0
+            ? rawDub
             : characters
                 .filter((c: any) => c.dubVoiceActor)
                 .map((c: any) => ({
@@ -565,8 +564,9 @@ export function MediaTemplateSections({
                   profilePath: c.dubVoiceActor.image,
                 }));
 
-          const activeJpCast = japaneseCast.length > 0
-            ? japaneseCast
+          const rawJp = (typeof japaneseCast !== 'undefined' ? japaneseCast : animeData?.japaneseCast) || [];
+          const activeJpCast = rawJp.length > 0
+            ? rawJp
             : characters
                 .filter((c: any) => c.subVoiceActor)
                 .map((c: any) => ({
@@ -645,10 +645,7 @@ export function MediaTemplateSections({
           subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
           sources={streamData.sources}
           height={230}
-          onFullscreenChange={(fs) => {
-            setIsPlayerFullscreen(fs);
-            onFullscreenChange?.(fs);
-          }}
+          onFullscreenChange={onFullscreenChange}
         />
       )}
 

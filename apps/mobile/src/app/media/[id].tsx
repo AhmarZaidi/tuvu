@@ -480,34 +480,36 @@ export default function MediaDetailsScreen() {
           </View>
         )}
 
-        {/* 1. Header Information */}
-        <View style={styles.headerInfoSection}>
-          <Text style={styles.mediaTypeEyebrow}>{media.type.toUpperCase()}</Text>
-          <Text style={styles.mediaTitle}>{media.title}</Text>
-          {media.overview ? (
-            <View style={styles.overviewContainer}>
-              <Text style={styles.mediaOverview}>
-                {media.overview.length > 260 && !expandedOverview
-                  ? `${media.overview.slice(0, 260)}...`
-                  : media.overview}
-              </Text>
-              {media.overview.length > 260 && (
-                <Pressable
-                  onPress={() => setExpandedOverview(!expandedOverview)}
-                  style={styles.readMoreBtn}
-                  hitSlop={6}
-                >
-                  <Text style={styles.readMoreText}>
-                    {expandedOverview ? 'Collapse' : '...Read More'}
+        {!isPlayerFullscreen && (
+          <>
+            {/* 1. Header Information */}
+            <View style={styles.headerInfoSection}>
+              <Text style={styles.mediaTypeEyebrow}>{media.type.toUpperCase()}</Text>
+              <Text style={styles.mediaTitle}>{media.title}</Text>
+              {media.overview ? (
+                <View style={styles.overviewContainer}>
+                  <Text style={styles.mediaOverview}>
+                    {media.overview.length > 260 && !expandedOverview
+                      ? `${media.overview.slice(0, 260)}...`
+                      : media.overview}
                   </Text>
-                </Pressable>
-              )}
+                  {media.overview.length > 260 && (
+                    <Pressable
+                      onPress={() => setExpandedOverview(!expandedOverview)}
+                      style={styles.readMoreBtn}
+                      hitSlop={6}
+                    >
+                      <Text style={styles.readMoreText}>
+                        {expandedOverview ? 'Collapse' : '...Read More'}
+                      </Text>
+                    </Pressable>
+                  )}
+                </View>
+              ) : null}
             </View>
-          ) : null}
-        </View>
 
-        {/* 2. Banner Card (16:9) with Options Button (matching Screenshot 1) */}
-        <View style={styles.bannerContainer}>
+            {/* 2. Banner Card (16:9) with Options Button (matching Screenshot 1) */}
+            <View style={styles.bannerContainer}>
           {backdropUrl || posterUrl ? (
             <Image
               source={{ uri: (backdropUrl || posterUrl) as string }}
@@ -981,38 +983,40 @@ export default function MediaDetailsScreen() {
         )}
 
         {/* 4. Episode Guide Section (matching Screenshot 3) */}
-        {isSeries && (
-          <SeasonAccordion
-            mediaId={id}
-            mediaTitle={media.title}
-            isAnime={media.type === 'anime' || (media as any).extendedDataJson?.includes('anime')}
-            episodes={episodes}
-            onEpisodesUpdated={handleUpdated}
-            progressComponent={
-              hydrationProgress ? (
-                <EpisodeGuideProgress
-                  progress={hydrationProgress}
-                  onRetry={handleManualRefresh}
-                />
-              ) : null
-            }
-          />
-        )}
+            {isSeries && (
+              <SeasonAccordion
+                mediaId={id}
+                mediaTitle={media.title}
+                isAnime={media.type === 'anime' || (media as any).extendedDataJson?.includes('anime')}
+                episodes={episodes}
+                onEpisodesUpdated={handleUpdated}
+                progressComponent={
+                  hydrationProgress ? (
+                    <EpisodeGuideProgress
+                      progress={hydrationProgress}
+                      onRetry={handleManualRefresh}
+                    />
+                  ) : null
+                }
+              />
+            )}
 
-        {/* Units Guide (for Books & Games) */}
-        {isUnitTrackable && unitsData?.units && unitsData.units.length > 0 && (
-          <View style={styles.unitsSection}>
-            <Text style={styles.sectionEyebrow}>PROGRESS GUIDE</Text>
-            <Text style={styles.sectionHeading}>
-              {media.type === 'book' ? 'Chapters & Volumes' : 'Quests & Acts'} ({unitsData.units.length})
-            </Text>
-            {unitsData.units.map((unit) => (
-              <View key={unit.id} style={styles.unitRow}>
-                <Text style={styles.unitKind}>{unit.kind}</Text>
-                <Text style={styles.unitTitle}>{unit.title || `Part ${unit.position}`}</Text>
+            {/* Units Guide (for Books & Games) */}
+            {isUnitTrackable && unitsData?.units && unitsData.units.length > 0 && (
+              <View style={styles.unitsSection}>
+                <Text style={styles.sectionEyebrow}>PROGRESS GUIDE</Text>
+                <Text style={styles.sectionHeading}>
+                  {media.type === 'book' ? 'Chapters & Volumes' : 'Quests & Acts'} ({unitsData.units.length})
+                </Text>
+                {unitsData.units.map((unit) => (
+                  <View key={unit.id} style={styles.unitRow}>
+                    <Text style={styles.unitKind}>{unit.kind}</Text>
+                    <Text style={styles.unitTitle}>{unit.title || `Part ${unit.position}`}</Text>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+            )}
+          </>
         )}
 
         {/* 5. Template Sections (News, Streaming, Info chips, Cast, Related, Ratings, Community) */}
@@ -1023,6 +1027,7 @@ export default function MediaDetailsScreen() {
           onReloadNews={() => void loadNews(true)}
           dateRangeLabel={formattedReleaseDate}
           onFullscreenChange={setIsPlayerFullscreen}
+          isPlayerFullscreen={isPlayerFullscreen}
         />
       </ScrollView>
 

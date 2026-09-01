@@ -200,9 +200,16 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
+  const isDubSelected = (activeServer?.id || '').startsWith('dub') || (activeServer?.name || '').toLowerCase().includes('dub') || (currentUrl || '').toLowerCase().includes('dub');
+  const targetServerType = isDubSelected ? 'dub' : 'sub';
+  const targetServerCode = (activeServer?.name || '').toLowerCase().replace(/^(dub|sub)[:\s_-]*/i, '').replace(/[^a-z0-9]/g, '');
+
   // Injected JavaScript: isolates player on Anikoto & 7reels, enforces object-fit contain, and triggers Dub/Sub selection
   const injectedJS = `
     (function() {
+      var expectedType = '${targetServerType}';
+      var expectedServerCode = '${targetServerCode}';
+
       // 1. Post message to React Native on user interaction
       function reportTouch() {
         try {
@@ -353,6 +360,33 @@ export function EmbeddedStreamPlayer({
       var isAnikoto = window.location.hostname.includes('anikoto');
       var is7reels = window.location.hostname.includes('7reels');
 
+      function simulateRealClick(element) {
+        if (!element) return;
+        ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'].forEach(function(evtName) {
+          try {
+            var evt = new MouseEvent(evtName, {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              detail: 1,
+              buttons: 1
+            });
+            element.dispatchEvent(evt);
+          } catch(e) {}
+        });
+        try {
+          if (typeof element.click === 'function') {
+            element.click();
+          }
+        } catch(e) {}
+        try {
+          var jq = window.jQuery || window.$;
+          if (jq) {
+            jq(element).trigger('click');
+          }
+        } catch(e) {}
+      }
+
       if (isAnikoto) {
         var style = document.getElementById('tuvu-anikoto-style');
         if (!style) {
@@ -399,35 +433,12 @@ export function EmbeddedStreamPlayer({
           document.head.appendChild(style);
         }
 
-        // Set Anikoto preference cookies, enforce iframe Dub URL, and auto-select server
-        function handleAnikotoAudio() {
-          var hash = (window.location.hash || '').toLowerCase();
-          var href = window.location.href.toLowerCase();
-          var isDub = hash.includes('dub') || href.includes('dub');
-          var targetType = isDub ? 'dub' : 'sub';
+        // Simulate click on selected Anikoto server (DUB / SUB)
+        var lastTargetHash = '';
 
-          document.cookie = 'prefered_server_type=' + targetType + '; path=/;';
-
-          // 1. Enforce Megaplay iframe URL to match dub/sub
-          var iframe = document.querySelector('#player iframe, iframe');
-          if (iframe && iframe.src) {
-            if (isDub && iframe.src.includes('/sub')) {
-              var dubSrc = iframe.src.replace('/sub', '/dub');
-              if (!dubSrc.includes('s=bcdn')) {
-                dubSrc += (dubSrc.includes('?') ? '&' : '?') + 's=bcdn';
-              }
-              iframe.src = dubSrc;
-            } else if (!isDub && iframe.src.includes('/dub')) {
-              iframe.src = iframe.src.replace('/dub', '/sub').replace('s=bcdn&', '').replace('&s=bcdn', '').replace('?s=bcdn', '');
-            }
-          }
-
-          // 2. Select matching server item
-          var targetServerName = '';
-          if (hash.includes('vidstream')) targetServerName = 'vidstream';
-          else if (hash.includes('hd1') || hash.includes('hd-1')) targetServerName = 'hd-1';
-          else if (hash.includes('hd2') || hash.includes('hd-2')) targetServerName = 'hd-2';
-          else if (hash.includes('vidplay')) targetServerName = 'vidplay';
+        function handleAnikotoServerSelection() {
+          var targetType = expectedType;
+          var targetServerName = expectedServerCode;
 
           var typeBlock = document.querySelector('.servers .type[data-type="' + targetType + '"]');
           if (!typeBlock) return;
@@ -439,7 +450,7 @@ export function EmbeddedStreamPlayer({
           if (targetServerName) {
             for (var i = 0; i < items.length; i++) {
               var txt = (items[i].textContent || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (txt.includes(targetServerName.replace(/[^a-z0-9]/g, ''))) {
+              if (targetServerName.includes(txt) || txt.includes(targetServerName)) {
                 targetItem = items[i];
                 break;
               }
@@ -449,19 +460,44 @@ export function EmbeddedStreamPlayer({
             targetItem = items[0];
           }
 
-          if (targetItem && !targetItem.classList.contains('active')) {
-            var jq = window.jQuery || window.$;
-            if (jq) {
-              jq(targetItem).trigger('click');
-            } else {
-              targetItem.click();
+          if (!targetItem) return;
+
+          var linkId = targetItem.getAttribute('data-link-id') || '';
+          var svId = targetItem.getAttribute('data-sv-id') || '';
+          var selectionKey = targetType + '_' + svId + '_' + linkId;
+
+          if (lastTargetHash !== selectionKey) {
+            lastTargetHash = selectionKey;
+
+            document.cookie = 'prefered_server_type=' + targetType + '; path=/;';
+            if (svId) document.cookie = 'prefered_server_id=' + svId + '; path=/;';
+
+            // Simulate real user click sequence on the server button
+            simulateRealClick(targetItem);
+
+            // Fetch Anikoto server AJAX endpoint as direct guarantee
+            if (linkId) {
+              try {
+                fetch('/ajax/server?get=' + encodeURIComponent(linkId), {
+                  headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                  .then(function(r) { return r.json(); })
+                  .then(function(res) {
+                    if (res && res.status === 200 && res.result && res.result.url) {
+                      var playerIframe = document.querySelector('#player iframe, iframe');
+                      if (playerIframe && playerIframe.src !== res.result.url) {
+                        playerIframe.src = res.result.url;
+                      }
+                    }
+                  })
+                  .catch(function() {});
+              } catch(e) {}
             }
-            targetItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
           }
         }
 
-        setInterval(handleAnikotoAudio, 250);
-        handleAnikotoAudio();
+        setInterval(handleAnikotoServerSelection, 400);
+        handleAnikotoServerSelection();
       }
 
       if (is7reels) {
@@ -580,8 +616,7 @@ export function EmbeddedStreamPlayer({
     injectedJavaScript: injectedJS,
     injectedJavaScriptBeforeContentLoaded: `
       try {
-        var isDub = window.location.href.toLowerCase().includes('dub') || (window.location.hash || '').toLowerCase().includes('dub');
-        document.cookie = 'prefered_server_type=' + (isDub ? 'dub' : 'sub') + '; path=/;';
+        document.cookie = 'prefered_server_type=${targetServerType}; path=/;';
       } catch(e) {}
     `,
     onShouldStartLoadWithRequest: handleShouldStartLoad,

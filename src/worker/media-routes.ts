@@ -131,14 +131,18 @@ export function createMediaRoutes() {
         sources.push({
           id: "anikoto",
           name: "Anikoto TV",
-          url: `https://anikototv.to/watch/${slug}/ep-${episode}`,
+          url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidstream`,
           provider: "anikoto",
           badge: "HD • Sub/Dub",
           servers: [
-            { id: "sub_1", name: "Sub (Default)", url: `https://anikototv.to/watch/${slug}/ep-${episode}`, badge: "HD" },
-            { id: "dub_1", name: "English Dub", url: `https://anikototv.to/watch/${slug}-dub/ep-${episode}`, badge: "Dub" },
-            { id: "megacloud", name: "MegaCloud", url: `https://anikototv.to/watch/${slug}/ep-${episode}?server=megacloud` },
-            { id: "vidstream", name: "Vidstream", url: `https://anikototv.to/watch/${slug}/ep-${episode}?server=vidstream` },
+            { id: "dub_vidstream", name: "DUB: Vidstream-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidstream`, badge: "DUB • Fast" },
+            { id: "dub_hd1", name: "DUB: HD-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-hd1`, badge: "DUB • HD" },
+            { id: "dub_hd2", name: "DUB: HD-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-hd2`, badge: "DUB" },
+            { id: "dub_vidplay", name: "DUB: VidPlay-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidplay`, badge: "DUB" },
+            { id: "sub_vidstream", name: "SUB: Vidstream-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-vidstream`, badge: "SUB • Fast" },
+            { id: "sub_hd1", name: "SUB: HD-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-hd1`, badge: "SUB • HD" },
+            { id: "sub_hd2", name: "SUB: HD-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-hd2`, badge: "SUB" },
+            { id: "sub_vidplay", name: "SUB: VidPlay-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-vidplay`, badge: "SUB" },
           ],
         });
       }

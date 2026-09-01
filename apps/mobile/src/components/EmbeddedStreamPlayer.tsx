@@ -181,25 +181,137 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
-  // Injected JavaScript: only cleans site chrome when loading 7reels or Anikoto wrapper sites
+  // Injected JavaScript: isolates player on Anikoto & 7reels and triggers Dub/Sub selection
   const injectedJS = `
     (function() {
-      var is7reels = window.location.hostname.includes('7reels');
       var isAnikoto = window.location.hostname.includes('anikoto');
+      var is7reels = window.location.hostname.includes('7reels');
 
-      if (is7reels || isAnikoto) {
-        var style = document.getElementById('tuvu-embed-style');
+      if (isAnikoto) {
+        var style = document.getElementById('tuvu-anikoto-style');
         if (!style) {
           style = document.createElement('style');
-          style.id = 'tuvu-embed-style';
+          style.id = 'tuvu-anikoto-style';
           style.innerHTML = \`
+            header, nav, footer, #wrapper > header, #menu, #quick-menu,
+            #ani-seasons, #watch-order, #watch-second, #comments, #socials,
+            .alert, #sign, #downloadModal, #w-report, .search-popup, .logo,
+            .binfo, .rating, .watch-extra, aside:not(.main) {
+              display: none !important;
+            }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #000000 !important;
+              overflow: hidden !important;
+            }
+            #w-player {
+              position: fixed !important;
+              top: 0 !important;
+              left: 0 !important;
+              width: 100% !important;
+              height: 100% !important;
+              z-index: 999999 !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #000000 !important;
+            }
+            #player-wrapper, #player, #player iframe {
+              width: 100% !important;
+              height: 100% !important;
+              position: absolute !important;
+              top: 0 !important;
+              left: 0 !important;
+              border: none !important;
+            }
+          \`;
+          document.head.appendChild(style);
+        }
+
+        // Set Anikoto preference cookies, enforce iframe Dub URL, and auto-select server
+        function handleAnikotoAudio() {
+          var hash = (window.location.hash || '').toLowerCase();
+          var href = window.location.href.toLowerCase();
+          var isDub = hash.includes('dub') || href.includes('dub');
+          var targetType = isDub ? 'dub' : 'sub';
+
+          document.cookie = 'prefered_server_type=' + targetType + '; path=/;';
+
+          // 1. Enforce Megaplay iframe URL to match dub/sub
+          var iframe = document.querySelector('#player iframe, iframe');
+          if (iframe && iframe.src) {
+            if (isDub && iframe.src.includes('/sub')) {
+              var dubSrc = iframe.src.replace('/sub', '/dub');
+              if (!dubSrc.includes('s=bcdn')) {
+                dubSrc += (dubSrc.includes('?') ? '&' : '?') + 's=bcdn';
+              }
+              iframe.src = dubSrc;
+            } else if (!isDub && iframe.src.includes('/dub')) {
+              iframe.src = iframe.src.replace('/dub', '/sub').replace('s=bcdn&', '').replace('&s=bcdn', '').replace('?s=bcdn', '');
+            }
+          }
+
+          // 2. Select matching server item
+          var targetServerName = '';
+          if (hash.includes('vidstream')) targetServerName = 'vidstream';
+          else if (hash.includes('hd1') || hash.includes('hd-1')) targetServerName = 'hd-1';
+          else if (hash.includes('hd2') || hash.includes('hd-2')) targetServerName = 'hd-2';
+          else if (hash.includes('vidplay')) targetServerName = 'vidplay';
+
+          var typeBlock = document.querySelector('.servers .type[data-type="' + targetType + '"]');
+          if (!typeBlock) return;
+
+          var items = typeBlock.querySelectorAll('li');
+          if (!items || items.length === 0) return;
+
+          var targetItem = null;
+          if (targetServerName) {
+            for (var i = 0; i < items.length; i++) {
+              var txt = (items[i].textContent || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (txt.includes(targetServerName.replace(/[^a-z0-9]/g, ''))) {
+                targetItem = items[i];
+                break;
+              }
+            }
+          }
+          if (!targetItem) {
+            targetItem = items[0];
+          }
+
+          if (targetItem && !targetItem.classList.contains('active')) {
+            var jq = window.jQuery || window.$;
+            if (jq) {
+              jq(targetItem).trigger('click');
+            } else {
+              targetItem.click();
+            }
+            targetItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          }
+        }
+
+        setInterval(handleAnikotoAudio, 250);
+        handleAnikotoAudio();
+      }
+
+      if (is7reels) {
+        var style7 = document.getElementById('tuvu-7reels-style');
+        if (!style7) {
+          style7 = document.createElement('style');
+          style7.id = 'tuvu-7reels-style';
+          style7.innerHTML = \`
             header, nav, footer, .navbar, .nav-bar, #header, #footer,
             #disqus_thread, #smart-tv-controls, .related-shows, .sidebar,
             .back-btn, .back-button, a[href^="/tv/"], a[href^="/movie/"] {
               display: none !important;
             }
+            html, body, #root {
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #000000 !important;
+              overflow: hidden !important;
+            }
           \`;
-          document.head.appendChild(style);
+          document.head.appendChild(style7);
         }
 
         function fit7reels() {
@@ -238,10 +350,10 @@ export function EmbeddedStreamPlayer({
     true;
   `;
 
-  // Navigation filter that allows all streaming CDNs, worker scripts, and internal probes
+  // Safe navigation filter allowing all streaming CDNs and player embeds
   const handleShouldStartLoad = (req: any) => {
     const u = (req.url || '').toLowerCase();
-    // Always allow internal data, blob, and about:blank
+    // Always allow data:, blob:, and about:blank
     if (!u || u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) {
       return true;
     }
@@ -251,12 +363,12 @@ export function EmbeddedStreamPlayer({
       return false;
     }
 
-    // Only block external search engines on top frame
+    // Block explicit search engines on top frame
     if (req.isTopFrame && (u.includes('google.com') || u.includes('bing.com') || u.includes('yahoo.com'))) {
       return false;
     }
 
-    // Allow all embed, CDN, worker, and media requests
+    // Allow all embed, CDN, and media requests
     return true;
   };
 
@@ -282,6 +394,12 @@ export function EmbeddedStreamPlayer({
     allowsInlineMediaPlayback: true,
     mediaPlaybackRequiresUserAction: false,
     injectedJavaScript: injectedJS,
+    injectedJavaScriptBeforeContentLoaded: `
+      try {
+        var isDub = window.location.href.toLowerCase().includes('dub') || (window.location.hash || '').toLowerCase().includes('dub');
+        document.cookie = 'prefered_server_type=' + (isDub ? 'dub' : 'sub') + '; path=/;';
+      } catch(e) {}
+    `,
     onShouldStartLoadWithRequest: handleShouldStartLoad,
     onOpenWindow: (syntheticEvent: any) => {
       syntheticEvent?.preventDefault?.();

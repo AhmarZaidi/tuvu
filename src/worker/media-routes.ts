@@ -144,75 +144,49 @@ export function createMediaRoutes() {
       }
 
       if (tmdbId) {
-        if (media.type === "movie" && !isEpisode) {
-          sources.push({
-            id: "7reels",
-            name: "7reels.cc",
-            url: `https://7reels.cc/movie/${tmdbId}/watch`,
-            provider: "7reels",
-            badge: "Primary",
-            servers: [
-              { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/movie/${tmdbId}/watch` },
-              { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
-              { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
-            ],
-          });
-          sources.push({
-            id: "vidsrc",
-            name: "VidSrc",
-            url: `https://vidsrc.to/embed/movie/${tmdbId}`,
-            provider: "vidsrc",
-            badge: "Fast",
-            servers: [
-              { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/movie/${tmdbId}` },
-              { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/movie/${tmdbId}` },
-            ],
-          });
-          sources.push({
-            id: "2embed",
-            name: "2Embed",
-            url: `https://www.2embed.cc/embed/${tmdbId}`,
-            provider: "2embed",
-            servers: [
-              { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embed/${tmdbId}` },
-              { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embed/${tmdbId}` },
-            ],
-          });
-        } else {
-          sources.push({
-            id: "7reels",
-            name: "7reels.cc",
-            url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
-            provider: "7reels",
-            badge: "Primary",
-            servers: [
-              { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
-              { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
-              { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
-            ],
-          });
-          sources.push({
-            id: "vidsrc",
-            name: "VidSrc",
-            url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
-            provider: "vidsrc",
-            badge: "Fast",
-            servers: [
-              { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}` },
-              { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/tv/${tmdbId}/${season}/${episode}` },
-            ],
-          });
-          sources.push({
-            id: "2embed",
-            name: "2Embed",
-            url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
-            provider: "2embed",
-            servers: [
-              { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
-              { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embedtv/${tmdbId}&s=${season}&e=${episode}` },
-            ],
-          });
-        }
+        const isMovieAnime = media.type === "movie" && !isEpisode;
+        const mainUrl = isMovieAnime
+          ? `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`
+          : `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`;
+
+        sources.push({
+          id: "videasy",
+          name: "VidEasy",
+          url: mainUrl,
+          provider: "videasy",
+          badge: "Primary • HD",
+          servers: [
+            { id: "srv_videasy", name: "VidEasy (Default)", url: mainUrl, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: isMovieAnime ? `https://vidnest.fun/movie/${tmdbId}` : `https://vidnest.fun/tv/${tmdbId}/${season}/${episode}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: isMovieAnime ? `https://strigil.cc/embed/movie/${tmdbId}` : `https://strigil.cc/embed/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidrock", name: "VidRock", url: isMovieAnime ? `https://vidrock.net/movie/${tmdbId}` : `https://vidrock.net/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidlink", name: "VidLink", url: isMovieAnime ? `https://vidlink.pro/movie/${tmdbId}` : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "2embed",
+          name: "2Embed",
+          url: isMovieAnime ? `https://www.2embed.cc/embed/${tmdbId}` : `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+          provider: "2embed",
+          badge: "Mirror",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: isMovieAnime ? `https://www.2embed.cc/embed/${tmdbId}` : `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+          ],
+        });
+
+        // 7reels backup
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+            { id: "7r_2", name: "7reels Server 2", url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch?server=2` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+          ],
+        });
       }
 
       sources.push({
@@ -229,29 +203,20 @@ export function createMediaRoutes() {
       // 2. Movies
       if (tmdbId) {
         sources.push({
-          id: "7reels",
-          name: "7reels.cc",
-          url: `https://7reels.cc/movie/${tmdbId}/watch`,
-          provider: "7reels",
-          badge: "Primary",
+          id: "videasy",
+          name: "VidEasy",
+          url: `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`,
+          provider: "videasy",
+          badge: "Primary • HD",
           servers: [
-            { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/movie/${tmdbId}/watch` },
-            { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
-            { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
+            { id: "srv_videasy", name: "VidEasy (Default)", url: `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: `https://vidnest.fun/movie/${tmdbId}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: `https://strigil.cc/embed/movie/${tmdbId}` },
+            { id: "srv_vidrock", name: "VidRock", url: `https://vidrock.net/movie/${tmdbId}` },
+            { id: "srv_vidlink", name: "VidLink", url: `https://vidlink.pro/movie/${tmdbId}` },
           ],
         });
-        sources.push({
-          id: "vidsrc",
-          name: "VidSrc",
-          url: `https://vidsrc.to/embed/movie/${tmdbId}`,
-          provider: "vidsrc",
-          badge: "Fast",
-          servers: [
-            { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/movie/${tmdbId}` },
-            { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/movie/${tmdbId}` },
-            { id: "vidsrc_in", name: "VidSrc IN", url: `https://vidsrc.in/embed/movie/${tmdbId}` },
-          ],
-        });
+
         sources.push({
           id: "2embed",
           name: "2Embed",
@@ -263,13 +228,27 @@ export function createMediaRoutes() {
             { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embed/${tmdbId}` },
           ],
         });
+
         sources.push({
           id: "smashystream",
           name: "SmashyStream",
-          url: `https://player.smashystream.com/movie/${tmdbId}`,
+          url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}`,
           provider: "smashystream",
           servers: [
-            { id: "smashy_1", name: "Smashy Main", url: `https://player.smashystream.com/movie/${tmdbId}` },
+            { id: "smashy_1", name: "Smashy Main", url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}` },
+          ],
+        });
+
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: `https://7reels.cc/movie/${tmdbId}/watch`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: `https://7reels.cc/movie/${tmdbId}/watch` },
+            { id: "7r_2", name: "7reels Server 2", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
+            { id: "7r_3", name: "7reels Server 3", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
           ],
         });
       }
@@ -304,28 +283,20 @@ export function createMediaRoutes() {
       // 3. TV Shows
       if (tmdbId) {
         sources.push({
-          id: "7reels",
-          name: "7reels.cc",
-          url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
-          provider: "7reels",
-          badge: "Primary",
+          id: "videasy",
+          name: "VidEasy",
+          url: `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`,
+          provider: "videasy",
+          badge: "Primary • HD",
           servers: [
-            { id: "srv_1", name: "Server 1 (Default)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
-            { id: "srv_2", name: "Server 2 (Backup)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
-            { id: "srv_3", name: "Server 3 (Fast)", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
+            { id: "srv_videasy", name: "VidEasy (Default)", url: `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: `https://vidnest.fun/tv/${tmdbId}/${season}/${episode}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: `https://strigil.cc/embed/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidrock", name: "VidRock", url: `https://vidrock.net/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidlink", name: "VidLink", url: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` },
           ],
         });
-        sources.push({
-          id: "vidsrc",
-          name: "VidSrc",
-          url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`,
-          provider: "vidsrc",
-          badge: "Fast",
-          servers: [
-            { id: "vidsrc_to", name: "VidSrc TO", url: `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}` },
-            { id: "vidsrc_net", name: "VidSrc Net", url: `https://vidsrc.net/embed/tv/${tmdbId}/${season}/${episode}` },
-          ],
-        });
+
         sources.push({
           id: "2embed",
           name: "2Embed",
@@ -337,13 +308,27 @@ export function createMediaRoutes() {
             { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embedtv/${tmdbId}&s=${season}&e=${episode}` },
           ],
         });
+
         sources.push({
           id: "smashystream",
           name: "SmashyStream",
-          url: `https://player.smashystream.com/tv/${tmdbId}?s=${season}&e=${episode}`,
+          url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
           provider: "smashystream",
           servers: [
-            { id: "smashy_tv", name: "Smashy TV", url: `https://player.smashystream.com/tv/${tmdbId}?s=${season}&e=${episode}` },
+            { id: "smashy_tv", name: "Smashy TV", url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}&season=${season}&episode=${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+            { id: "7r_2", name: "7reels Server 2", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+            { id: "7r_3", name: "7reels Server 3", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
           ],
         });
       }

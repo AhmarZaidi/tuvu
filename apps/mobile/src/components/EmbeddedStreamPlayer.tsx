@@ -30,7 +30,7 @@ interface EmbeddedStreamPlayerProps {
 
 export function EmbeddedStreamPlayer({
   url: initialUrl,
-  provider: initialProvider = '7reels',
+  provider: initialProvider = 'videasy',
   title = 'Watch Stream',
   subtitle,
   height = 230,
@@ -56,7 +56,7 @@ export function EmbeddedStreamPlayer({
   // Normalize source list
   const sourceList: StreamSourceItem[] = sources.length > 0
     ? sources
-    : [{ id: 'default', name: initialProvider, url: initialUrl, provider: initialProvider, servers: [{ id: 'srv_1', name: 'Server 1 (Default)', url: initialUrl }] }];
+    : [{ id: 'default', name: initialProvider, url: initialUrl, provider: initialProvider, servers: [{ id: 'srv_1', name: 'Default Server', url: initialUrl }] }];
 
   const activeSource = sourceList[activeSourceIndex] || sourceList[0];
   const activeServers = activeSource.servers && activeSource.servers.length > 0
@@ -181,7 +181,7 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
-  // Targeted script to isolate player and remove floating buttons
+  // Injected JavaScript: removes site chrome for 7reels/Anikoto, neutralizes popups, and scales direct players
   const injectedJS = `
     (function() {
       // 1. Block unwanted popups and external redirects
@@ -190,40 +190,62 @@ export function EmbeddedStreamPlayer({
       window.confirm = function() { return true; };
       window.prompt = function() { return null; };
 
-      // 2. Inject fit CSS to hide site chrome
+      // 2. Inject fit CSS
       var style = document.getElementById('tuvu-embed-style');
       if (!style) {
         style = document.createElement('style');
         style.id = 'tuvu-embed-style';
         style.innerHTML = \`
           header, nav, footer, .navbar, .nav-bar, #header, #footer,
-          #disqus_thread, #smart-tv-controls, .related-shows, .sidebar {
+          #disqus_thread, #smart-tv-controls, .related-shows, .sidebar,
+          .back-btn, .back-button, a[href^="/tv/"], a[href^="/movie/"] {
             display: none !important;
           }
-          body {
+          html, body, #root, #player, .player, #player-wrapper, #w-player, video {
             background: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            overflow: hidden !important;
           }
         \`;
         document.head.appendChild(style);
       }
 
-      // 3. Maximize and pin the iframe to fill the viewport
-      function maximizePlayer() {
-        var iframe = document.querySelector('iframe');
-        if (iframe) {
-          iframe.style.position = 'fixed';
-          iframe.style.top = '0';
-          iframe.style.left = '0';
-          iframe.style.width = '100vw';
-          iframe.style.height = '100vh';
-          iframe.style.zIndex = '999999';
-          iframe.style.border = 'none';
-          iframe.style.background = '#000000';
+      // 3. For 7reels / nested frames, pin player to viewport
+      function fitPlayer() {
+        var playerContainers = document.querySelectorAll('div[data-player-fs], .aspect-video, #w-player, .watch-container');
+        for (var c = 0; c < playerContainers.length; c++) {
+          var pc = playerContainers[c];
+          pc.style.position = 'fixed';
+          pc.style.top = '0';
+          pc.style.left = '0';
+          pc.style.right = '0';
+          pc.style.bottom = '0';
+          pc.style.width = '100%';
+          pc.style.height = '100%';
+          pc.style.margin = '0';
+          pc.style.padding = '0';
+          pc.style.borderRadius = '0';
+          pc.style.zIndex = '99999';
         }
 
-        // Hide floating back buttons in top left corner (outside iframe)
+        var iframe = document.querySelector('iframe');
+        if (iframe && !iframe.src.includes('videasy') && !iframe.src.includes('vidnest')) {
+          iframe.style.position = 'absolute';
+          iframe.style.top = '0';
+          iframe.style.left = '0';
+          iframe.style.right = '0';
+          iframe.style.bottom = '0';
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          iframe.style.margin = '0';
+          iframe.style.padding = '0';
+          iframe.style.border = 'none';
+        }
+
+        // Hide floating corner buttons (outside iframe)
         var allButtons = document.querySelectorAll('button, a');
         for (var i = 0; i < allButtons.length; i++) {
           var btn = allButtons[i];
@@ -236,13 +258,13 @@ export function EmbeddedStreamPlayer({
         }
       }
 
-      setInterval(maximizePlayer, 350);
-      maximizePlayer();
+      setInterval(fitPlayer, 400);
+      fitPlayer();
     })();
     true;
   `;
 
-  // Safe navigation filter that does not block stream subframes
+  // Safe navigation filter allowing all streaming CDNs and player embeds
   const handleShouldStartLoad = (req: any) => {
     const u = (req.url || '').toLowerCase();
     if (!u || u === 'about:blank' || u.startsWith('data:') || u.startsWith('blob:')) return true;
@@ -252,19 +274,33 @@ export function EmbeddedStreamPlayer({
       return false;
     }
 
-    // If it's a top-frame redirect away to ad/search engine
-    if (req.isTopFrame && !u.includes('7reels') && !u.includes('anikoto') && !u.includes('vidsrc') && !u.includes('embed') && !u.includes('youtube')) {
-      if (u.includes('google.com') || u.includes('doubleclick') || u.includes('ad.') || u.includes('bet')) {
-        return false;
-      }
+    // Block explicit search engines / ad domains
+    if (
+      u.includes('google.com') ||
+      u.includes('google.co') ||
+      u.includes('doubleclick') ||
+      u.includes('adservice') ||
+      u.includes('bing.com') ||
+      u.includes('yahoo.com') ||
+      u.includes('bet')
+    ) {
+      return false;
     }
 
     // Allow all embed and media requests
     return true;
   };
 
+  const webViewSource: any = {
+    uri: currentUrl,
+    headers:
+      currentUrl.includes('anikoto') || currentUrl.includes('megaplay')
+        ? { Referer: 'https://anikototv.to/' }
+        : undefined,
+  };
+
   const webViewProps: any = {
-    source: { uri: currentUrl },
+    source: webViewSource,
     style: styles.webView,
     javaScriptEnabled: true,
     domStorageEnabled: true,
@@ -282,6 +318,11 @@ export function EmbeddedStreamPlayer({
       handleAutoFallback();
     },
     setSupportMultipleWindows: false,
+    scrollEnabled: false,
+    nestedScrollEnabled: true,
+    overScrollMode: 'never',
+    showsHorizontalScrollIndicator: false,
+    showsVerticalScrollIndicator: false,
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   };
@@ -405,7 +446,7 @@ export function EmbeddedStreamPlayer({
 
           {/* Fallback Toast Banner */}
           {fallbackToast && (
-            <View style={styles.fallbackToast}>
+            <View style={styles.fallbackToast} pointerEvents="none">
               <Ionicons name="swap-horizontal" size={14} color="#ffcf5c" />
               <Text style={styles.fallbackToastText}>{fallbackToast}</Text>
             </View>
@@ -413,9 +454,9 @@ export function EmbeddedStreamPlayer({
 
           {/* Loading Overlay */}
           {loading && (
-            <View style={styles.overlayCenter}>
+            <View style={styles.overlayCenter} pointerEvents="none">
               <ActivityIndicator size="small" color={theme.colors.accent} />
-              <Text style={styles.overlayText}>Connecting to {activeSource.name}...</Text>
+              <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
             </View>
           )}
 
@@ -461,7 +502,7 @@ export function EmbeddedStreamPlayer({
 
           {/* Fullscreen Loading Overlay */}
           {loading && (
-            <View style={styles.overlayCenter}>
+            <View style={styles.overlayCenter} pointerEvents="none">
               <ActivityIndicator size="large" color={theme.colors.accent} />
               <Text style={styles.overlayText}>Connecting to {activeSource.name} ({activeServer.name})...</Text>
             </View>

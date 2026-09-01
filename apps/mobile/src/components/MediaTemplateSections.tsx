@@ -185,22 +185,6 @@ export function MediaTemplateSections({
     .slice(0, 3);
   const creatorNames = creators.map((c: any) => c.name).slice(0, 3);
 
-  if (isPlayerFullscreen && isMovie && streamData?.streamUrl) {
-    return (
-      <View style={{ flex: 1, width: '100%', height: '100%', backgroundColor: '#000000' }}>
-        <EmbeddedStreamPlayer
-          url={streamData.streamUrl}
-          provider={streamData.provider}
-          title={`Watch ${media.title}`}
-          subtitle={`${media.year || ''} • ${streamData.sourceLabel}`}
-          sources={streamData.sources}
-          height={230}
-          onFullscreenChange={onFullscreenChange}
-        />
-      </View>
-    );
-  }
-
   const cardStyle = {
     backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : colors.card,
     borderColor: isDark ? 'rgba(255, 255, 255, 0.07)' : colors.cardBorder,
@@ -209,9 +193,11 @@ export function MediaTemplateSections({
   const mutedStyle = { color: colors.textMuted };
 
   return (
-    <View style={styles.container}>
-      {/* 1. NEWS SECTION */}
-      <View style={[styles.sectionCard, cardStyle]}>
+    <View style={isPlayerFullscreen ? styles.fullscreenContainer : styles.container}>
+      {!isPlayerFullscreen && (
+        <>
+          {/* 1. NEWS SECTION */}
+          <View style={[styles.sectionCard, cardStyle]}>
         <View style={styles.sectionHeaderRow}>
           <View>
             <Text style={styles.eyebrow}>NEWS</Text>
@@ -659,6 +645,8 @@ export function MediaTemplateSections({
           );
         })()}
       </View>
+      </>
+      )}
 
       {/* 5. EMBEDDED MOVIE STREAM PLAYER */}
       {isMovie && streamData?.streamUrl && (
@@ -673,7 +661,9 @@ export function MediaTemplateSections({
         />
       )}
 
-      {/* 6. TRAILER EMBEDDED PLAYER */}
+      {!isPlayerFullscreen && (
+        <>
+          {/* 6. TRAILER EMBEDDED PLAYER */}
       {trailer && (
         <View style={[styles.sectionCard, cardStyle]}>
           <View style={styles.trailerHeaderRow}>
@@ -887,11 +877,21 @@ export function MediaTemplateSections({
         <Text style={[styles.sectionTitle, titleStyle]}>Comments</Text>
         <Text style={[styles.mutedText, mutedStyle]}>Spoiler-aware comments arrive in Phase 8.</Text>
       </View>
+      </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fullscreenContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000000',
+    margin: 0,
+    padding: 0,
+  },
   container: {
     gap: 12,
     marginTop: 12,

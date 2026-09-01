@@ -192,9 +192,48 @@ export function EmbeddedStreamPlayer({
     Linking.openURL(currentUrl).catch(() => {});
   };
 
-  // Injected JavaScript: isolates player on Anikoto & 7reels and triggers Dub/Sub selection
+  // Injected JavaScript: isolates player on Anikoto & 7reels, enforces object-fit contain, and triggers Dub/Sub selection
   const injectedJS = `
     (function() {
+      // 1. Global video fit rule (Letterbox/Pillarbox without cropping like YouTube)
+      var globalStyle = document.getElementById('tuvu-global-fit-style');
+      if (!globalStyle) {
+        globalStyle = document.createElement('style');
+        globalStyle.id = 'tuvu-global-fit-style';
+        globalStyle.innerHTML = \`
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #000000 !important;
+            overflow: hidden !important;
+            width: 100% !important;
+            height: 100% !important;
+          }
+          video {
+            object-fit: contain !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+          }
+          .jwplayer, .plyr, .vjs-tech, .art-video-player, .dplayer-video, .video-js, iframe {
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+          }
+        \`;
+        document.head.appendChild(globalStyle);
+      }
+
+      // Continuously ensure any dynamically loaded video elements use object-fit contain
+      function applyVideoContain() {
+        var videos = document.querySelectorAll('video');
+        for (var v = 0; v < videos.length; v++) {
+          videos[v].style.setProperty('object-fit', 'contain', 'important');
+        }
+      }
+      setInterval(applyVideoContain, 500);
+      applyVideoContain();
+
       var isAnikoto = window.location.hostname.includes('anikoto');
       var is7reels = window.location.hostname.includes('7reels');
 
@@ -222,10 +261,15 @@ export function EmbeddedStreamPlayer({
               left: 0 !important;
               width: 100% !important;
               height: 100% !important;
+              max-width: 100vw !important;
+              max-height: 100vh !important;
               z-index: 999999 !important;
               margin: 0 !important;
               padding: 0 !important;
               background: #000000 !important;
+              display: flex !important;
+              align-items: center !important;
+              justify-content: center !important;
             }
             #player-wrapper, #player, #player iframe {
               width: 100% !important;

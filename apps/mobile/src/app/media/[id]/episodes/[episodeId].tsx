@@ -64,6 +64,28 @@ export default function EpisodeDetailsScreen() {
     enabled: Boolean(mediaId && episode),
   });
 
+  const targetMediaId = mediaId || data?.media?.id || episode?.mediaId;
+  const { data: episodesData } = useQuery({
+    queryKey: ['mediaEpisodes', targetMediaId],
+    queryFn: () => api.getMediaEpisodes(targetMediaId!),
+    enabled: Boolean(targetMediaId),
+  });
+
+  const allEpisodes = (episodesData?.episodes || [])
+    .slice()
+    .sort((a, b) => (a.seasonNumber ?? 0) - (b.seasonNumber ?? 0) || a.episodeNumber - b.episodeNumber);
+
+  const currentIndex = allEpisodes.findIndex(
+    (e) => String(e.id) === String(episodeId) || String(e.id) === String(episode?.id)
+  );
+  const prevEpisode = currentIndex > 0 ? allEpisodes[currentIndex - 1] : null;
+  const nextEpisode = currentIndex >= 0 && currentIndex < allEpisodes.length - 1 ? allEpisodes[currentIndex + 1] : null;
+
+  const navigateToEpisode = (targetEp: any) => {
+    if (!targetEp || !targetMediaId) return;
+    router.replace(`/media/${targetMediaId}/episodes/${targetEp.id}` as any);
+  };
+
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [expandedOverview, setExpandedOverview] = useState(false);
@@ -466,7 +488,93 @@ export default function EpisodeDetailsScreen() {
           </View>
         )}
 
-        {/* 5. EMBEDDED STREAM PLAYER */}
+        {/* 5. Quick Episode Switcher Bar (Just above the Stream Player) */}
+        {!isPlayerFullscreen && allEpisodes.length > 1 && (
+          <View
+            style={[
+              styles.playerEpisodeNavBar,
+              {
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(34, 31, 25, 0.03)',
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            <Pressable
+              style={[
+                styles.playerNavBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)',
+                  borderColor: colors.border,
+                },
+                !prevEpisode && styles.playerNavBtnDisabled,
+              ]}
+              onPress={() => navigateToEpisode(prevEpisode)}
+              disabled={!prevEpisode}
+              hitSlop={6}
+            >
+              <Ionicons
+                name="chevron-back"
+                size={16}
+                color={prevEpisode ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
+              />
+              <Text
+                style={[
+                  styles.playerNavBtnText,
+                  { color: prevEpisode ? colors.textStrong : colors.textSubtle },
+                ]}
+                numberOfLines={1}
+              >
+                {prevEpisode
+                  ? `Prev (E${prevEpisode.episodeNumber})`
+                  : 'Prev'}
+              </Text>
+            </Pressable>
+
+            <View style={styles.playerNavCenterPill}>
+              <Text style={[styles.playerNavCenterTitle, { color: isDark ? colors.accent : colors.accentDark }]}>
+                S{String(episode.seasonNumber ?? 1).padStart(2, '0')}E{String(episode.episodeNumber).padStart(2, '0')}
+              </Text>
+              {currentIndex >= 0 && (
+                <Text style={[styles.playerNavCenterSub, { color: colors.textMuted }]}>
+                  Episode {currentIndex + 1} of {allEpisodes.length}
+                </Text>
+              )}
+            </View>
+
+            <Pressable
+              style={[
+                styles.playerNavBtn,
+                {
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(34, 31, 25, 0.05)',
+                  borderColor: colors.border,
+                },
+                !nextEpisode && styles.playerNavBtnDisabled,
+              ]}
+              onPress={() => navigateToEpisode(nextEpisode)}
+              disabled={!nextEpisode}
+              hitSlop={6}
+            >
+              <Text
+                style={[
+                  styles.playerNavBtnText,
+                  { color: nextEpisode ? colors.textStrong : colors.textSubtle },
+                ]}
+                numberOfLines={1}
+              >
+                {nextEpisode
+                  ? `Next (E${nextEpisode.episodeNumber})`
+                  : 'Next'}
+              </Text>
+              <Ionicons
+                name="chevron-forward"
+                size={16}
+                color={nextEpisode ? (isDark ? colors.accent : colors.accentDark) : colors.textSubtle}
+              />
+            </Pressable>
+          </View>
+        )}
+
+        {/* 6. EMBEDDED STREAM PLAYER */}
         {streamData?.streamUrl && (
           <EmbeddedStreamPlayer
             url={streamData.streamUrl}
@@ -605,7 +713,69 @@ export default function EpisodeDetailsScreen() {
           </View>
         )}
 
-        {/* 9. Personal Notes */}
+        {/* 9. Adjacent Episode Navigation Card */}
+        {allEpisodes.length > 1 && (
+          <View style={[styles.sectionCard, cardStyle]}>
+            <Text style={styles.cardEyebrow}>EPISODE NAVIGATION</Text>
+            <View style={styles.adjacentEpisodesRow}>
+              {prevEpisode ? (
+                <Pressable
+                  style={[
+                    styles.adjacentEpisodeCard,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(34, 31, 25, 0.04)',
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => navigateToEpisode(prevEpisode)}
+                >
+                  <Ionicons name="arrow-back" size={16} color={isDark ? colors.accent : colors.accentDark} />
+                  <View style={styles.adjacentEpisodeCopy}>
+                    <Text style={[styles.adjacentEpisodeLabel, { color: isDark ? colors.accent : colors.accentDark }]}>
+                      PREVIOUS (S{String(prevEpisode.seasonNumber ?? 1).padStart(2, '0')}E{String(prevEpisode.episodeNumber).padStart(2, '0')})
+                    </Text>
+                    <Text style={[styles.adjacentEpisodeTitle, { color: colors.textStrong }]} numberOfLines={1}>
+                      {prevEpisode.title || `Episode ${prevEpisode.episodeNumber}`}
+                    </Text>
+                  </View>
+                </Pressable>
+              ) : (
+                <View style={[styles.adjacentEpisodeCard, styles.adjacentEpisodePlaceholder, { borderColor: colors.border }]}>
+                  <Text style={[styles.adjacentPlaceholderText, { color: colors.textSubtle }]}>First Episode</Text>
+                </View>
+              )}
+
+              {nextEpisode ? (
+                <Pressable
+                  style={[
+                    styles.adjacentEpisodeCard,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(34, 31, 25, 0.04)',
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  onPress={() => navigateToEpisode(nextEpisode)}
+                >
+                  <View style={[styles.adjacentEpisodeCopy, { alignItems: 'flex-end' }]}>
+                    <Text style={[styles.adjacentEpisodeLabel, { color: isDark ? colors.accent : colors.accentDark }]}>
+                      NEXT (S{String(nextEpisode.seasonNumber ?? 1).padStart(2, '0')}E{String(nextEpisode.episodeNumber).padStart(2, '0')})
+                    </Text>
+                    <Text style={[styles.adjacentEpisodeTitle, { color: colors.textStrong }]} numberOfLines={1}>
+                      {nextEpisode.title || `Episode ${nextEpisode.episodeNumber}`}
+                    </Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={16} color={isDark ? colors.accent : colors.accentDark} />
+                </Pressable>
+              ) : (
+                <View style={[styles.adjacentEpisodeCard, styles.adjacentEpisodePlaceholder, { borderColor: colors.border }]}>
+                  <Text style={[styles.adjacentPlaceholderText, { color: colors.textSubtle }]}>Latest Episode</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* 10. Personal Notes */}
         <View style={[styles.sectionCard, cardStyle]}>
           <Text style={styles.cardEyebrow}>PERSONAL NOTES</Text>
           <TextInput
@@ -747,6 +917,46 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  playerEpisodeNavBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  playerNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+  },
+  playerNavBtnDisabled: {
+    opacity: 0.35,
+  },
+  playerNavBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  playerNavCenterPill: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playerNavCenterTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  playerNavCenterSub: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1,
   },
   // Header Section
   headerSection: {
@@ -1099,5 +1309,42 @@ const styles = StyleSheet.create({
   sheetActionSub: {
     color: '#8f938e',
     fontSize: 12,
+  },
+  // Adjacent Episodes Card
+  adjacentEpisodesRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  adjacentEpisodeCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  adjacentEpisodePlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderStyle: 'dashed',
+    opacity: 0.5,
+  },
+  adjacentPlaceholderText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  adjacentEpisodeCopy: {
+    flex: 1,
+  },
+  adjacentEpisodeLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  adjacentEpisodeTitle: {
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

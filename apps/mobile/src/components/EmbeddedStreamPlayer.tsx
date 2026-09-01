@@ -195,7 +195,40 @@ export function EmbeddedStreamPlayer({
   // Injected JavaScript: isolates player on Anikoto & 7reels, enforces object-fit contain, and triggers Dub/Sub selection
   const injectedJS = `
     (function() {
-      // 1. Global video fit rule (Letterbox/Pillarbox without cropping like YouTube)
+      // 1. Post message to React Native on user interaction
+      function reportTouch() {
+        try {
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'SCREEN_TOUCH' }));
+          }
+        } catch(e) {}
+      }
+
+      window.addEventListener('click', reportTouch, true);
+      window.addEventListener('touchstart', reportTouch, { passive: true, capture: true });
+      window.addEventListener('pointerdown', reportTouch, { passive: true, capture: true });
+      window.addEventListener('blur', function() {
+        reportTouch();
+      }, true);
+
+      function attachIframeTouches() {
+        var iframes = document.querySelectorAll('iframe');
+        for (var i = 0; i < iframes.length; i++) {
+          try {
+            var doc = iframes[i].contentDocument || iframes[i].contentWindow.document;
+            if (doc && !doc._tuvuTouchAttached) {
+              doc._tuvuTouchAttached = true;
+              doc.addEventListener('click', reportTouch, true);
+              doc.addEventListener('touchstart', reportTouch, { passive: true, capture: true });
+              doc.addEventListener('pointerdown', reportTouch, { passive: true, capture: true });
+            }
+          } catch(e) {}
+        }
+      }
+      setInterval(attachIframeTouches, 1000);
+      attachIframeTouches();
+
+      // 2. Global video fit rule (Letterbox/Pillarbox without cropping like YouTube)
       var globalStyle = document.getElementById('tuvu-global-fit-style');
       if (!globalStyle) {
         globalStyle = document.createElement('style');
@@ -441,6 +474,18 @@ export function EmbeddedStreamPlayer({
     headers: referer ? { Referer: referer } : undefined,
   };
 
+  const handleMessage = (event: any) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'SCREEN_TOUCH') {
+        if (isFullscreen) {
+          setShowControls(true);
+          resetControlsTimer();
+        }
+      }
+    } catch {}
+  };
+
   const webViewProps: any = {
     source: webViewSource,
     style: styles.webView,
@@ -457,6 +502,7 @@ export function EmbeddedStreamPlayer({
       } catch(e) {}
     `,
     onShouldStartLoadWithRequest: handleShouldStartLoad,
+    onMessage: handleMessage,
     onOpenWindow: (syntheticEvent: any) => {
       syntheticEvent?.preventDefault?.();
     },
@@ -597,6 +643,12 @@ export function EmbeddedStreamPlayer({
         ]}
         onStartShouldSetResponderCapture={() => true}
         onMoveShouldSetResponderCapture={() => false}
+        onTouchEnd={() => {
+          if (isFullscreen) {
+            setShowControls(true);
+            resetControlsTimer();
+          }
+        }}
       >
         <RNWebView
           key={`webview-${keyCounter}-${activeSourceIndex}-${activeServerIndex}`}

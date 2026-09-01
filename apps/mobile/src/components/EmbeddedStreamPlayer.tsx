@@ -22,6 +22,25 @@ import { StreamSourceItem, StreamServer } from '../services/api';
 
 const RNWebView: any = WebView;
 
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+];
+
+const getRandomUserAgent = () => {
+  const idx = Math.floor(Math.random() * USER_AGENTS.length);
+  return USER_AGENTS[idx];
+};
+
+const SERVER_TIMEOUT_MS = 14000;
+const SERVER_RETRY_TIMEOUT_MS = 7000;
+
 interface EmbeddedStreamPlayerProps {
   url: string;
   provider?: string;
@@ -47,6 +66,7 @@ export function EmbeddedStreamPlayer({
   const [activeServerIndex, setActiveServerIndex] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(initialUrl);
   const [keyCounter, setKeyCounter] = useState(0);
+  const [currentUserAgent, setCurrentUserAgent] = useState(getRandomUserAgent);
 
   // Status & Fullscreen State
   const [loading, setLoading] = useState(true);
@@ -57,6 +77,12 @@ export function EmbeddedStreamPlayer({
 
   const webViewRef = useRef<any>(null);
   const controlsTimeoutRef = useRef<any>(null);
+  const userInteractedRef = useRef<boolean>(false);
+  const isVideoPlayingRef = useRef<boolean>(false);
+  const isPlayerReadyRef = useRef<boolean>(false);
+  const hasRetriedCurrentServerRef = useRef<boolean>(false);
+  const serverTimeoutRef = useRef<any>(null);
+  const serverRetryTimeoutRef = useRef<any>(null);
 
   // Normalize source list
   const sourceList: StreamSourceItem[] = sources.length > 0
@@ -122,31 +148,24 @@ export function EmbeddedStreamPlayer({
     };
   }, [isFullscreen]);
 
-  const handleSelectSource = (index: number) => {
-    if (index === activeSourceIndex) return;
-    setActiveSourceIndex(index);
-    setActiveServerIndex(0);
-    const newSrc = sourceList[index];
-    const initialSrvUrl = newSrc.servers && newSrc.servers.length > 0 ? newSrc.servers[0].url : newSrc.url;
-    setCurrentUrl(initialSrvUrl);
-    setLoading(true);
-    setHasError(false);
-    setKeyCounter((k) => k + 1);
-  };
-
-  const handleSelectServer = (index: number) => {
-    if (index === activeServerIndex) return;
-    setActiveServerIndex(index);
-    const srv = activeServers[index];
-    if (srv && srv.url) {
-      setCurrentUrl(srv.url);
-      setLoading(true);
-      setHasError(false);
-      setKeyCounter((k) => k + 1);
+  const clearServerTimeouts = useCallback(() => {
+    if (serverTimeoutRef.current) {
+      clearTimeout(serverTimeoutRef.current);
+      serverTimeoutRef.current = null;
     }
-  };
+    if (serverRetryTimeoutRef.current) {
+      clearTimeout(serverRetryTimeoutRef.current);
+      serverRetryTimeoutRef.current = null;
+    }
+  }, []);
 
   const handleAutoFallback = useCallback(() => {
+    clearServerTimeouts();
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
+
     // 1. Try next server within same source
     if (activeServerIndex < activeServers.length - 1) {
       const nextSrvIdx = activeServerIndex + 1;
@@ -167,7 +186,90 @@ export function EmbeddedStreamPlayer({
     } else {
       setHasError(true);
     }
-  }, [activeServerIndex, activeServers, activeSourceIndex, sourceList]);
+  }, [activeServerIndex, activeServers, activeSourceIndex, sourceList, clearServerTimeouts]);
+
+  const startServerTimeout = useCallback(() => {
+    clearServerTimeouts();
+    serverTimeoutRef.current = setTimeout(() => {
+      // If user interacted with the webview, video is playing, or player container is ready, cancel auto-switch
+      if (userInteractedRef.current || isVideoPlayingRef.current || isPlayerReadyRef.current) {
+        return;
+      }
+
+      // First attempt: try home/reset once automatically
+      if (!hasRetriedCurrentServerRef.current) {
+        hasRetriedCurrentServerRef.current = true;
+        setFallbackToast('Checking stream connectivity...');
+        setTimeout(() => setFallbackToast(null), 2500);
+
+        // Perform home action: re-init with randomized user-agent & fresh webview context
+        setLoading(true);
+        setHasError(false);
+        setCurrentUserAgent(getRandomUserAgent());
+        setKeyCounter((k) => k + 1);
+
+        serverRetryTimeoutRef.current = setTimeout(() => {
+          if (userInteractedRef.current || isVideoPlayingRef.current || isPlayerReadyRef.current) {
+            return;
+          }
+          handleAutoFallback();
+        }, SERVER_RETRY_TIMEOUT_MS);
+        return;
+      }
+
+      // Second attempt failed: switch to next server
+      handleAutoFallback();
+    }, SERVER_TIMEOUT_MS);
+  }, [clearServerTimeouts, handleAutoFallback]);
+
+  // Restart timeout on url / server / source changes
+  useEffect(() => {
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
+    startServerTimeout();
+
+    return () => {
+      clearServerTimeouts();
+    };
+  }, [currentUrl, startServerTimeout, clearServerTimeouts]);
+
+  const handleSelectSource = (index: number) => {
+    if (index === activeSourceIndex) return;
+    clearServerTimeouts();
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
+    setActiveSourceIndex(index);
+    setActiveServerIndex(0);
+    const newSrc = sourceList[index];
+    const initialSrvUrl = newSrc.servers && newSrc.servers.length > 0 ? newSrc.servers[0].url : newSrc.url;
+    setCurrentUserAgent(getRandomUserAgent());
+    setCurrentUrl(initialSrvUrl);
+    setLoading(true);
+    setHasError(false);
+    setKeyCounter((k) => k + 1);
+  };
+
+  const handleSelectServer = (index: number) => {
+    if (index === activeServerIndex) return;
+    clearServerTimeouts();
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
+    setActiveServerIndex(index);
+    const srv = activeServers[index];
+    if (srv && srv.url) {
+      setCurrentUserAgent(getRandomUserAgent());
+      setCurrentUrl(srv.url);
+      setLoading(true);
+      setHasError(false);
+      setKeyCounter((k) => k + 1);
+    }
+  };
 
   const toggleFullscreen = async () => {
     const nextState = !isFullscreen;
@@ -190,11 +292,52 @@ export function EmbeddedStreamPlayer({
     }, 2500);
   };
 
-  // Reset to original stream link
-  const handleResetToStream = () => {
+  // Reset to original stream link with randomizer & fresh context
+  const handleResetToStream = (silent = false) => {
+    clearServerTimeouts();
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
     setLoading(true);
     setHasError(false);
+    setCurrentUserAgent(getRandomUserAgent());
+    if (!silent) {
+      setFallbackToast('Resetting stream connection');
+      setTimeout(() => setFallbackToast(null), 2500);
+    }
     setCurrentUrl(activeServer.url || activeSource.url);
+    setKeyCounter((k) => k + 1);
+  };
+
+  // Reload with cache clear and randomized user agent
+  const handleReloadWithCacheClear = () => {
+    clearServerTimeouts();
+    userInteractedRef.current = false;
+    isVideoPlayingRef.current = false;
+    isPlayerReadyRef.current = false;
+    hasRetriedCurrentServerRef.current = false;
+    setLoading(true);
+    setHasError(false);
+    setCurrentUserAgent(getRandomUserAgent());
+    setFallbackToast('Cache cleared & re-connecting');
+    setTimeout(() => setFallbackToast(null), 2500);
+
+    try {
+      webViewRef.current?.injectJavaScript?.(`
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          if (window.caches && caches.keys) {
+            caches.keys().then(function(names) {
+              for (var n = 0; n < names.length; n++) caches.delete(names[n]);
+            });
+          }
+        } catch(e) {}
+        true;
+      `);
+    } catch(e) {}
+
     setKeyCounter((k) => k + 1);
   };
 
@@ -211,6 +354,25 @@ export function EmbeddedStreamPlayer({
     (function() {
       var expectedType = '${targetServerType}';
       var expectedServerCode = '${targetServerCode}';
+
+      // Anti-bot detection masking
+      try {
+        Object.defineProperty(navigator, 'webdriver', { get: function() { return undefined; } });
+        if (!window.chrome) {
+          window.chrome = { runtime: {} };
+        }
+      } catch(e) {}
+
+      // Anti-ad hijacking & popup blocking
+      try {
+        window.open = function() { return null; };
+        window.onbeforeunload = null;
+        if (window.top && window.top !== window.self) {
+          try {
+            window.top.onbeforeunload = null;
+          } catch(e) {}
+        }
+      } catch(e) {}
 
       // 1. Post message to React Native on user interaction
       function reportTouch() {
@@ -244,6 +406,79 @@ export function EmbeddedStreamPlayer({
       }
       setInterval(attachIframeTouches, 1000);
       attachIframeTouches();
+
+      // Video and player container readiness detection to disarm server fallback timer
+      function checkPlayerReadiness() {
+        try {
+          // 1. Check for video element with metadata, duration, or stream loaded
+          var allVideos = document.querySelectorAll('video');
+          for (var i = 0; i < allVideos.length; i++) {
+            var v = allVideos[i];
+            if (
+              v.currentTime > 0 ||
+              !v.paused ||
+              v.readyState >= 1 ||
+              v.duration > 0 ||
+              (v.src && v.src.length > 5) ||
+              (v.currentSrc && v.currentSrc.length > 5)
+            ) {
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLAYER_READY' }));
+              }
+              return;
+            }
+          }
+
+          // 2. Check for player container UIs or buttons
+          var playerUIs = document.querySelectorAll(
+            '.jwplayer, .plyr, .vjs-tech, .video-js, .art-video-player, .dplayer, #player, #w-player, #player-wrapper, .play-button, [data-plyr="play"], .vjs-big-play-button, .jw-display-icon-container, .vjs-poster, .vjs-control-bar'
+          );
+          if (playerUIs && playerUIs.length > 0) {
+            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLAYER_READY' }));
+            }
+            return;
+          }
+
+          // 3. Check inside iframes as well
+          var iframes = document.querySelectorAll('iframe');
+          for (var j = 0; j < iframes.length; j++) {
+            try {
+              var idoc = iframes[j].contentDocument || iframes[j].contentWindow.document;
+              if (idoc) {
+                var iv = idoc.querySelectorAll('video');
+                for (var k = 0; k < iv.length; k++) {
+                  if (
+                    iv[k].currentTime > 0 ||
+                    !iv[k].paused ||
+                    iv[k].readyState >= 1 ||
+                    iv[k].duration > 0 ||
+                    (iv[k].src && iv[k].src.length > 5) ||
+                    (iv[k].currentSrc && iv[k].currentSrc.length > 5)
+                  ) {
+                    if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLAYER_READY' }));
+                    }
+                    return;
+                  }
+                }
+
+                var iUIs = idoc.querySelectorAll(
+                  '.jwplayer, .plyr, .vjs-tech, .video-js, .art-video-player, .dplayer, #player, #w-player, #player-wrapper, .play-button, [data-plyr="play"], .vjs-big-play-button, .jw-display-icon-container, .vjs-poster, .vjs-control-bar'
+                );
+                if (iUIs && iUIs.length > 0) {
+                  if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLAYER_READY' }));
+                  }
+                  return;
+                }
+              }
+            } catch(e) {}
+          }
+        } catch(e) {}
+      }
+      setInterval(checkPlayerReadiness, 1000);
+      checkPlayerReadiness();
 
       // 2. Global video fit rule & hide player's internal fullscreen button
       var globalStyle = document.getElementById('tuvu-global-fit-style');
@@ -559,7 +794,7 @@ export function EmbeddedStreamPlayer({
     true;
   `;
 
-  // Safe navigation filter allowing all streaming CDNs and player embeds
+  // Safe navigation filter allowing all streaming CDNs and player embeds while blocking ad redirects
   const handleShouldStartLoad = (req: any) => {
     const u = (req.url || '').toLowerCase();
     // Always allow data:, blob:, and about:blank
@@ -572,9 +807,21 @@ export function EmbeddedStreamPlayer({
       return false;
     }
 
-    // Block explicit search engines on top frame
-    if (req.isTopFrame && (u.includes('google.com') || u.includes('bing.com') || u.includes('yahoo.com'))) {
-      return false;
+    // Protect top frame from ad redirects and search engine hijacking
+    if (req.isTopFrame) {
+      if (
+        u.includes('google.') ||
+        u.includes('bing.com') ||
+        u.includes('yahoo.com') ||
+        u.includes('youtube.com') ||
+        u.includes('youtu.be') ||
+        u.includes('doubleclick') ||
+        u.includes('adservice') ||
+        u.includes('popads') ||
+        u.includes('histats')
+      ) {
+        return false;
+      }
     }
 
     // Allow all embed, CDN, and media requests
@@ -599,10 +846,15 @@ export function EmbeddedStreamPlayer({
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'SCREEN_TOUCH') {
+        userInteractedRef.current = true;
+        clearServerTimeouts();
         if (isFullscreen) {
           setShowControls(true);
           resetControlsTimer();
         }
+      } else if (data.type === 'VIDEO_PLAYING' || data.type === 'PLAYER_READY') {
+        isPlayerReadyRef.current = true;
+        clearServerTimeouts();
       }
     } catch {}
   };
@@ -627,7 +879,23 @@ export function EmbeddedStreamPlayer({
       syntheticEvent?.preventDefault?.();
     },
     onLoadStart: () => setLoading(true),
-    onLoadEnd: () => setLoading(false),
+    onLoadEnd: () => {
+      setLoading(false);
+      // Verify player readiness 2s after load completion
+      setTimeout(() => {
+        if (!hasError) {
+          webViewRef.current?.injectJavaScript?.(`
+            try {
+              var hasP = document.querySelector('video, iframe, #player, #w-player, .jwplayer, .plyr, .video-js, .art-video-player, .play-button');
+              if (hasP && window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PLAYER_READY' }));
+              }
+            } catch(e) {}
+            true;
+          `);
+        }
+      }, 2000);
+    },
     onError: () => {
       setLoading(false);
       handleAutoFallback();
@@ -635,8 +903,7 @@ export function EmbeddedStreamPlayer({
     setSupportMultipleWindows: false,
     nestedScrollEnabled: true,
     overScrollMode: 'never',
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    userAgent: currentUserAgent,
   };
 
   return (
@@ -663,22 +930,19 @@ export function EmbeddedStreamPlayer({
             {/* Reset to stream button */}
             <Pressable
               style={[styles.iconBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
-              onPress={handleResetToStream}
+              onPress={() => handleResetToStream(false)}
               hitSlop={6}
               accessibilityLabel="Reset to stream"
             >
               <Ionicons name="home-outline" size={15} color={colors.textMuted} />
             </Pressable>
 
-            {/* Reload button */}
+            {/* Reload button with cache clear & randomizer */}
             <Pressable
               style={[styles.iconBtn, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(34, 31, 25, 0.06)', borderColor: colors.border }]}
-              onPress={() => {
-                setLoading(true);
-                setHasError(false);
-                webViewRef.current?.reload?.();
-              }}
+              onPress={handleReloadWithCacheClear}
               hitSlop={6}
+              accessibilityLabel="Reload with cache clear"
             >
               <Ionicons name="reload-outline" size={15} color={colors.textMuted} />
             </Pressable>
@@ -807,18 +1071,14 @@ export function EmbeddedStreamPlayer({
 
             <View style={styles.floatingRight}>
               {/* Reset to stream button */}
-              <Pressable style={styles.floatingIconBtn} onPress={handleResetToStream} hitSlop={6}>
+              <Pressable style={styles.floatingIconBtn} onPress={() => handleResetToStream(false)} hitSlop={6}>
                 <Ionicons name="home-outline" size={16} color="#f8f7f2" />
               </Pressable>
 
-              {/* Reload button */}
+              {/* Reload button with cache clear & randomizer */}
               <Pressable
                 style={styles.floatingIconBtn}
-                onPress={() => {
-                  setLoading(true);
-                  setHasError(false);
-                  webViewRef.current?.reload?.();
-                }}
+                onPress={handleReloadWithCacheClear}
                 hitSlop={6}
               >
                 <Ionicons name="reload-outline" size={16} color="#f8f7f2" />

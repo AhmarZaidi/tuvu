@@ -14,7 +14,8 @@
         "foregroundImage": "./assets/icon.png"
       },
       "package": "com.ahmar.tuvu",
-      "versionCode": 3
+      "versionCode": 7,
+      "usesCleartextTraffic": true
     },
     "plugins": [
       "expo-router",

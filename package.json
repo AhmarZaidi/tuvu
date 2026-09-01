@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "worker:types": "wrangler types",
+    "export:server": "node scripts/export-server-bundle.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {

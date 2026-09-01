@@ -1,9 +1,16 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { getStoredServerUrl, saveStoredServerUrl } from './storage';
 
 const DEFAULT_PORT = 8787;
 
 export function getDefaultApiBase(): string {
+  // Check stored server URL from SQLite first
+  const stored = getStoredServerUrl();
+  if (stored && stored.trim()) {
+    return stored.trim();
+  }
+
   // When running in Expo Go on a real phone or dev-client, hostUri contains "<laptop-ip>:<metro-port>"
   const hostUri = Constants.expoConfig?.hostUri || (Constants as any).manifest2?.extra?.expoClient?.hostUri;
   if (hostUri) {
@@ -32,5 +39,7 @@ export const config = {
       clean = clean.slice(0, -1);
     }
     activeApiBase = clean;
+    saveStoredServerUrl(clean);
   },
 };
+

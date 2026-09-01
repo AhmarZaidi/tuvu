@@ -23,6 +23,20 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Server Export & Bundles
+dist-server/
+*.tar.gz
+*.zip
+
+# SQLite & local state
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+.tuvu-runtime/
+
 # Expo & Android
 .expo/
 .expo-export-smoke/
@@ -32,4 +46,5 @@ builds/
 android/
 ios/
 local.properties
+
 

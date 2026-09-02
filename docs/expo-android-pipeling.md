@@ -234,9 +234,17 @@ Reads `package.json` for the current version. In interactive mode, prompts to ke
 
 Skip the prompt in CI with `--no-prompt` or by passing `--version=X.X.X`.
 
-**Step 2: Ensure android directory**
+**Step 2: Synchronize and verify native configuration**
 
-Checks if `android/` exists. If not, runs `expo prebuild --platform android --no-install` to generate it. The `android/` directory is gitignored and generated on-demand.
+Computes a fingerprint of native-affecting `app.json` settings, dependencies,
+and referenced icon/splash assets. It skips Expo prebuild while that fingerprint
+is unchanged, and runs `expo prebuild --platform android --no-install` only when
+the native project is missing, incomplete, or its inputs changed. Version and
+version-code updates do not invalidate the fingerprint. The script then
+idempotently enforces and verifies
+`android:usesCleartextTraffic` from `expo.android.usesCleartextTraffic` before
+Gradle starts. This post-prebuild check is required because Expo may omit the
+attribute when regenerating `AndroidManifest.xml`.
 
 **Step 3: JDK discovery**
 
@@ -401,7 +409,10 @@ The `scripts/build-apk.js` script keeps both files in sync when you run a build.
 
 ### Native directory generation
 
-Do not commit `/android`. Run `expo prebuild --platform android` to regenerate it. The build script does this automatically if the directory is missing. Regeneration is required after upgrading Expo SDK or adding a new plugin to `app.json`.
+Do not commit `/android`. The APK build script fingerprints native inputs and
+regenerates or updates it only when required, then reapplies native settings
+that Expo does not preserve. Manual prebuild is therefore unnecessary before
+`npm run build:apk`.
 
 ### Gradle 9 jcenter() deprecation
 

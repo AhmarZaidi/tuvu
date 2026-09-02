@@ -83,6 +83,13 @@ Workers. See [docs/env.md](docs/env.md) for the exact variables and
 
 For database reset and storage cleanup instructions, see [docs/phase-3-media.md](docs/phase-3-media.md).
 
+## Personal Server Deployment
+
+For a private Node/SQLite deployment on a personal server, see
+[docs/personal-server-deployment.md](docs/personal-server-deployment.md). For the
+headless Android/Termux host used during device testing, see
+[docs/android-termux-server.md](docs/android-termux-server.md).
+
 ## Architecture Records
 
 - [ADR 0001: Static SPA plus Hono API](docs/adr/0001-static-spa-hono-api.md)
@@ -100,4 +107,3 @@ settings direction, and the 7.5.x refactor guardrails. Future code should keep
 canonical media global, user tracking user-scoped, provider metadata cached, and
 media-type behavior driven by shared configuration instead of page-level
 switches.
-

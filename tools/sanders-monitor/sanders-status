@@ -1,0 +1,209 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+# Compact, read-only host status for a tmux status line on Termux.
+# Network latency is cached so frequent tmux refreshes do not generate a ping
+# every time.
+
+set -u
+
+monitor_state_dir="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/sanders-monitor"
+cpu_state_file="$monitor_state_dir/cpu"
+latency_state_file="$monitor_state_dir/gateway-latency"
+gateway="${SANDERS_MONITOR_GATEWAY:-192.168.31.1}"
+latency_ttl="${SANDERS_MONITOR_LATENCY_TTL:-30}"
+
+mkdir -p "$monitor_state_dir" 2>/dev/null || true
+
+cpu_usage() {
+  cpu_line=$(sed -n '1p' /proc/stat 2>/dev/null) || {
+    printf '?'
+    return
+  }
+
+  set -- $cpu_line
+  shift
+
+  total=0
+  for value in "$@"; do
+    total=$((total + value))
+  done
+
+  idle=${4:-0}
+  idle=$((idle + ${5:-0}))
+
+  usage="?"
+  if [ -r "$cpu_state_file" ]; then
+    read -r previous_total previous_idle < "$cpu_state_file" || true
+    total_delta=$((total - ${previous_total:-total}))
+    idle_delta=$((idle - ${previous_idle:-idle}))
+    if [ "$total_delta" -gt 0 ]; then
+      usage=$(((100 * (total_delta - idle_delta)) / total_delta))
+    fi
+  fi
+
+  temporary_state="$cpu_state_file.$$"
+  printf '%s %s\n' "$total" "$idle" > "$temporary_state" 2>/dev/null &&
+    mv "$temporary_state" "$cpu_state_file" 2>/dev/null
+
+  printf '%s' "$usage"
+}
+
+processor_summary() {
+  usage=$(cpu_usage)
+  if [ "$usage" != "?" ]; then
+    printf 'CPU %s%%' "$usage"
+    return
+  fi
+
+  usage=$(top -bn1 2>/dev/null | awk '
+    /%cpu/ {
+      total = 0
+      idle = 0
+      for (field_number = 1; field_number <= NF; field_number++) {
+        field = $field_number
+        if (field ~ /%cpu$/) {
+          sub(/%cpu$/, "", field)
+          total = field + 0
+        } else if (field ~ /%idle$/) {
+          sub(/%idle$/, "", field)
+          idle = field + 0
+        }
+      }
+      if (total > 0) printf "%.0f", ((total - idle) * 100) / total
+      exit
+    }
+  ')
+  if [ -n "$usage" ]; then
+    printf 'CPU %s%%' "$usage"
+    return
+  fi
+
+  load=$(cat /proc/loadavg 2>/dev/null | awk '{ print $1 }')
+  if [ -z "$load" ]; then
+    load=$(uptime 2>/dev/null |
+      sed -n 's/.*load averages\{0,1\}: *\([^, ]*\).*/\1/p')
+  fi
+  cores=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || printf '?')
+  printf 'LOAD %s/%s' "${load:-?}" "${cores:-?}"
+}
+
+memory_usage() {
+  awk '
+    /MemTotal:/ { total = $2 }
+    /MemAvailable:/ { available = $2 }
+    END {
+      if (total > 0) {
+        printf "%.1f/%.1fG", (total - available) / 1048576, total / 1048576
+      } else {
+        printf "?"
+      }
+    }
+  ' /proc/meminfo 2>/dev/null
+}
+
+storage_usage() {
+  df -Pk "$HOME" 2>/dev/null | awk 'END { print $5 }'
+}
+
+battery_summary() {
+  battery_root=/sys/class/power_supply/battery
+  capacity=$(cat "$battery_root/capacity" 2>/dev/null || printf '?')
+  charging_state=$(cat "$battery_root/status" 2>/dev/null || printf '?')
+  raw_temperature=$(cat "$battery_root/temp" 2>/dev/null || printf '')
+
+  if [ "$capacity" = "?" ] && command -v termux-battery-status >/dev/null 2>&1; then
+    battery_json=$(termux-battery-status 2>/dev/null || true)
+    api_capacity=$(printf '%s\n' "$battery_json" |
+      sed -n 's/.*"percentage"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' |
+      head -n 1)
+    api_status=$(printf '%s\n' "$battery_json" |
+      sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+      head -n 1)
+    api_temperature=$(printf '%s\n' "$battery_json" |
+      sed -n 's/.*"temperature"[[:space:]]*:[[:space:]]*\([-0-9.][0-9.]*\).*/\1/p' |
+      head -n 1)
+
+    capacity=${api_capacity:-$capacity}
+    charging_state=${api_status:-$charging_state}
+    raw_temperature=${api_temperature:-$raw_temperature}
+  fi
+
+  case "$charging_state" in
+    Charging|CHARGING) charging_marker='+' ;;
+    Full|FULL) charging_marker='=' ;;
+    Discharging|DISCHARGING) charging_marker='-' ;;
+    *) charging_marker='?' ;;
+  esac
+
+  temperature='?'
+  if [ -n "$raw_temperature" ]; then
+    temperature=$(awk -v value="$raw_temperature" 'BEGIN {
+      if (value >= 1000) printf "%.0f", value / 1000
+      else if (value > 100) printf "%.0f", value / 10
+      else printf "%.0f", value
+    }')
+  fi
+
+  printf '%s%%%s %sC' "$capacity" "$charging_marker" "$temperature"
+}
+
+wifi_address() {
+  address=$(ip -o -4 addr show dev wlan0 2>/dev/null |
+    awk 'NR == 1 { sub(/\/.*/, "", $4); print $4 }')
+
+  if [ -z "$address" ]; then
+    address=$(ifconfig wlan0 2>/dev/null |
+      awk '/inet / { print $2; exit }')
+  fi
+
+  printf '%s' "${address:-?}"
+}
+
+gateway_latency() {
+  now=$(date +%s)
+  measured_at=0
+  latency='?'
+
+  if [ -r "$latency_state_file" ]; then
+    read -r measured_at latency < "$latency_state_file" || true
+  fi
+
+  case "$measured_at" in
+    ''|*[!0-9]*) measured_at=0 ;;
+  esac
+
+  if [ $((now - measured_at)) -ge "$latency_ttl" ]; then
+    latency=$(ping -n -c 1 -W 1 "$gateway" 2>/dev/null |
+      awk -F'time=' '/time=/ { split($2, part, " "); print part[1] "ms"; exit }')
+    latency=${latency:-down}
+
+    temporary_state="$latency_state_file.$$"
+    printf '%s %s\n' "$now" "$latency" > "$temporary_state" 2>/dev/null &&
+      mv "$temporary_state" "$latency_state_file" 2>/dev/null
+  fi
+
+  printf '%s' "$latency"
+}
+
+service_state() {
+  service_name=$1
+  service_status=$(sv status "$PREFIX/var/service/$service_name" 2>/dev/null || true)
+  case "$service_status" in
+    run:*) printf 'up' ;;
+    down:*) printf 'down' ;;
+    *) printf '-' ;;
+  esac
+}
+
+processor=$(processor_summary)
+memory=$(memory_usage)
+storage=$(storage_usage)
+battery=$(battery_summary)
+wifi=$(wifi_address)
+latency=$(gateway_latency)
+ssh_state=$(service_state sshd)
+tuvu_state=$(service_state tuvu)
+
+printf 'Sanders | %s | RAM %s | DATA %s | BAT %s | %s | GW %s | ssh:%s tuvu:%s' \
+  "$processor" "$memory" "${storage:-?}" "$battery" "$wifi" "$latency" \
+  "$ssh_state" "$tuvu_state"

@@ -11,10 +11,10 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#0f172a",
-        "foregroundImage": "./assets/icon.png"
+        "foregroundImage": "./assets/adaptive-icon.png"
       },
       "package": "com.ahmar.tuvu",
-      "versionCode": 7,
+      "versionCode": 8,
       "usesCleartextTraffic": true
     },
     "plugins": [

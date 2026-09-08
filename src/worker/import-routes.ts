@@ -295,8 +295,8 @@ async function commitShow(db: D1Database, userId: string, jobId: string, item: T
   const batchStatements: any[] = [];
 
   batchStatements.push(
-    db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, watched_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, 'private', ?, ?)
+    db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, rewatch_count, progress_episodes, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, 0, ?, 'private', ?, ?)
       ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, progress_episodes=excluded.progress_episodes, updated_at=excluded.updated_at`)
       .bind(userMediaId, userId, mediaId, normalizeShowStatus(item.status), item.isFavorite ? 1 : 0, progressEpisodes, item.createdAt ?? now, now)
   );
@@ -388,11 +388,19 @@ async function commitMovie(db: D1Database, userId: string, jobId: string, item: 
   }, now);
   const userMediaExisted = await rowExists(db, "user_media", "user_id = ? AND media_id = ?", [userId, mediaId]);
   const userMediaId = userMediaExisted ? await findUserMediaId(db, userId, mediaId) : randomId("ulm");
-  await db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, watched_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, 'private', ?, ?)
-    ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count, updated_at=excluded.updated_at`)
-    .bind(userMediaId, userId, mediaId, item.isWatched ? "watched" : "watch_later", item.isFavorite ? 1 : 0, normalizeDateTime(item.watchedAt), item.rewatchCount, item.createdAt ?? now, now)
-    .run();
+  try {
+    await db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, completed_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, 'private', ?, ?)
+      ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, completed_at=excluded.completed_at, rewatch_count=excluded.rewatch_count, updated_at=excluded.updated_at`)
+      .bind(userMediaId, userId, mediaId, item.isWatched ? "watched" : "watch_later", item.isFavorite ? 1 : 0, normalizeDateTime(item.watchedAt), item.rewatchCount, item.createdAt ?? now, now)
+      .run();
+  } catch {
+    await db.prepare(`INSERT INTO user_media (id, user_id, media_id, status, is_favorite, rating, notes, watched_at, rewatch_count, progress_episodes, visibility, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, 'private', ?, ?)
+      ON CONFLICT(user_id, media_id) DO UPDATE SET status=excluded.status, is_favorite=excluded.is_favorite, watched_at=excluded.watched_at, rewatch_count=excluded.rewatch_count, updated_at=excluded.updated_at`)
+      .bind(userMediaId, userId, mediaId, item.isWatched ? "watched" : "watch_later", item.isFavorite ? 1 : 0, normalizeDateTime(item.watchedAt), item.rewatchCount, item.createdAt ?? now, now)
+      .run();
+  }
   if (!userMediaExisted) await recordCreated(db, jobId, "user_media", userMediaId, now);
   return mediaId;
 }

@@ -1,0 +1,34 @@
+#!/data/data/com.termux/files/usr/bin/sh
+
+exec 2>&1
+export HOME=/data/data/com.termux/files/home
+export PREFIX=/data/data/com.termux/files/usr
+
+service_pid=""
+
+shutdown() {
+  trap - TERM INT HUP
+  if [ -n "$service_pid" ]; then
+    "$PREFIX/bin/kill" -TERM -- "-$service_pid" 2>/dev/null || true
+    attempts=0
+    while kill -0 "$service_pid" 2>/dev/null && [ "$attempts" -lt 20 ]; do
+      sleep 0.25
+      attempts=$((attempts + 1))
+    done
+    "$PREFIX/bin/kill" -KILL -- "-$service_pid" 2>/dev/null || true
+    wait "$service_pid" 2>/dev/null || true
+  fi
+  exit 0
+}
+
+trap shutdown TERM INT HUP
+
+"$PREFIX/bin/setsid" "$PREFIX/bin/proot-distro" login ubuntu \
+  --bind "$HOME/tuvu/app:/srv/tuvu" \
+  -- /bin/bash -lc 'export NVM_DIR=/root/.nvm; . "$NVM_DIR/nvm.sh"; nvm use 24 >/dev/null; cd /srv/tuvu; exec node dist/server/index.mjs' &
+service_pid=$!
+
+wait "$service_pid"
+exit_code=$?
+service_pid=""
+exit "$exit_code"

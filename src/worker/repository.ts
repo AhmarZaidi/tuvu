@@ -117,6 +117,7 @@ export type AuthRepository = {
   createUpload(upload: UploadRecord): Promise<void>;
   findUploadById(uploadId: string): Promise<UploadRecord | null>;
   attachUpload(userId: string, uploadId: string, kind: "avatar" | "banner", now: string): Promise<ProfileRecord>;
+  detachUpload(userId: string, kind: "avatar" | "banner", now: string): Promise<ProfileRecord>;
 };
 
 type UserRow = {
@@ -391,6 +392,16 @@ export class D1AuthRepository implements AuthRepository {
   async attachUpload(userId: string, uploadId: string, kind: "avatar" | "banner", now: string) {
     const column = kind === "avatar" ? "avatar_upload_id" : "banner_upload_id";
     await this.db.prepare(`UPDATE user_profiles SET ${column} = ?, updated_at = ? WHERE user_id = ?`).bind(uploadId, now, userId).run();
+    const profile = await this.findProfileByUserId(userId);
+    if (!profile) {
+      throw new Error("User profile not found.");
+    }
+    return profile;
+  }
+
+  async detachUpload(userId: string, kind: "avatar" | "banner", now: string) {
+    const column = kind === "avatar" ? "avatar_upload_id" : "banner_upload_id";
+    await this.db.prepare(`UPDATE user_profiles SET ${column} = NULL, updated_at = ? WHERE user_id = ?`).bind(now, userId).run();
     const profile = await this.findProfileByUserId(userId);
     if (!profile) {
       throw new Error("User profile not found.");

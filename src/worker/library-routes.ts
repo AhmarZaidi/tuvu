@@ -82,16 +82,9 @@ export function createLibraryRoutes() {
     return c.json(apiSuccess({ library: entries }));
   });
 
-  // POST /api/library/:mediaId — add to library
-  router.post("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
-    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!body.success) {
-      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
-    }
-
+  const handleAddLibrary = async (c: any, mediaId: string, bodyData: any) => {
     const mediaRepo = c.get("mediaRepository");
     const auth = c.get("auth");
-    const mediaId = c.req.param("mediaId");
 
     const media = await mediaRepo.findMediaById(mediaId);
     if (!media) {
@@ -103,7 +96,7 @@ export function createLibraryRoutes() {
       return apiError(c, 409, "conflict", "This item is already in your library.");
     }
 
-    const status = body.data.status ?? defaultStatus(media.type);
+    const status = bodyData.status ?? defaultStatus(media.type);
     if (!validateStatus(media.type, status)) {
       return apiError(c, 400, "validation_failed", `Invalid status '${status}' for ${media.type}.`);
     }
@@ -143,6 +136,29 @@ export function createLibraryRoutes() {
 
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ userMedia: record, media, libraryVersion }), 201);
+  };
+
+  // POST /api/library — add to library (mediaId in body)
+  router.post("/", requireAuth(), requireCsrf(), async (c) => {
+    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) {
+      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
+    }
+    const mediaId = body.data.mediaId;
+    if (!mediaId) {
+      return apiError(c, 400, "validation_failed", "mediaId is required in request body.");
+    }
+    return handleAddLibrary(c, mediaId, body.data);
+  });
+
+  // POST /api/library/:mediaId — add to library
+  router.post("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
+    const body = addToLibrarySchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) {
+      return apiError(c, 400, "validation_failed", "Library add request is invalid.", body.error.flatten());
+    }
+    const mediaId = c.req.param("mediaId");
+    return handleAddLibrary(c, mediaId, body.data);
   });
 
   // DELETE /api/library/:mediaId — remove from library
@@ -169,6 +185,47 @@ export function createLibraryRoutes() {
 
     const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
     return c.json(apiSuccess({ ok: true, libraryVersion }));
+  });
+
+  // PATCH /api/library/:mediaId — general update for user media (favorite, rating, status, notes)
+  router.patch("/:mediaId", requireAuth(), requireCsrf(), async (c) => {
+    const body = await c.req.json().catch(() => null) as { isFavorite?: boolean; status?: string; rating?: number | null; notes?: string | null } | null;
+    if (!body || typeof body !== "object") {
+      return apiError(c, 400, "validation_failed", "Update payload is invalid.");
+    }
+    const mediaRepo = c.get("mediaRepository");
+    const auth = c.get("auth");
+    const mediaId = c.req.param("mediaId");
+
+    const existing = await mediaRepo.findUserMedia(auth.user.id, mediaId);
+    if (!existing) {
+      return apiError(c, 404, "not_found", "This item is not in your library.");
+    }
+
+    const now = new Date().toISOString();
+    const updated = await mediaRepo.upsertUserMedia({
+      ...existing,
+      isFavorite: body.isFavorite !== undefined ? Boolean(body.isFavorite) : existing.isFavorite,
+      status: body.status !== undefined ? body.status : existing.status,
+      rating: body.rating !== undefined ? body.rating : existing.rating,
+      notes: body.notes !== undefined ? body.notes : existing.notes,
+      updatedAt: now,
+    });
+
+    if (body.isFavorite !== undefined && body.isFavorite !== existing.isFavorite) {
+      await mediaRepo.createActivityEvent({
+        id: randomId("act"),
+        userId: auth.user.id,
+        type: "favorite_toggled",
+        mediaId,
+        episodeId: null,
+        dataJson: JSON.stringify({ isFavorite: Boolean(body.isFavorite) }),
+        createdAt: now,
+      });
+    }
+
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, auth.user.id);
+    return c.json(apiSuccess({ userMedia: updated, libraryVersion }));
   });
 
   // PATCH /api/library/:mediaId/status

@@ -31,12 +31,6 @@
 			"database_name": "tuvu-dev",
 			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations"
-		},
-		{
-			"binding": "tuvu",
-			"database_name": "tuvu",
-			"database_id": "2661d67f-4cfa-434b-b3e5-b65ba0fa3b68",
-			"remote": true
 		}
 	],
 	"env": {

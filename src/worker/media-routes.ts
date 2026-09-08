@@ -4,12 +4,13 @@ import { createMediaSchema, createSeasonSchema, createEpisodeSchema, createMedia
 import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { bumpUserLibraryVersion } from "./library-version-service";
-import { maybeEnqueueStaleMediaRefresh } from "./hydration";
+import { maybeEnqueueStaleMediaRefresh, rehydrateMediaDirectly } from "./hydration";
 import { resolveMergedMediaId } from "./media-canonical-service";
 import type { MediaRepository } from "./media-repository";
 import { cachedJson, ProviderRateLimitError } from "./providers/provider-cache-service";
 import { providerCredential } from "./providers/provider-credentials";
 import { providerTtls } from "./providers/provider-ttls";
+import { tmdbSearch } from "./providers/tmdb";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 import { uploadMediaCoverToSupabase } from "./supabase-storage";
 
@@ -82,20 +83,443 @@ export function createMediaRoutes() {
     }
   });
 
+  router.get("/:id/stream-url", requireAuth(), async (c) => {
+    const mediaRepo = c.get("mediaRepository");
+    const mediaId = c.req.param("id");
+    const media = await mediaRepo.findMediaById(mediaId);
+    if (!media) return apiError(c, 404, "not_found", "Media item not found.");
+
+    const season = Number(c.req.query("season") || 1);
+    const episode = Number(c.req.query("episode") || 1);
+    const isEpisode = c.req.query("isEpisode") === "true" || Boolean(c.req.query("episode"));
+
+    // Check if anime
+    const isAnime =
+      media.type === "anime" ||
+      (media.extendedDataJson && (media.extendedDataJson.includes('"category":"anime"') || media.extendedDataJson.includes('"anime":')));
+
+    // Extract TMDB ID
+    let tmdbId = media.source === "tmdb" ? media.sourceId : null;
+    if (!tmdbId && media.extendedDataJson) {
+      try {
+        const ext = JSON.parse(media.extendedDataJson);
+        tmdbId = ext.tmdbId || ext.id || ext.externalIds?.tmdb_id || null;
+      } catch {}
+    }
+    if (!tmdbId && /^\d+$/.test(media.sourceId || "")) {
+      tmdbId = media.sourceId;
+    }
+
+    const sources: Array<{
+      id: string;
+      name: string;
+      url: string;
+      provider: string;
+      badge?: string;
+      servers: Array<{
+        id: string;
+        name: string;
+        url: string;
+        badge?: string;
+      }>;
+    }> = [];
+
+    // 1. Anime Sources
+    if (isAnime) {
+      const slug = await resolveAnikotoSlug(c.env, media.title);
+      if (slug) {
+        sources.push({
+          id: "anikoto",
+          name: "Anikoto TV",
+          url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidstream`,
+          provider: "anikoto",
+          badge: "HD • Sub/Dub",
+          servers: [
+            { id: "dub_vidstream", name: "DUB: Vidstream-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidstream`, badge: "DUB • Fast" },
+            { id: "dub_hd1", name: "DUB: HD-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-hd1`, badge: "DUB • HD" },
+            { id: "dub_hd2", name: "DUB: HD-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-hd2`, badge: "DUB" },
+            { id: "dub_vidplay", name: "DUB: VidPlay-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#dub-vidplay`, badge: "DUB" },
+            { id: "sub_vidstream", name: "SUB: Vidstream-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-vidstream`, badge: "SUB • Fast" },
+            { id: "sub_hd1", name: "SUB: HD-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-hd1`, badge: "SUB • HD" },
+            { id: "sub_hd2", name: "SUB: HD-2", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-hd2`, badge: "SUB" },
+            { id: "sub_vidplay", name: "SUB: VidPlay-1", url: `https://anikototv.to/watch/${slug}/ep-${episode}#sub-vidplay`, badge: "SUB" },
+          ],
+        });
+      }
+
+      if (tmdbId) {
+        const isMovieAnime = media.type === "movie" && !isEpisode;
+        const mainUrl = isMovieAnime
+          ? `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`
+          : `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`;
+
+        sources.push({
+          id: "videasy",
+          name: "VidEasy",
+          url: mainUrl,
+          provider: "videasy",
+          badge: "Primary • HD",
+          servers: [
+            { id: "srv_videasy", name: "VidEasy (Default)", url: mainUrl, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: isMovieAnime ? `https://vidnest.fun/movie/${tmdbId}` : `https://vidnest.fun/tv/${tmdbId}/${season}/${episode}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: isMovieAnime ? `https://strigil.cc/embed/movie/${tmdbId}` : `https://strigil.cc/embed/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidrock", name: "VidRock", url: isMovieAnime ? `https://vidrock.net/movie/${tmdbId}` : `https://vidrock.net/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidlink", name: "VidLink", url: isMovieAnime ? `https://vidlink.pro/movie/${tmdbId}` : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "2embed",
+          name: "2Embed",
+          url: isMovieAnime ? `https://www.2embed.cc/embed/${tmdbId}` : `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+          provider: "2embed",
+          badge: "Mirror",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: isMovieAnime ? `https://www.2embed.cc/embed/${tmdbId}` : `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+          ],
+        });
+
+        // 7reels backup
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+            { id: "7r_2", name: "7reels Server 2", url: isMovieAnime ? `https://7reels.cc/movie/${tmdbId}/watch?server=2` : `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+          ],
+        });
+      }
+
+      sources.push({
+        id: "hianime",
+        name: "HiAnime",
+        url: `https://hianime.to/search?keyword=${encodeURIComponent(media.title)}`,
+        provider: "hianime",
+        badge: "Anime",
+        servers: [
+          { id: "hianime_search", name: "HiAnime Search", url: `https://hianime.to/search?keyword=${encodeURIComponent(media.title)}` },
+        ],
+      });
+    } else if (media.type === "movie" && !isEpisode) {
+      // 2. Movies
+      if (tmdbId) {
+        sources.push({
+          id: "videasy",
+          name: "VidEasy",
+          url: `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`,
+          provider: "videasy",
+          badge: "Primary • HD",
+          servers: [
+            { id: "srv_videasy", name: "VidEasy (Default)", url: `https://player.videasy.to/movie/${tmdbId}?overlay=true&color=ffcf5c`, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: `https://vidnest.fun/movie/${tmdbId}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: `https://strigil.cc/embed/movie/${tmdbId}` },
+            { id: "srv_vidrock", name: "VidRock", url: `https://vidrock.net/movie/${tmdbId}` },
+            { id: "srv_vidlink", name: "VidLink", url: `https://vidlink.pro/movie/${tmdbId}` },
+          ],
+        });
+
+        sources.push({
+          id: "2embed",
+          name: "2Embed",
+          url: `https://www.2embed.cc/embed/${tmdbId}`,
+          provider: "2embed",
+          badge: "HD",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embed/${tmdbId}` },
+            { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embed/${tmdbId}` },
+          ],
+        });
+
+        sources.push({
+          id: "smashystream",
+          name: "SmashyStream",
+          url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}`,
+          provider: "smashystream",
+          servers: [
+            { id: "smashy_1", name: "Smashy Main", url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}` },
+          ],
+        });
+
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: `https://7reels.cc/movie/${tmdbId}/watch`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: `https://7reels.cc/movie/${tmdbId}/watch` },
+            { id: "7r_2", name: "7reels Server 2", url: `https://7reels.cc/movie/${tmdbId}/watch?server=2` },
+            { id: "7r_3", name: "7reels Server 3", url: `https://7reels.cc/movie/${tmdbId}/watch?server=3` },
+          ],
+        });
+      }
+
+      // Check Internet Archive for classic/older movies
+      const archiveMatch = await searchArchiveOrgMovie(c.env, media.title, media.year);
+      if (archiveMatch) {
+        sources.push({
+          id: "archive",
+          name: "Internet Archive",
+          url: archiveMatch.url,
+          provider: "archive",
+          badge: "Public Domain",
+          servers: [
+            { id: "archive_main", name: "Archive Embed", url: archiveMatch.url },
+          ],
+        });
+      }
+
+      // YouTube Full Movie search fallback
+      sources.push({
+        id: "youtube_movie",
+        name: "YouTube",
+        url: `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(media.title + " Full Movie")}`,
+        provider: "youtube",
+        badge: "Free",
+        servers: [
+          { id: "yt_search", name: "YouTube Search", url: `https://www.youtube.com/embed?listType=search&list=${encodeURIComponent(media.title + " Full Movie")}` },
+        ],
+      });
+    } else {
+      // 3. TV Shows
+      if (tmdbId) {
+        sources.push({
+          id: "videasy",
+          name: "VidEasy",
+          url: `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`,
+          provider: "videasy",
+          badge: "Primary • HD",
+          servers: [
+            { id: "srv_videasy", name: "VidEasy (Default)", url: `https://player.videasy.to/tv/${tmdbId}/${season}/${episode}?nextEpisode=true&autoplayNextEpisode=true&episodeSelector=true&overlay=true&color=ffcf5c`, badge: "HD" },
+            { id: "srv_vidnest", name: "VidNest", url: `https://vidnest.fun/tv/${tmdbId}/${season}/${episode}`, badge: "Fast" },
+            { id: "srv_strigil", name: "Strigil", url: `https://strigil.cc/embed/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidrock", name: "VidRock", url: `https://vidrock.net/tv/${tmdbId}/${season}/${episode}` },
+            { id: "srv_vidlink", name: "VidLink", url: `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "2embed",
+          name: "2Embed",
+          url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}`,
+          provider: "2embed",
+          badge: "HD",
+          servers: [
+            { id: "2embed_1", name: "2Embed Primary", url: `https://www.2embed.cc/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+            { id: "2embed_2", name: "2Embed Mirror", url: `https://www.2embed.skin/embedtv/${tmdbId}&s=${season}&e=${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "smashystream",
+          name: "SmashyStream",
+          url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}&season=${season}&episode=${episode}`,
+          provider: "smashystream",
+          servers: [
+            { id: "smashy_tv", name: "Smashy TV", url: `https://embed.smashystream.com/playere.php?tmdb=${tmdbId}&season=${season}&episode=${episode}` },
+          ],
+        });
+
+        sources.push({
+          id: "7reels",
+          name: "7reels (Backup)",
+          url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}`,
+          provider: "7reels",
+          badge: "Backup",
+          servers: [
+            { id: "7r_1", name: "7reels Server 1", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}` },
+            { id: "7r_2", name: "7reels Server 2", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=2` },
+            { id: "7r_3", name: "7reels Server 3", url: `https://7reels.cc/tv/${tmdbId}/watch?s=${season}&e=${episode}&server=3` },
+          ],
+        });
+      }
+    }
+
+    if (sources.length === 0) {
+      if (isAnime) {
+        sources.push({
+          id: "anikoto_search",
+          name: "Anikoto",
+          url: `https://anikototv.to/search?keyword=${encodeURIComponent(media.title)}`,
+          provider: "anikoto",
+        });
+      } else {
+        sources.push({
+          id: "7reels_search",
+          name: "7reels.cc",
+          url: `https://7reels.cc/search?q=${encodeURIComponent(media.title)}`,
+          provider: "7reels",
+        });
+      }
+    }
+
+    const primary = sources[0];
+    return c.json(apiSuccess({
+      streamUrl: primary.url,
+      provider: primary.provider,
+      sourceLabel: primary.name,
+      siteUrl: primary.url,
+      isAnime,
+      tmdbId,
+      sources,
+    }));
+  });
+
   // GET /api/media/:id — get media detail
   router.patch("/:id/classification", requireAuth(), requireCsrf(), async (c) => {
-    const body = await c.req.json().catch(() => null) as { anime?: unknown } | null;
-    if (!body || typeof body.anime !== "boolean") return apiError(c, 400, "validation_failed", "Classification update is invalid.");
+    const body = await c.req.json().catch(() => null) as { anime?: boolean; type?: string } | null;
+    if (!body || (body.anime === undefined && !body.type)) return apiError(c, 400, "validation_failed", "Classification update is invalid.");
     const mediaRepo = c.get("mediaRepository");
     const media = await mediaRepo.findMediaById(c.req.param("id"));
     if (!media) return apiError(c, 404, "not_found", "Media item not found.");
-    if (media.type !== "show" && media.type !== "movie" && media.type !== "anime") return apiError(c, 400, "bad_request", "Anime classification is available for shows and movies.");
+
+    const validTypes = ["movie", "show", "anime", "book", "game"];
+    let targetType = media.type;
+    if (body.type && validTypes.includes(body.type)) {
+      targetType = body.type;
+    } else if (typeof body.anime === "boolean") {
+      targetType = body.anime ? "anime" : (media.type === "anime" ? "show" : media.type);
+    }
+    const isAnime = targetType === "anime" || body.anime === true;
+
+    const typeChanged = targetType !== media.type;
     const now = new Date().toISOString();
-    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, body.anime, media.type);
-    await mediaRepo.updateMediaExtendedData(media.id, extendedDataJson, now);
+    const extendedDataJson = updateAnimeClassification(media.extendedDataJson, isAnime, targetType, typeChanged);
+
+    const userId = c.get("auth").user.id;
+    if (c.env.DB) {
+      await c.env.DB.prepare("UPDATE media_items SET type = ?, extended_data_json = ?, updated_at = ? WHERE id = ?")
+        .bind(targetType, extendedDataJson, now, media.id)
+        .run();
+
+      // Clean up, re-search provider match, and rehydrate when moving between types
+      if (typeChanged) {
+        let provider = media.source || "tmdb";
+        if (provider === "tv_time" || !provider) provider = "tmdb";
+
+        if (provider === "tmdb") {
+          try {
+            const mode = targetType === "movie" ? "movie" : "tv";
+            const searchResults = await tmdbSearch(c.env, mode, media.title, 5, userId);
+            const normalizedMediaTitle = media.title.trim().toLowerCase();
+            const bestMatch = searchResults.find((r) => {
+              const rTitle = (r.title || "").trim().toLowerCase();
+              if (rTitle === normalizedMediaTitle) {
+                if (media.year && r.year) return Math.abs(media.year - r.year) <= 1;
+                return true;
+              }
+              return false;
+            }) || searchResults[0];
+
+            if (bestMatch) {
+              await c.env.DB.prepare(`UPDATE media_items SET
+                source = 'tmdb',
+                source_id = ?,
+                title = COALESCE(?, title),
+                overview = COALESCE(?, overview),
+                poster_path = COALESCE(?, poster_path),
+                backdrop_path = COALESCE(?, backdrop_path),
+                release_date = COALESCE(?, release_date),
+                year = COALESCE(?, year),
+                updated_at = ?
+                WHERE id = ?`)
+                .bind(
+                  bestMatch.providerId,
+                  bestMatch.title || null,
+                  bestMatch.overview || null,
+                  bestMatch.posterPath || null,
+                  bestMatch.backdropPath || null,
+                  bestMatch.releaseDate || null,
+                  bestMatch.year || null,
+                  now,
+                  media.id
+                )
+                .run();
+
+              await c.env.DB.prepare(`INSERT INTO media_external_ids
+                (id, media_id, namespace, external_id, provider_code, external_url, is_primary, created_at, updated_at, source)
+                VALUES (?, ?, 'tmdb', ?, 'tmdb', ?, 1, ?, ?, 'tmdb')
+                ON CONFLICT(media_id, source, external_id) DO UPDATE SET
+                  external_id = excluded.external_id,
+                  external_url = excluded.external_url,
+                  updated_at = excluded.updated_at`)
+                .bind(randomId("mei"), media.id, bestMatch.providerId, bestMatch.sourceUrl || `https://www.themoviedb.org/${mode}/${bestMatch.providerId}`, now, now)
+                .run();
+            }
+          } catch (searchErr) {
+            console.error("Provider re-search on classification change failed:", searchErr);
+          }
+        }
+
+        if (targetType === "movie") {
+          // Adjust TMDB URLs from /tv/ to /movie/
+          await c.env.DB.prepare("UPDATE media_external_ids SET external_url = REPLACE(external_url, '/tv/', '/movie/'), updated_at = ? WHERE media_id = ? AND (source = 'tmdb' OR namespace = 'tmdb' OR provider_code = 'tmdb') AND external_url LIKE '%/tv/%'")
+            .bind(now, media.id)
+            .run();
+          // Remove TVDB IDs associated with TV series
+          await c.env.DB.prepare("DELETE FROM media_external_ids WHERE media_id = ? AND (source = 'tvdb' OR namespace = 'tvdb' OR provider_code = 'tvdb')")
+            .bind(media.id)
+            .run();
+          // Delete obsolete episode rows and episode activities for this movie
+          await c.env.DB.prepare("DELETE FROM episodes WHERE media_id = ?")
+            .bind(media.id)
+            .run();
+          await c.env.DB.prepare("DELETE FROM episode_activity WHERE media_id = ?")
+            .bind(media.id)
+            .run();
+        } else if (targetType === "show" || targetType === "anime") {
+          // Adjust TMDB URLs from /movie/ to /tv/
+          await c.env.DB.prepare("UPDATE media_external_ids SET external_url = REPLACE(external_url, '/movie/', '/tv/'), updated_at = ? WHERE media_id = ? AND (source = 'tmdb' OR namespace = 'tmdb' OR provider_code = 'tmdb') AND external_url LIKE '%/movie/%'")
+            .bind(now, media.id)
+            .run();
+        }
+
+        // Clean up previous extended details (cast, images, conflicts)
+        const cleanExt = targetType === "anime" ? JSON.stringify({ category: "anime", animeFormat: "series", pendingConflicts: [] }) : "{}";
+        await c.env.DB.prepare("UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?")
+          .bind(cleanExt, now, media.id)
+          .run();
+
+        // Perform direct synchronous rehydration
+        try {
+          await rehydrateMediaDirectly(c.env, media.id);
+        } catch (hydrateErr) {
+          console.error("Direct rehydration on classification change failed:", hydrateErr);
+        }
+      }
+
+      const um = await c.env.DB.prepare("SELECT * FROM user_media WHERE user_id = ? AND media_id = ?")
+        .bind(userId, media.id)
+        .first<{ id: string; status: string }>();
+
+      if (um) {
+        let newStatus = um.status;
+        if (targetType === "movie") {
+          if (["completed", "up_to_date", "watched"].includes(um.status)) {
+            newStatus = "watched";
+          } else {
+            newStatus = "watch_later";
+          }
+        } else if (targetType === "show" || targetType === "anime") {
+          if (um.status === "watched") {
+            newStatus = "completed";
+          } else if (!["watching", "up_to_date", "completed", "stopped", "not_started", "watch_later"].includes(um.status)) {
+            newStatus = "not_started";
+          }
+        }
+        await c.env.DB.prepare("UPDATE user_media SET status = ?, updated_at = ? WHERE user_id = ? AND media_id = ?")
+          .bind(newStatus, now, userId, media.id)
+          .run();
+      }
+    } else {
+      await mediaRepo.updateMediaExtendedData(media.id, extendedDataJson, now);
+    }
     const updated = await mediaRepo.findMediaById(media.id);
-    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, c.get("auth").user.id);
-    return c.json(apiSuccess({ media: updated ?? { ...media, extendedDataJson }, libraryVersion }));
+    const libraryVersion = await bumpUserLibraryVersion(c.env.DB, userId);
+    return c.json(apiSuccess({ media: updated ?? { ...media, type: targetType, extendedDataJson }, libraryVersion }));
   });
 
   router.get("/:id", requireAuth(), async (c) => {
@@ -287,6 +711,36 @@ export function createMediaRoutes() {
     return c.json(apiSuccess({ posterPath: uploaded.publicUrl }));
   });
 
+  // GET /api/media/image-proxy?url=...
+  router.get("/image-proxy", async (c) => {
+    const rawUrl = c.req.query("url");
+    if (!rawUrl) return apiError(c, 400, "bad_request", "Missing url parameter.");
+    try {
+      const parsed = new URL(rawUrl);
+      const hostname = parsed.hostname.toLowerCase();
+      if (!hostname.includes("tmdb.org") && !hostname.includes("b-cdn.net") && !hostname.includes("themoviedb.org")) {
+        return apiError(c, 403, "forbidden", "Only TMDB images are supported.");
+      }
+      if (hostname === "image.tmdb.org") {
+        parsed.hostname = "tmdb-image-prod.b-cdn.net";
+      }
+      const upstream = await fetch(parsed.toString());
+      if (!upstream.ok) {
+        return apiError(c, 502, "bad_gateway", "Upstream image fetch failed.");
+      }
+      const contentType = upstream.headers.get("content-type") || "image/jpeg";
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "public, max-age=604800, immutable",
+        },
+      });
+    } catch {
+      return apiError(c, 502, "bad_gateway", "Failed to retrieve image.");
+    }
+  });
+
   return router;
 }
 
@@ -312,20 +766,38 @@ async function fetchMediaNews(env: Env, apiKey: string, title: string) {
 async function readCachedMediaNews(env: Env, title: string) {
   if (!env.DB) return [];
   const safeTitle = title.slice(0, 120).replaceAll('"', "").trim().toLowerCase();
-  const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
-    WHERE provider = 'newsapi' AND cache_key IN (?, ?)
-    ORDER BY fetched_at DESC
-    LIMIT 2`)
-    .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
-    .all<{ response_json: string }>();
-  for (const row of rows.results ?? []) {
-    try {
-      const parsed = JSON.parse(row.response_json) as NewsApiResponse;
-      const articles = normalizeNewsArticles(parsed);
-      if (articles.length) return articles;
-    } catch {
-      // Try the next cached row.
+  try {
+    const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
+      WHERE provider_code = 'newsapi' AND cache_key IN (?, ?)
+      ORDER BY fetched_at DESC
+      LIMIT 2`)
+      .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
+      .all<{ response_json: string }>();
+    for (const row of rows.results ?? []) {
+      try {
+        const parsed = JSON.parse(row.response_json) as NewsApiResponse;
+        const articles = normalizeNewsArticles(parsed);
+        if (articles.length) return articles;
+      } catch {
+        // Try the next cached row.
+      }
     }
+  } catch {
+    try {
+      const rows = await env.DB.prepare(`SELECT response_json FROM provider_cache
+        WHERE cache_key IN (?, ?)
+        ORDER BY fetched_at DESC
+        LIMIT 2`)
+        .bind(`media:exact:${safeTitle}`, `media:broad:${safeTitle}`)
+        .all<{ response_json: string }>();
+      for (const row of rows.results ?? []) {
+        try {
+          const parsed = JSON.parse(row.response_json) as NewsApiResponse;
+          const articles = normalizeNewsArticles(parsed);
+          if (articles.length) return articles;
+        } catch {}
+      }
+    } catch {}
   }
   return [];
 }
@@ -396,7 +868,7 @@ function normalizeRelatedType(type: string) {
   return type === "movie" ? "movie" : "show";
 }
 
-function updateAnimeClassification(json: string | null | undefined, anime: boolean, type: string) {
+function updateAnimeClassification(json: string | null | undefined, anime: boolean, type: string, typeChanged = false) {
   let data: Record<string, unknown> = {};
   if (json) {
     try {
@@ -404,6 +876,9 @@ function updateAnimeClassification(json: string | null | undefined, anime: boole
     } catch {
       data = {};
     }
+  }
+  if (typeChanged) {
+    delete data.pendingConflicts;
   }
   if (anime) {
     data.category = "anime";
@@ -415,4 +890,108 @@ function updateAnimeClassification(json: string | null | undefined, anime: boole
     if (data.anime && Object.keys(data.anime as Record<string, unknown>).length === 0) delete data.anime;
   }
   return Object.keys(data).length ? JSON.stringify(data) : null;
+}
+
+async function resolveAnikotoSlug(env: Env, rawTitle: string): Promise<string | null> {
+  const cleanTitle = rawTitle.replace(/[:\-–—]\s*(the\s+)?final\s+season.*$/i, "").trim();
+  const cacheKey = `anikoto:slug:${cleanTitle.toLowerCase().slice(0, 80)}`;
+
+  if (env.DB) {
+    const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'anikoto' AND cache_key = ?")
+      .bind(cacheKey)
+      .first<{ response_json: string; expires_at: string }>()
+      .catch(() => null);
+    if (cached && new Date(cached.expires_at).getTime() > Date.now()) {
+      return JSON.parse(cached.response_json) as string;
+    }
+  }
+
+  try {
+    const searchUrl = `https://anikototv.to/search?keyword=${encodeURIComponent(cleanTitle)}`;
+    const res = await fetch(searchUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const matches = [...html.matchAll(/<a\s+[^>]*href=["'](https:\/\/anikototv\.to\/watch\/([^"'/]+)\/[^"']*)["'][^>]*>([\s\S]*?)<\/a>/g)]
+      .map((m) => ({
+        url: m[1],
+        slug: m[2],
+        titleText: m[3].replace(/<[^>]*>/g, "").trim(),
+      }))
+      .filter((m) => m.titleText.length > 2);
+
+    if (matches.length > 0) {
+      const slug = matches[0].slug;
+      if (env.DB) {
+        const now = new Date();
+        const expires = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+        await env.DB.prepare(
+          `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+           VALUES (?, 'anikoto', ?, ?, 200, ?, ?)
+           ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json=excluded.response_json, expires_at=excluded.expires_at`
+        )
+          .bind(`pc_anikoto_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32)}`, cacheKey, JSON.stringify(slug), now.toISOString(), expires.toISOString())
+          .run()
+          .catch(() => {});
+      }
+      return slug;
+    }
+  } catch (err) {
+    console.error("Anikoto slug resolution error:", err);
+  }
+
+  return null;
+}
+
+async function searchArchiveOrgMovie(env: Env, title: string, year?: number | null): Promise<{ identifier: string; url: string; title: string } | null> {
+  const cacheKey = `archive:${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}:${year || "any"}`;
+  if (env.DB) {
+    const cached = await env.DB.prepare("SELECT response_json, expires_at FROM provider_cache WHERE provider_code = 'archive' AND cache_key = ?")
+      .bind(cacheKey)
+      .first<{ response_json: string; expires_at: string }>()
+      .catch(() => null);
+    if (cached && new Date(cached.expires_at).getTime() > Date.now()) {
+      return JSON.parse(cached.response_json);
+    }
+  }
+
+  try {
+    const cleanTitle = title.replace(/[^\w\s]/gi, "").trim();
+    const query = year
+      ? `title:(${cleanTitle}) AND year:(${year}) AND mediatype:(movies)`
+      : `title:(${cleanTitle}) AND mediatype:(movies)`;
+    const searchUrl = `https://archive.org/advancedsearch.php?q=${encodeURIComponent(query)}&fl[]=identifier,title,year&output=json&rows=3`;
+    const res = await fetch(searchUrl, {
+      headers: { "User-Agent": "tuvu/1.0" },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as any;
+    const docs = data?.response?.docs || [];
+    if (docs.length > 0 && docs[0].identifier) {
+      const match = {
+        identifier: docs[0].identifier,
+        url: `https://archive.org/embed/${docs[0].identifier}`,
+        title: docs[0].title || title,
+      };
+      if (env.DB) {
+        const now = new Date();
+        const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        await env.DB.prepare(
+          `INSERT INTO provider_cache (id, provider_code, cache_key, response_json, http_status, fetched_at, expires_at)
+           VALUES (?, 'archive', ?, ?, 200, ?, ?)
+           ON CONFLICT(provider_code, cache_key) DO UPDATE SET response_json=excluded.response_json, expires_at=excluded.expires_at`
+        )
+          .bind(`pc_archive_${cacheKey.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 32)}`, cacheKey, JSON.stringify(match), now.toISOString(), expires.toISOString())
+          .run()
+          .catch(() => {});
+      }
+      return match;
+    }
+  } catch {}
+  return null;
 }

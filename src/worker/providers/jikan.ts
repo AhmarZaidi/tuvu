@@ -5,31 +5,45 @@ import { providerTtls } from "./provider-ttls";
 import { arrayNames, isProviderResult, normalizeDate, numberOrString, numberValue, stringValue, yearFromDate } from "./normalizers";
 import { providerAttributions, type ProviderResult } from "./types";
 
-export async function jikanSearchProvider(env: Env, query: string, limit: number): Promise<ProviderResult[]> {
-  const results = await jikanSearchAnime(env, query, limit);
+export async function jikanPing(env: Env, userId?: string | null): Promise<{ ok: boolean; message: string }> {
+  const endpoint = await jikanEndpoint(env, userId);
+  const url = `${endpoint.replace(/\/+$/, "")}/top/anime?limit=1`;
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      return { ok: true, message: "Jikan (MyAnimeList) API online." };
+    }
+    return { ok: false, message: `Jikan returned HTTP ${res.status}.` };
+  } catch (err: any) {
+    return { ok: false, message: err?.message || "Failed to reach Jikan endpoint." };
+  }
+}
+
+export async function jikanSearchProvider(env: Env, query: string, limit: number, userId?: string | null): Promise<ProviderResult[]> {
+  const results = await jikanSearchAnime(env, query, limit, userId);
   return results.map(normalizeJikanAnime).filter(isProviderResult);
 }
 
-export async function jikanSearchAnime(env: Env, query: string, limit: number = 5) {
-  const endpoint = await jikanEndpoint(env);
+export async function jikanSearchAnime(env: Env, query: string, limit: number = 5, userId?: string | null) {
+  const endpoint = await jikanEndpoint(env, userId);
   const data = await cachedJson<{ data?: any[] }>(env, "jikan", `search:${query.toLowerCase()}`, providerTtls.jikanSearch, () => fetch(`${endpoint}anime?q=${encodeURIComponent(query)}&limit=${limit}`));
   return data?.data ?? [];
 }
 
-export async function jikanAnimeCharacters(env: Env, malId: number) {
-  const endpoint = await jikanEndpoint(env);
+export async function jikanAnimeCharacters(env: Env, malId: number, userId?: string | null) {
+  const endpoint = await jikanEndpoint(env, userId);
   const data = await cachedJson<{ data?: any[] }>(env, "jikan", `characters:${malId}`, providerTtls.jikanCharacters, () => fetch(`${endpoint}anime/${malId}/characters`));
   return data?.data ?? [];
 }
 
-export async function jikanAnimeEpisodes(env: Env, malId: number) {
-  const endpoint = await jikanEndpoint(env);
+export async function jikanAnimeEpisodes(env: Env, malId: number, userId?: string | null) {
+  const endpoint = await jikanEndpoint(env, userId);
   const data = await cachedJson<{ data?: any[] }>(env, "jikan", `episodes:${malId}`, providerTtls.jikanEpisodes, () => fetch(`${endpoint}anime/${malId}/episodes`));
   return data?.data ?? [];
 }
 
-async function jikanEndpoint(env: Env) {
-  const configured = await providerCredential(env, { provider: "jikan", key: "MAL_JIKAN_API_ENDPOINT" });
+async function jikanEndpoint(env: Env, userId?: string | null) {
+  const configured = await providerCredential(env, { userId, provider: "jikan", key: "MAL_JIKAN_API_ENDPOINT" });
   return configured || `${externalApiEndpoints.jikanApi}/`;
 }
 

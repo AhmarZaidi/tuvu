@@ -1,7 +1,16 @@
 import type { MediaType } from "@shared/media";
 import { externalApiEndpoints } from "@shared/constants";
 import { randomId } from "./crypto";
-import { jikanSearchAnime, jikanAnimeCharacters, jikanAnimeEpisodes, igdbFetchDetails, openLibraryFetchDetails, rawgFetchDetails } from "./providers";
+import {
+  jikanSearchAnime,
+  jikanAnimeCharacters,
+  jikanAnimeEpisodes,
+  anilistSearchAnime,
+  anilistFetchMediaByIdMal,
+  igdbFetchDetails,
+  openLibraryFetchDetails,
+  rawgFetchDetails,
+} from "./providers";
 import { writeProviderCache } from "./providers/provider-cache-service";
 import { providerTtls } from "./providers/provider-ttls";
 import { tmdbFetchMediaDetails } from "./providers/tmdb";
@@ -26,6 +35,38 @@ export async function processHydrationJob(env: Env, jobId: string) {
 
   // Season jobs are intentionally left queued. A long season can be dozens of
   // D1 writes, so each season/chunk runs in a separate invocation.
+}
+
+export async function rehydrateMediaDirectly(env: Env, mediaId: string) {
+  if (!env.DB) return;
+  const db = env.DB;
+  const media = await runD1("load media for direct hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(mediaId).first<any>());
+  if (!media) return;
+
+  const provider = media.source === "tv_time" || !media.source ? "tmdb" : media.source;
+  const job = {
+    id: randomId("mrj"),
+    media_id: mediaId,
+    provider,
+    provider_code: provider,
+    scope: "media",
+  };
+  if (provider === "tmdb") {
+    await hydrateTmdb(env, job);
+    if (media.type === "anime" || media.original_language === "ja" || media.subtype === "anime_series") {
+      try {
+        await hydrateJikan(env, { ...job, provider: "jikan", provider_code: "jikan" });
+      } catch {}
+    }
+  } else if (provider === "igdb") {
+    await hydrateIgdb(env, job);
+  } else if (provider === "openlibrary") {
+    await hydrateOpenLibrary(env, job);
+  } else if (provider === "jikan" || provider === "anilist") {
+    await hydrateJikan(env, job);
+  } else if (provider === "rawg") {
+    await hydrateRawg(env, job);
+  }
 }
 
 export async function processHydrationJobs(env: Env) {
@@ -62,15 +103,16 @@ async function claimAndRunJob(env: Env, job: any) {
     .run());
   if (!claim.meta?.changes) return false;
   try {
-    if (job.provider === "tmdb") {
+    const provider = job.provider || job.provider_code;
+    if (provider === "tmdb") {
       await hydrateTmdb(env, job);
-    } else if (job.provider === "igdb") {
+    } else if (provider === "igdb") {
       await hydrateIgdb(env, job);
-    } else if (job.provider === "openlibrary") {
+    } else if (provider === "openlibrary") {
       await hydrateOpenLibrary(env, job);
-    } else if (job.provider === "jikan") {
+    } else if (provider === "jikan") {
       await hydrateJikan(env, job);
-    } else if (job.provider === "rawg") {
+    } else if (provider === "rawg") {
       await hydrateRawg(env, job);
     }
     await runD1("mark hydration job complete", db.prepare(`UPDATE metadata_refresh_jobs
@@ -91,13 +133,17 @@ async function hydrateTmdb(env: Env, job: any) {
   const media = await runD1("load media for hydration", db.prepare("SELECT * FROM media_items WHERE id = ?").bind(job.media_id).first<any>());
   if (!media) throw new Error("Media not found");
 
-  const externalIdRow = await runD1("load TMDB id for hydration", db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb'").bind(job.media_id).first<{ external_id: string }>());
-  const tmdbId = externalIdRow?.external_id;
+  let tmdbId = (media.canonical_provider_code === "tmdb" || media.source === "tmdb") ? (media.canonical_provider_id || media.source_id) : null;
+  if (!tmdbId) {
+    const extRows = await runD1("load TMDB id for hydration", db.prepare("SELECT * FROM media_external_ids WHERE media_id = ?").bind(job.media_id).all<any>());
+    const match = (extRows.results ?? []).find((r) => r.source === "tmdb" || r.namespace === "tmdb" || r.provider_code === "tmdb");
+    tmdbId = match?.external_id;
+  }
   if (!tmdbId) throw new Error("No TMDB ID for media");
 
   if (job.scope === "media") {
     const typePath = media.type === "movie" ? "movie" : "tv";
-    const data = await tmdbFetchMediaDetails(env, `${typePath}/${tmdbId}?append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos`);
+    const data = await tmdbFetchMediaDetails(env, `${typePath}/${tmdbId}?append_to_response=credits,recommendations,similar,watch/providers,external_ids,videos,images`);
 
     const now = new Date();
 
@@ -108,39 +154,144 @@ async function hydrateTmdb(env: Env, job: any) {
     const creators = (data.created_by || []).map((c: any) => ({ id: c.id, name: c.name, job: "Creator", profilePath: tmdbImage(c.profile_path, "w185") }));
     const watchProviders = data["watch/providers"]?.results?.US?.flatrate?.map((p: any) => ({ name: p.provider_name, logoPath: tmdbImage(p.logo_path, "w92") })) || [];
     const related = [...(data.recommendations?.results || []), ...(data.similar?.results || [])].slice(0, 10).map((r: any) => ({ id: r.id, title: r.title || r.name, posterPath: tmdbImage(r.poster_path, "w342"), type: r.media_type || media.type }));
-    const videos = (data.videos?.results || []).filter((v: any) => v.site === "YouTube").slice(0, 3).map((v: any) => ({ name: v.name, key: v.key, type: v.type }));
+    const videos = (data.videos?.results || []).filter((v: any) => v.site === "YouTube").slice(0, 5).map((v: any) => ({ name: v.name, key: v.key, type: v.type }));
+    const backdrops = (data.images?.backdrops || []).slice(0, 16).map((b: any) => tmdbImage(b.file_path, "w780")).filter(Boolean);
+    const posters = (data.images?.posters || []).slice(0, 16).map((p: any) => tmdbImage(p.file_path, "w342")).filter(Boolean);
+    const images = { backdrops, posters };
     const releaseDate = media.type === "movie" ? data.release_date : data.first_air_date;
     const runtime = media.type === "movie" ? data.runtime : (data.episode_run_time?.[0] ?? null);
     
-    const extendedData = { cast, crew, creators, watchProviders, related, videos, externalIds: data.external_ids, rating: data.vote_average, voteCount: data.vote_count, popularity: data.popularity, genres: data.genres || [], homepage: data.homepage || null };
+    const pendingConflicts: Array<{ section: string; label: string; current: string; incoming: string }> = [];
+
+    // Check title conflict
+    const incomingTitle = data.title ?? data.name;
+    if (media.title && incomingTitle && media.title.trim().toLowerCase() !== incomingTitle.trim().toLowerCase()) {
+      pendingConflicts.push({ section: "title", label: "Title", current: media.title, incoming: incomingTitle });
+    }
+
+    // Check overview conflict
+    const incomingOverview = data.overview?.trim();
+    if (media.overview && incomingOverview && media.overview.trim() !== incomingOverview) {
+      pendingConflicts.push({ section: "overview", label: "Overview", current: media.overview, incoming: incomingOverview });
+    }
+
+    // Check poster conflict
+    const incomingPoster = tmdbImage(data.poster_path, "w342");
+    if (media.poster_path && incomingPoster && media.poster_path !== incomingPoster) {
+      pendingConflicts.push({ section: "poster", label: "Poster Artwork", current: media.poster_path, incoming: incomingPoster });
+    }
+
+    // Check backdrop conflict
+    const incomingBackdrop = tmdbImage(data.backdrop_path, "w780");
+    if (media.backdrop_path && incomingBackdrop && media.backdrop_path !== incomingBackdrop) {
+      pendingConflicts.push({ section: "backdrop", label: "Backdrop Banner", current: media.backdrop_path, incoming: incomingBackdrop });
+    }
+
+    // Check release date conflict
+    if (media.release_date && releaseDate && media.release_date !== releaseDate) {
+      pendingConflicts.push({ section: "release_date", label: "Release Date", current: media.release_date, incoming: releaseDate });
+    }
+
+    const conflictingSections = new Set(pendingConflicts.map((c) => c.section));
+
+    // Only overwrite existing non-empty fields if there is no conflict
+    const appliedTitle = conflictingSections.has("title") ? media.title : (incomingTitle ?? media.title);
+    const appliedOverview = conflictingSections.has("overview") ? media.overview : (data.overview || media.overview);
+    const appliedPoster = conflictingSections.has("poster") ? media.poster_path : (incomingPoster || media.poster_path);
+    const appliedBackdrop = conflictingSections.has("backdrop") ? media.backdrop_path : (incomingBackdrop || media.backdrop_path);
+    const appliedReleaseDate = conflictingSections.has("release_date") ? media.release_date : (releaseDate || media.release_date);
+
+    const existingExt = JSON.parse(media.extended_data_json || "{}");
+    const extendedData = {
+      ...(media.type === "anime" && existingExt.category === "anime" ? { category: "anime", anime: existingExt.anime, animeFormat: existingExt.animeFormat } : {}),
+      cast,
+      crew,
+      creators,
+      watchProviders,
+      related,
+      videos,
+      images,
+      originalLanguage: data.original_language || media.language || null,
+      spokenLanguages: (data.spoken_languages || []).map((l: any) => ({
+        code: l.iso_639_1,
+        name: l.english_name || l.name,
+      })),
+      languages: data.languages || (data.spoken_languages ? data.spoken_languages.map((l: any) => l.iso_639_1) : []),
+      externalIds: data.external_ids || {},
+      rating: data.vote_average,
+      voteCount: data.vote_count,
+      popularity: data.popularity,
+      genres: data.genres || [],
+      homepage: data.homepage || null,
+      pendingConflicts,
+      hydratedAt: now.toISOString(),
+    };
 
     const compactCache = {
       id: data.id,
       type: media.type,
-      title: data.title ?? data.name ?? media.title,
+      title: appliedTitle,
       status: data.status ?? null,
-      releaseDate,
-      posterPath: tmdbImage(data.poster_path, "w342"),
-      backdropPath: tmdbImage(data.backdrop_path, "w780"),
+      releaseDate: appliedReleaseDate,
+      posterPath: appliedPoster,
+      backdropPath: appliedBackdrop,
       rating: data.vote_average ?? null,
       voteCount: data.vote_count ?? null,
       hydratedAt: now.toISOString(),
     };
     await runD1("cache TMDB media detail", writeProviderCache(db, "tmdb", `detail:${media.id}`, compactCache, 200, providerTtls.tmdbDetail));
 
-    await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
-      overview = COALESCE(?, overview),
-      poster_path = COALESCE(?, poster_path),
-      backdrop_path = COALESCE(?, backdrop_path),
-      release_date = COALESCE(?, release_date),
-      runtime_minutes = COALESCE(?, runtime_minutes),
-      air_status = COALESCE(?, air_status),
-      extended_data_json = ?, 
-      total_seasons = COALESCE(?, total_seasons), 
-      total_episodes = COALESCE(?, total_episodes),
-      updated_at = ? 
-      WHERE id = ?`)
-      .bind(data.overview || null, tmdbImage(data.poster_path, "w342"), tmdbImage(data.backdrop_path, "w780"), releaseDate || null, runtime || null, inferTmdbStatus(data.status, media.type), JSON.stringify(extendedData), data.number_of_seasons || null, data.number_of_episodes || null, now.toISOString(), media.id).run());
+    try {
+      await runD1("update hydrated media item", db.prepare(`UPDATE media_items SET
+        title = ?,
+        overview = ?,
+        poster_path = ?,
+        backdrop_path = ?,
+        release_date = ?,
+        runtime_minutes = COALESCE(?, runtime_minutes),
+        air_status = COALESCE(?, air_status),
+        language = COALESCE(?, language),
+        extended_data_json = ?, 
+        total_seasons = ?, 
+        total_episodes = ?,
+        updated_at = ? 
+        WHERE id = ?`)
+        .bind(
+          appliedTitle,
+          appliedOverview || null,
+          appliedPoster || null,
+          appliedBackdrop || null,
+          appliedReleaseDate || null,
+          runtime || null,
+          inferTmdbStatus(data.status, media.type),
+          data.original_language || null,
+          JSON.stringify(extendedData),
+          media.type === "movie" ? null : (data.number_of_seasons || null),
+          media.type === "movie" ? null : (data.number_of_episodes || null),
+          now.toISOString(),
+          media.id
+        ).run());
+    } catch {
+      await runD1("fallback update hydrated media item", db.prepare(`UPDATE media_items SET
+        title = ?,
+        overview = ?,
+        poster_path = ?,
+        backdrop_path = ?,
+        release_date = ?,
+        extended_data_json = ?,
+        updated_at = ?
+        WHERE id = ?`)
+        .bind(
+          appliedTitle,
+          appliedOverview || null,
+          appliedPoster || null,
+          appliedBackdrop || null,
+          appliedReleaseDate || null,
+          JSON.stringify(extendedData),
+          now.toISOString(),
+          media.id
+        ).run());
+    }
       
     await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, credits_hydrated_at, availability_hydrated_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
@@ -177,11 +328,25 @@ async function hydrateTmdb(env: Env, job: any) {
     let seasonId = seasonRow?.id;
     if (!seasonId) {
       seasonId = randomId("sea");
-      await runD1("insert hydrated season", db.prepare("INSERT INTO seasons (id, media_id, season_number, name, overview, poster_path, episode_count, air_date, is_special, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, seasonNum === 0 ? 1 : 0, now, now).run());
+      try {
+        await runD1("insert hydrated season", db.prepare(`INSERT INTO seasons
+          (id, media_id, season_number, title, synopsis, poster_url, episode_count, release_date, name, overview, poster_path, air_date, is_special, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.air_date, seasonNum === 0 ? 1 : 0, now, now).run());
+      } catch {
+        await runD1("fallback insert hydrated season", db.prepare(`INSERT INTO seasons
+          (id, media_id, season_number, title, synopsis, poster_url, episode_count, release_date, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+          .bind(seasonId, media.id, seasonNum, data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, now).run());
+      }
     } else {
-      await runD1("update hydrated season", db.prepare("UPDATE seasons SET name = ?, overview = ?, poster_path = ?, episode_count = ?, air_date = ?, updated_at = ? WHERE id = ?")
-        .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, seasonId).run());
+      try {
+        await runD1("update hydrated season", db.prepare("UPDATE seasons SET title = ?, synopsis = ?, poster_url = ?, name = ?, overview = ?, poster_path = ?, episode_count = ?, air_date = ?, release_date = ?, updated_at = ? WHERE id = ?")
+          .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, data.air_date, now, seasonId).run());
+      } catch {
+        await runD1("fallback update hydrated season", db.prepare("UPDATE seasons SET title = ?, synopsis = ?, poster_url = ?, episode_count = ?, release_date = ?, updated_at = ? WHERE id = ?")
+          .bind(data.name, data.overview, tmdbImage(data.poster_path, "w342"), data.episodes?.length || 0, data.air_date, now, seasonId).run());
+      }
     }
 
     const episodes = data.episodes || [];
@@ -197,11 +362,21 @@ async function hydrateTmdb(env: Env, job: any) {
 
       const existingEpisodeId = existingByNumber.get(ep.episode_number);
       if (existingEpisodeId) {
-        await runD1("update hydrated episode", db.prepare("UPDATE episodes SET name = ?, overview = ?, still_path = ?, air_date = ?, runtime_minutes = ?, external_id = COALESCE(external_id, ?), extended_data_json = ?, updated_at = ? WHERE id = ?")
-          .bind(ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, String(ep.id ?? ""), JSON.stringify(extendedData), now, existingEpisodeId).run());
+        try {
+          await runD1("update hydrated episode", db.prepare("UPDATE episodes SET name = ?, overview = ?, title = ?, synopsis = ?, still_path = ?, still_url = ?, air_date = ?, release_date = ?, runtime_minutes = ?, external_id = COALESCE(external_id, ?), extended_data_json = ?, updated_at = ? WHERE id = ?")
+            .bind(ep.name, ep.overview, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), tmdbImage(ep.still_path, "w300"), ep.air_date, ep.air_date, ep.runtime, String(ep.id ?? ""), JSON.stringify(extendedData), now, existingEpisodeId).run());
+        } catch {
+          await runD1("fallback update hydrated episode", db.prepare("UPDATE episodes SET title = ?, synopsis = ?, still_url = ?, release_date = ?, runtime_minutes = ?, updated_at = ? WHERE id = ?")
+            .bind(ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, now, existingEpisodeId).run());
+        }
       } else {
-        await runD1("insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, name, overview, still_path, air_date, runtime_minutes, is_special, external_id, extended_data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, seasonNum === 0 ? 1 : 0, String(ep.id ?? ""), JSON.stringify(extendedData), now, now).run());
+        try {
+          await runD1("insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, name, overview, title, synopsis, still_path, still_url, air_date, release_date, runtime_minutes, is_special, external_id, extended_data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), tmdbImage(ep.still_path, "w300"), ep.air_date, ep.air_date, ep.runtime, seasonNum === 0 ? 1 : 0, String(ep.id ?? ""), JSON.stringify(extendedData), now, now).run());
+        } catch {
+          await runD1("fallback insert hydrated episode", db.prepare("INSERT INTO episodes (id, media_id, season_id, season_number, episode_number, title, synopsis, still_url, release_date, runtime_minutes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+            .bind(randomId("epi"), media.id, seasonId, seasonNum, ep.episode_number, ep.name, ep.overview, tmdbImage(ep.still_path, "w300"), ep.air_date, ep.runtime, now, now).run());
+        }
       }
     }
     const nextOffset = episodeOffset + episodeChunk.length;
@@ -225,67 +400,156 @@ async function runD1<T>(label: string, operation: Promise<T>) {
 }
 
 async function enqueueHydrationJob(db: D1Database, mediaId: string, provider: string, scope: string, now: string, contextJson: string | null = null) {
+  const safeProvider = provider || "tmdb";
+  const dedupeKey = `${mediaId}:${scope}:${safeProvider}:${contextJson ?? ""}`;
   const existing = await runD1("find existing hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = ? AND COALESCE(context_json, '') = COALESCE(?, '')
+    WHERE media_id = ? AND (provider = ? OR provider_code = ?) AND scope = ? AND COALESCE(context_json, '') = COALESCE(?, '')
       AND status IN ('queued', 'running', 'stale')
     LIMIT 1`)
-    .bind(mediaId, provider, scope, contextJson)
+    .bind(mediaId, safeProvider, safeProvider, scope, contextJson)
     .first<{ id: string }>());
   if (existing) return existing.id;
   const id = randomId("mrj");
-  await runD1("insert hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)")
-    .bind(id, mediaId, provider, scope, now, now, contextJson)
-    .run());
+  try {
+    await runD1("insert hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+      (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 100, 'queued', 0, NULL, ?, ?, ?)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        status = 'queued',
+        attempts = 0,
+        last_error = NULL,
+        run_after = excluded.run_after,
+        updated_at = excluded.updated_at`)
+      .bind(id, mediaId, safeProvider, safeProvider, scope, dedupeKey, now, contextJson ?? "{}", now, now)
+      .run());
+  } catch {
+    try {
+      await runD1("fallback insert hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+        VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)`)
+        .bind(id, mediaId, safeProvider, scope, now, now, contextJson)
+        .run());
+    } catch {
+      await runD1("fallback insert hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+        VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, ?, ?)`)
+        .bind(id, mediaId, safeProvider, scope, now, now, contextJson)
+        .run());
+    }
+  }
   return id;
 }
 
 async function enqueueSeasonHydrationJobs(db: D1Database, mediaId: string, provider: string, now: string, seasonNumbers: Array<number | null | undefined>) {
   const uniqueSeasonNumbers = [...new Set(seasonNumbers.filter((seasonNumber): seasonNumber is number => Number.isFinite(seasonNumber)))];
   if (uniqueSeasonNumbers.length === 0) return;
+  const safeProvider = provider || "tmdb";
 
   const existing = await runD1("load queued season hydration jobs", db.prepare(`SELECT context_json FROM metadata_refresh_jobs
-    WHERE media_id = ? AND provider = ? AND scope = 'season' AND status IN ('queued', 'running', 'stale')`)
-    .bind(mediaId, provider)
+    WHERE media_id = ? AND (provider = ? OR provider_code = ?) AND scope = 'season' AND status IN ('queued', 'running', 'stale')`)
+    .bind(mediaId, safeProvider, safeProvider)
     .all<{ context_json: string | null }>());
   const existingKeys = new Set((existing.results || []).map((row) => row.context_json ?? ""));
 
   for (const seasonNumber of uniqueSeasonNumbers) {
     const contextJson = JSON.stringify({ seasonNumber });
     if (existingKeys.has(contextJson)) continue;
-    await runD1("insert season hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)")
-      .bind(randomId("mrj"), mediaId, provider, now, now, contextJson)
-      .run());
+    const dedupeKey = `${mediaId}:season:${seasonNumber}:${safeProvider}`;
+    try {
+      await runD1("insert season hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'season', ?, ?, 100, 'queued', 0, NULL, ?, ?, ?)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+          status = 'queued',
+          attempts = 0,
+          last_error = NULL,
+          run_after = excluded.run_after,
+          updated_at = excluded.updated_at`)
+        .bind(randomId("mrj"), mediaId, safeProvider, safeProvider, dedupeKey, now, contextJson, now, now)
+        .run());
+    } catch {
+      try {
+        await runD1("fallback insert season hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)`)
+          .bind(randomId("mrj"), mediaId, safeProvider, now, now, contextJson)
+          .run());
+      } catch {
+        await runD1("fallback insert season hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'season', 'queued', 0, NULL, ?, ?, ?)`)
+          .bind(randomId("mrj"), mediaId, safeProvider, now, now, contextJson)
+          .run());
+      }
+    }
   }
 }
 
 export async function maybeEnqueueStaleMediaRefresh(env: Env, media: { id: string; source: string; sourceId: string | null }) {
   if (!env.DB) return null;
   const db = env.DB;
-  const provider = await hydrationProviderForMedia(db, media);
-  if (!provider) return null;
+  try {
+    const provider = await hydrationProviderForMedia(db, media);
+    if (!provider) return null;
 
-  const freshness = await runD1("load media freshness", db.prepare("SELECT details_hydrated_at FROM media_metadata_freshness WHERE media_id = ?").bind(media.id).first<{ details_hydrated_at: string | null }>());
-  if (freshness?.details_hydrated_at && Date.now() - new Date(freshness.details_hydrated_at).getTime() < 30 * 24 * 60 * 60 * 1000) {
+    const freshness = await runD1("load media freshness", db.prepare("SELECT details_hydrated_at FROM media_metadata_freshness WHERE media_id = ?").bind(media.id).first<{ details_hydrated_at: string | null }>());
+    if (freshness?.details_hydrated_at && Date.now() - new Date(freshness.details_hydrated_at).getTime() < 30 * 24 * 60 * 60 * 1000) {
+      return null;
+    }
+
+    const active = await runD1("load active hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
+      WHERE media_id = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
+      LIMIT 1`).bind(media.id).first<{ id: string }>());
+    if (active) return active.id;
+
+    const now = new Date().toISOString();
+    const id = randomId("mrj");
+    const dedupeKey = `${media.id}:media:${provider}`;
+    try {
+      await runD1("insert stale hydration job", db.prepare(`INSERT INTO metadata_refresh_jobs
+        (id, media_id, provider, provider_code, scope, dedupe_key, run_after, priority, status, attempts, last_error, context_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'media', ?, ?, 100, 'stale', 0, NULL, '{}', ?, ?)
+        ON CONFLICT(dedupe_key) DO UPDATE SET
+          status = 'stale',
+          attempts = 0,
+          last_error = NULL,
+          run_after = excluded.run_after,
+          updated_at = excluded.updated_at`)
+        .bind(id, media.id, provider, provider, dedupeKey, now, now, now)
+        .run());
+    } catch {
+      try {
+        await runD1("fallback insert stale hydration job with provider_code", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider_code, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)`)
+          .bind(id, media.id, provider, now, now)
+          .run());
+      } catch {
+        await runD1("fallback insert stale hydration job with provider", db.prepare(`INSERT INTO metadata_refresh_jobs
+          (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json)
+          VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)`)
+          .bind(id, media.id, provider, now, now)
+          .run());
+      }
+    }
+    return id;
+  } catch (err) {
     return null;
   }
-
-  const active = await runD1("load active hydration job", db.prepare(`SELECT id FROM metadata_refresh_jobs
-    WHERE media_id = ? AND scope = 'media' AND status IN ('queued', 'running', 'stale')
-    LIMIT 1`).bind(media.id).first<{ id: string }>());
-  if (active) return active.id;
-
-  const now = new Date().toISOString();
-  const id = randomId("mrj");
-  await runD1("insert stale hydration job", db.prepare("INSERT INTO metadata_refresh_jobs (id, media_id, provider, scope, status, attempts, last_error, created_at, updated_at, context_json) VALUES (?, ?, ?, 'media', 'stale', 0, NULL, ?, ?, NULL)")
-    .bind(id, media.id, provider, now, now)
-    .run());
-  return id;
 }
 
 async function hydrationProviderForMedia(db: D1Database, media: { id: string; source: string; sourceId: string | null }) {
   if (media.source === "tmdb" || media.source === "igdb" || media.source === "openlibrary" || media.source === "jikan" || media.source === "rawg") return media.source;
-  const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb' LIMIT 1").bind(media.id).first<{ external_id: string }>();
-  return tmdb ? "tmdb" : null;
+  try {
+    const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND (provider_code = 'tmdb' OR namespace = 'tmdb') LIMIT 1").bind(media.id).first<{ external_id: string }>();
+    if (tmdb) return "tmdb";
+  } catch {
+    try {
+      const tmdb = await db.prepare("SELECT external_id FROM media_external_ids WHERE media_id = ? AND source = 'tmdb' LIMIT 1").bind(media.id).first<{ external_id: string }>();
+      if (tmdb) return "tmdb";
+    } catch {}
+  }
+  return null;
 }
 
 function logHydrationFailure(job: any, error: unknown) {
@@ -428,74 +692,213 @@ async function hydrateJikan(env: Env, job: any) {
   if (!media) throw new Error("Media not found");
 
   const results = await jikanSearchAnime(env, media.title, 1);
-  if (!results || results.length === 0) return;
-  const anime = results[0];
-  const malId = anime.mal_id;
+  const anime = results && results.length > 0 ? results[0] : null;
+  const malId = anime?.mal_id ?? null;
 
-  const characters = await jikanAnimeCharacters(env, malId);
-  const episodes = await jikanAnimeEpisodes(env, malId);
+  // Attempt to fetch AniList data for richer multi-language voice cast
+  let anilistMedia: any = null;
+  if (malId) {
+    try {
+      anilistMedia = await anilistFetchMediaByIdMal(env, malId);
+    } catch {}
+  }
+  if (!anilistMedia) {
+    try {
+      const anilistResults = await anilistSearchAnime(env, media.title, 1);
+      anilistMedia = anilistResults[0] ?? null;
+    } catch {}
+  }
+
+  const [characters, episodes] = await Promise.all([
+    malId ? jikanAnimeCharacters(env, malId).catch(() => []) : Promise.resolve([]),
+    malId ? jikanAnimeEpisodes(env, malId).catch(() => []) : Promise.resolve([]),
+  ]);
 
   // Extract details
-  const studios = (anime.studios || []).map((s: any) => ({ name: s.name, url: s.url }));
-  const jikanRating = anime.score;
-  const broadcast = anime.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
-  const status = anime.status;
-  const languages = ["Japanese"]; // Jikan primarily indexes Japanese original, we infer English from dub cast
-  
-  // Extract cast
-  const jikanCast = characters.map((c: any) => {
-     // Find japanese and english voice actors
-     const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
-     const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
-     if (vaEn) languages.push("English"); // Infer dub availability
-     return {
-       character: { id: c.character?.mal_id, name: c.character?.name, image: c.character?.images?.jpg?.image_url },
-       japaneseCast: vaJp ? { id: vaJp.mal_id, name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
-       englishCast: vaEn ? { id: vaEn.mal_id, name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
-     };
-  }).slice(0, 16);
+  const studios = (anime?.studios || anilistMedia?.studios?.nodes || []).map((s: any) => ({ name: s.name, url: s.url }));
+  const jikanRating = anime?.score || (anilistMedia?.averageScore ? anilistMedia.averageScore / 10 : null);
+  const broadcast = anime?.broadcast ? `${anime.broadcast.day} at ${anime.broadcast.time} (${anime.broadcast.timezone})` : null;
+  const status = anime?.status || anilistMedia?.status || "FINISHED";
+  const languages = ["Japanese"];
+
+  // Extract characters & cast from AniList + Jikan
+  const charactersList: any[] = [];
+  const japaneseCast: any[] = [];
+  const dubCast: any[] = [];
+
+  if (anilistMedia?.characters?.edges) {
+    for (const edge of anilistMedia.characters.edges) {
+      const node = edge.node;
+      const jpVa = edge.voiceActors?.find((va: any) => va.languageV2 === "Japanese" || va.language === "Japanese");
+      const enVa = edge.voiceActors?.find((va: any) => va.languageV2 === "English" || va.language === "English");
+      if (enVa) languages.push("English");
+      edge.voiceActors?.forEach((va: any) => {
+        if (va.languageV2 && va.languageV2 !== "Japanese") languages.push(va.languageV2);
+      });
+
+      charactersList.push({
+        id: String(node.id),
+        name: node.name.full,
+        nativeName: node.name.native,
+        image: node.image?.large || null,
+        role: edge.role === "MAIN" ? "Main" : "Supporting",
+        subVoiceActor: jpVa ? { id: String(jpVa.id), name: jpVa.name.full, image: jpVa.image?.large } : null,
+        dubVoiceActor: enVa ? { id: String(enVa.id), name: enVa.name.full, image: enVa.image?.large } : null,
+      });
+
+      if (jpVa && !japaneseCast.some((c) => c.name === jpVa.name.full)) {
+        japaneseCast.push({
+          id: String(jpVa.id),
+          name: jpVa.name.full,
+          role: node.name.full,
+          profilePath: jpVa.image?.large || null,
+        });
+      }
+
+      if (enVa && !dubCast.some((c) => c.name === enVa.name.full)) {
+        dubCast.push({
+          id: String(enVa.id),
+          name: enVa.name.full,
+          role: node.name.full,
+          profilePath: enVa.image?.large || null,
+        });
+      }
+    }
+  }
+
+  // If AniList lacked voice actors, fallback to Jikan characters
+  if (charactersList.length === 0 && characters.length > 0) {
+    for (const c of characters) {
+      const vaJp = c.voice_actors?.find((va: any) => va.language === "Japanese")?.person;
+      const vaEn = c.voice_actors?.find((va: any) => va.language === "English")?.person;
+      if (vaEn) languages.push("English");
+
+      const charItem = {
+        id: String(c.character?.mal_id || ""),
+        name: c.character?.name || "Unknown Character",
+        image: c.character?.images?.jpg?.image_url || null,
+        role: c.role === "Main" ? "Main" : "Supporting",
+        subVoiceActor: vaJp ? { id: String(vaJp.mal_id), name: vaJp.name, image: vaJp.images?.jpg?.image_url } : null,
+        dubVoiceActor: vaEn ? { id: String(vaEn.mal_id), name: vaEn.name, image: vaEn.images?.jpg?.image_url } : null,
+      };
+      if (charItem.id && charItem.name) charactersList.push(charItem);
+
+      if (vaJp && !japaneseCast.some((v) => v.name === vaJp.name)) {
+        japaneseCast.push({
+          id: String(vaJp.mal_id),
+          name: vaJp.name,
+          role: c.character?.name,
+          profilePath: vaJp.images?.jpg?.image_url,
+        });
+      }
+      if (vaEn && !dubCast.some((v) => v.name === vaEn.name)) {
+        dubCast.push({
+          id: String(vaEn.mal_id),
+          name: vaEn.name,
+          role: c.character?.name,
+          profilePath: vaEn.images?.jpg?.image_url,
+        });
+      }
+    }
+  }
 
   const uniqueLanguages = Array.from(new Set(languages));
+  const hasDub = Boolean(
+    dubCast.length > 0 ||
+    uniqueLanguages.includes("English") ||
+    anime?.licensors?.length > 0 ||
+    anime?.streaming?.some((s: any) => /crunchyroll|funimation|netflix|hulu/i.test(s.name || ""))
+  );
+  const isMovie = anime?.type === "Movie" || anilistMedia?.format === "MOVIE" || media.type === "movie";
 
-  const existingExtended = JSON.parse(media.extended_data_json || "{}");
-  
-  // Transform cast into ExtendedPerson array for Japanese and Dub
-  const japaneseCast = jikanCast.map(c => ({
-    id: c.japaneseCast?.id || c.character?.id,
-    name: c.japaneseCast?.name || "Unknown VA",
-    role: c.character?.name,
-    profilePath: c.japaneseCast?.image || c.character?.image
-  })).filter(c => c.id);
+  const titles = {
+    english: anime?.title_english || anilistMedia?.title?.english || null,
+    romaji: anime?.title || anilistMedia?.title?.romaji || null,
+    native: anime?.title_japanese || anilistMedia?.title?.native || null,
+    synonyms: anime?.title_synonyms || [],
+  };
 
-  const dubCast = jikanCast.filter(c => c.englishCast).map(c => ({
-    id: c.englishCast?.id,
-    name: c.englishCast?.name || "Unknown VA",
-    role: c.character?.name,
-    profilePath: c.englishCast?.image || c.character?.image
-  }));
+  let existingExtended: any = {};
+  try {
+    existingExtended = JSON.parse(media.extended_data_json || "{}");
+  } catch {
+    existingExtended = {};
+  }
 
+  existingExtended.category = "anime";
+  existingExtended.animeFormat = isMovie ? "movie" : "series";
+  existingExtended.hasDub = hasDub;
+  existingExtended.dubAvailable = hasDub;
+  existingExtended.originalLanguage = "Japanese";
+  existingExtended.audioLanguages = uniqueLanguages;
   existingExtended.anime = {
-    malId,
-    studios,
+    ...(existingExtended.anime || {}),
+    malId: malId || existingExtended.anime?.malId,
+    anilistId: anilistMedia?.id ? Number(anilistMedia.id) : existingExtended.anime?.anilistId,
+    studios: studios.length > 0 ? studios : existingExtended.anime?.studios || [],
+    titles,
+    characters: charactersList.slice(0, 24),
     malRating: jikanRating,
     broadcast,
     status,
     originalLanguage: "Japanese",
     audioLanguages: uniqueLanguages,
+    hasDub,
     japaneseCast,
     dubCast,
-    episodes: episodes.slice(0, 24).map((e: any) => ({ 
-      title: e.title, 
-      titleJapanese: e.title_japanese, 
+    episodes: episodes.slice(0, 50).map((e: any) => ({
+      title: e.title,
+      titleJapanese: e.title_japanese,
+      titleRomaji: e.title_romanji,
       aired: e.aired,
-      filler: e.filler,
-      recap: e.recap
+      filler: Boolean(e.filler),
+      recap: Boolean(e.recap),
+      hasDub,
+      dubAirDate: e.aired && hasDub ? new Date(new Date(e.aired).getTime() + 21 * 86400000).toISOString().slice(0, 10) : null,
     })),
   };
 
   const now = new Date().toISOString();
   await runD1("update hydrated anime with jikan", db.prepare(`UPDATE media_items SET extended_data_json = ?, updated_at = ? WHERE id = ?`)
     .bind(JSON.stringify(existingExtended), now, media.id).run());
+
+  // Update all episodes in DB with Japanese/Romaji titles, filler/recap flags, and calculated dubAirDate
+  const dbEpisodes = await db.prepare("SELECT id, season_number, episode_number, air_date, extended_data_json FROM episodes WHERE media_id = ?")
+    .bind(media.id).all<any>();
+
+  for (const epRow of dbEpisodes.results || []) {
+    let epExt: any = {};
+    try {
+      epExt = JSON.parse(epRow.extended_data_json || "{}");
+    } catch {
+      epExt = {};
+    }
+
+    const matchedJikan = episodes.find((e: any) => e.mal_id === epRow.episode_number || (epRow.season_number === 1 && e.mal_id === epRow.episode_number));
+    const airDate = epRow.air_date || (matchedJikan?.aired ? matchedJikan.aired.slice(0, 10) : null);
+    const dubAirDate = airDate && hasDub ? new Date(new Date(airDate).getTime() + 21 * 86400000).toISOString().slice(0, 10) : (epExt.dubAirDate || null);
+
+    const updatedEpExt = {
+      ...epExt,
+      titleJapanese: matchedJikan?.title_japanese || epExt.titleJapanese || null,
+      titleRomaji: matchedJikan?.title_romanji || epExt.titleRomaji || null,
+      filler: matchedJikan ? Boolean(matchedJikan.filler) : Boolean(epExt.filler),
+      recap: matchedJikan ? Boolean(matchedJikan.recap) : Boolean(epExt.recap),
+      hasDub,
+      dubAirDate,
+      dubStatus: hasDub ? "Available" : null,
+    };
+
+    try {
+      await db.prepare(`UPDATE episodes SET
+        name = COALESCE(name, ?),
+        air_date = COALESCE(air_date, ?),
+        extended_data_json = ?
+        WHERE id = ?`)
+        .bind(matchedJikan?.title || null, airDate, JSON.stringify(updatedEpExt), epRow.id)
+        .run();
+    } catch {}
+  }
     
   await runD1("update media freshness", db.prepare(`INSERT INTO media_metadata_freshness (media_id, details_hydrated_at, updated_at)
       VALUES (?, ?, ?)

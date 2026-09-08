@@ -4,18 +4,23 @@ import { randomId } from "./crypto";
 import { apiError, apiSuccess } from "./http";
 import { requireAuth, requireCsrf, type AppVariables } from "./session";
 
-const providerSchema = z.enum(["tmdb", "igdb", "rawg", "openlibrary", "jikan", "youtube", "newsapi"]);
+import { PROVIDER_CATALOG, getProviderCatalogItem } from "@shared/providers-config";
+import { pingProvider } from "./providers/ping";
+import { activeProviderCredentialKeys, configuredProviderCredentialKeys, hasAppFallback, hasRequiredProviderCredentials, providerConfigurationSource } from "./providers/provider-credentials";
+
+const providerCodeSchema = z.string().trim().refine((val) => getProviderCatalogItem(val) !== undefined, "Unknown provider.");
 const providerCredentialSchema = z.object({
   label: z.string().trim().max(80).optional(),
-  secrets: z.record(z.string().trim().min(1), z.string().trim().min(1)).refine((value) => Object.keys(value).length > 0, "At least one credential value is required."),
+  secrets: z.record(z.string().trim().min(1), z.string().trim()).refine((value) => Object.keys(value).length > 0, "At least one credential value is required."),
 });
 const navigationSchema = z.object({
-  items: z.array(z.enum(["shows", "anime", "movies", "books", "youtube", "games"])).min(2).max(6),
+  items: z.array(z.enum(["shows", "anime", "movies", "books", "youtube", "games", "explore"])).min(1),
   showLabelsMobile: z.boolean().optional(),
 });
 
 const appearanceSchema = z.object({
   theme: z.enum(["light", "dark", "system"]),
+  gradientIntensity: z.number().min(0).max(1).optional(),
 });
 
 type ProviderCredentialRow = {
@@ -24,63 +29,118 @@ type ProviderCredentialRow = {
   label: string | null;
   status: string;
   last_validated_at: string | null;
+  last_tested_at: string | null;
+  last_test_status: string | null;
   updated_at: string;
+  encrypted_secret_json: string;
 };
 
 export function createSettingsRoutes() {
   const router = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
   router.get("/providers", requireAuth(), async (c) => {
-    if (!c.env.DB) return apiError(c, 503, "server_error", "Settings storage is unavailable.");
     const auth = c.get("auth");
-    const rows = await c.env.DB.prepare(`SELECT id, provider, label, status, last_validated_at, updated_at
-      FROM user_provider_credentials
-      WHERE user_id = ?
-      ORDER BY provider, updated_at DESC`)
-      .bind(auth.user.id)
-      .all<ProviderCredentialRow>();
-    return c.json(apiSuccess({ providers: rows.results.map((row) => ({
-      id: row.id,
-      provider: row.provider,
-      label: row.label,
-      status: row.status,
-      lastValidatedAt: row.last_validated_at,
-      updatedAt: row.updated_at,
-      configured: row.status === "active",
-    })) }));
+    let rows: ProviderCredentialRow[] = [];
+    if (c.env.DB) {
+      const dbResult = await c.env.DB.prepare(`SELECT id, provider, label, status, last_validated_at, last_tested_at, last_test_status, updated_at, encrypted_secret_json
+        FROM user_provider_credentials
+        WHERE user_id = ?
+        ORDER BY provider, updated_at DESC`)
+        .bind(auth.user.id)
+        .all<ProviderCredentialRow>();
+      rows = dbResult.results ?? [];
+    }
+
+    const rowMap = new Map<string, ProviderCredentialRow>();
+    for (const row of rows) {
+      if (!rowMap.has(row.provider)) {
+        rowMap.set(row.provider, row);
+      }
+    }
+
+    const providers = PROVIDER_CATALOG.map((item) => {
+      const userRow = rowMap.get(item.code);
+      const appFallback = hasAppFallback(c.env, item.code);
+      const configurationSource = providerConfigurationSource({
+        keyless: item.keyless,
+        personalStatus: userRow?.status,
+        personalCredentialsConfigured: hasRequiredProviderCredentials(item.code, userRow?.encrypted_secret_json),
+        appFallbackConfigured: appFallback.configured,
+      });
+      const isConfigured = configurationSource === "personal" || configurationSource === "app" || configurationSource === "keyless";
+      const status = userRow?.status ?? (item.keyless ? "active" : item.defaultStatus === "disabled" ? "disabled" : "not_configured");
+      return {
+        id: userRow?.id ?? null,
+        provider: item.code,
+        name: item.name,
+        category: item.category,
+        description: item.description,
+        keyless: item.keyless,
+        label: userRow?.label ?? (item.keyless ? "Keyless" : null),
+        status,
+        configured: isConfigured,
+        configurationSource,
+        // Disabled credentials remain removable but must never appear configured.
+        configuredFields: activeProviderCredentialKeys(userRow?.status, userRow?.encrypted_secret_json),
+        hasSavedPersonalCredentials: Boolean(userRow && configuredProviderCredentialKeys(userRow.encrypted_secret_json).length),
+        lastValidatedAt: userRow?.last_validated_at ?? null,
+        lastTestedAt: userRow?.last_tested_at ?? null,
+        connectionStatus: userRow?.last_test_status ?? null,
+        updatedAt: userRow?.updated_at ?? null,
+        fields: item.fields,
+        attribution: item.attribution,
+        docUrl: item.docUrl,
+        appFallback,
+      };
+    });
+
+    return c.json(apiSuccess({ providers }));
+  });
+
+  router.post("/providers/:provider/ping", requireAuth(), async (c) => {
+    const providerParam = c.req.param("provider");
+    const catalogItem = getProviderCatalogItem(providerParam);
+    if (!catalogItem) return apiError(c, 400, "validation_failed", `Unknown provider '${providerParam}'.`);
+
+    const auth = c.get("auth");
+    const body = await c.req.json().catch(() => ({}));
+    const scope = c.req.query("scope") || body?.scope || "user";
+    const pingResult = await pingProvider(c.env, providerParam, scope === "app" ? null : auth.user.id);
+    return c.json(apiSuccess({ ping: { ...pingResult, scope } }));
   });
 
   router.put("/providers/:provider", requireAuth(), requireCsrf(), async (c) => {
     if (!c.env.DB) return apiError(c, 503, "server_error", "Settings storage is unavailable.");
-    const provider = providerSchema.safeParse(c.req.param("provider"));
-    if (!provider.success) return apiError(c, 400, "validation_failed", "Unknown provider.");
+    const providerParsed = providerCodeSchema.safeParse(c.req.param("provider"));
+    if (!providerParsed.success) return apiError(c, 400, "validation_failed", "Unknown provider.");
     const body = providerCredentialSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return apiError(c, 400, "validation_failed", "Provider credential details are invalid.", body.error.flatten());
     const auth = c.get("auth");
     const now = new Date().toISOString();
     const label = body.data.label || "Default";
     await c.env.DB.prepare(`INSERT INTO user_provider_credentials
-        (id, user_id, provider, label, encrypted_secret_json, status, last_validated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'active', NULL, ?, ?)
+        (id, user_id, provider, label, encrypted_secret_json, status, last_validated_at, last_tested_at, last_test_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'active', NULL, NULL, NULL, ?, ?)
       ON CONFLICT(user_id, provider, label) DO UPDATE SET
         encrypted_secret_json=excluded.encrypted_secret_json,
         status='active',
+        last_tested_at=NULL,
+        last_test_status=NULL,
         updated_at=excluded.updated_at`)
-      .bind(randomId("upc"), auth.user.id, provider.data, label, JSON.stringify(body.data.secrets), now, now)
+      .bind(randomId("upc"), auth.user.id, providerParsed.data, label, JSON.stringify(body.data.secrets), now, now)
       .run();
-    return c.json(apiSuccess({ provider: provider.data, label, status: "active", updatedAt: now }));
+    return c.json(apiSuccess({ provider: providerParsed.data, label, status: "active", updatedAt: now }));
   });
 
   router.delete("/providers/:provider", requireAuth(), requireCsrf(), async (c) => {
     if (!c.env.DB) return apiError(c, 503, "server_error", "Settings storage is unavailable.");
-    const provider = providerSchema.safeParse(c.req.param("provider"));
-    if (!provider.success) return apiError(c, 400, "validation_failed", "Unknown provider.");
+    const providerParsed = providerCodeSchema.safeParse(c.req.param("provider"));
+    if (!providerParsed.success) return apiError(c, 400, "validation_failed", "Unknown provider.");
     const auth = c.get("auth");
-    const now = new Date().toISOString();
-    await c.env.DB.prepare("UPDATE user_provider_credentials SET status = 'disabled', updated_at = ? WHERE user_id = ? AND provider = ?")
-      .bind(now, auth.user.id, provider.data)
+    await c.env.DB.prepare("DELETE FROM user_provider_credentials WHERE user_id = ? AND provider = ?")
+      .bind(auth.user.id, providerParsed.data)
       .run();
-    return c.json(apiSuccess({ provider: provider.data, status: "disabled", updatedAt: now }));
+    return c.json(apiSuccess({ provider: providerParsed.data, status: "not_configured" }));
   });
 
   router.get("/navigation", requireAuth(), async (c) => {
@@ -90,15 +150,18 @@ export function createSettingsRoutes() {
   });
 
   router.put("/navigation", requireAuth(), requireCsrf(), async (c) => {
-    const body = navigationSchema.safeParse(await c.req.json().catch(() => null));
-    if (!body.success) return apiError(c, 400, "validation_failed", "Choose between 2 and 6 navigation items.", body.error.flatten());
+    const raw = await c.req.json().catch(() => null);
+    const rawItems = Array.isArray(raw?.items) ? raw.items : [];
+    const items = rawItems.includes("explore") ? rawItems : [...rawItems, "explore"];
+    const body = navigationSchema.safeParse({ ...raw, items });
+    if (!body.success) return apiError(c, 400, "validation_failed", "Invalid navigation settings.", body.error.flatten());
     await writeUserSetting(c.env.DB, c.get("auth").user.id, "navigation", body.data);
     return c.json(apiSuccess({ navigation: body.data }));
   });
 
   router.get("/appearance", requireAuth(), async (c) => {
     const stored = await readUserSetting(c.env.DB, c.get("auth").user.id, "appearance");
-    const appearance = stored ? { theme: "system", ...stored } : { theme: "system" };
+    const appearance = stored ? { theme: "system", gradientIntensity: 0.2, ...stored } : { theme: "system", gradientIntensity: 0.2 };
     return c.json(apiSuccess({ appearance }));
   });
 

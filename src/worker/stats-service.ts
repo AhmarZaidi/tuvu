@@ -44,12 +44,13 @@ export async function recalculateDashboardStats(db: D1Database, userId: string, 
   const now = new Date().toISOString();
   const types = mediaTypesForDashboardKind(kind);
   const typePlaceholders = types.map(() => "?").join(", ");
-  const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+  const animeClassificationClause = "(COALESCE(mi.extended_data_json, '') LIKE '%\"category\":\"anime\"%' OR COALESCE(mi.extended_data_json, '') LIKE '%\"anime\":%')";
+  const typeMatches = `COALESCE(mi.type, mi.media_type_code) IN (${typePlaceholders})`;
   const typeClause = kind === "anime"
-    ? `(mi.type IN (${typePlaceholders}) OR ${animeClassificationClause})`
+    ? `(${typeMatches} OR ${animeClassificationClause})`
     : (kind === "shows" || kind === "movies")
-      ? `(mi.type IN (${typePlaceholders}) AND NOT ${animeClassificationClause})`
-      : `mi.type IN (${typePlaceholders})`;
+      ? `(${typeMatches} AND NOT ${animeClassificationClause})`
+      : typeMatches;
   const totalTrackedRow = await db.prepare(`
     SELECT COUNT(*) as count
     FROM user_media um
@@ -160,10 +161,11 @@ function parseProfileStats(value: string) {
 export async function dashboardSectionCounts(db: D1Database, userId: string, kind: DashboardKind): Promise<Record<string, number>> {
   if (kind === "shows" || kind === "anime") {
     const mediaType = mediaTypesForDashboardKind(kind)[0];
-    const animeClassificationClause = "(mi.extended_data_json LIKE '%\"category\":\"anime\"%' OR mi.extended_data_json LIKE '%\"anime\":%')";
+    const animeClassificationClause = "(COALESCE(mi.extended_data_json, '') LIKE '%\"category\":\"anime\"%' OR COALESCE(mi.extended_data_json, '') LIKE '%\"anime\":%')";
+    const typeMatch = "COALESCE(mi.type, mi.media_type_code) = ?";
     const typeClause = kind === "anime"
-      ? `(mi.type = ? OR ${animeClassificationClause})`
-      : `(mi.type = ? AND NOT ${animeClassificationClause})`;
+      ? `(${typeMatch} OR ${animeClassificationClause})`
+      : `(${typeMatch} AND NOT ${animeClassificationClause})`;
     const row = await db.prepare(`
       WITH show_rows AS (
         SELECT

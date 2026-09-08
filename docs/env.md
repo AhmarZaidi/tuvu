@@ -17,7 +17,14 @@ Worker development and `wrangler secret put` for Cloudflare environments.
 | Name | Phase | Description |
 | --- | --- | --- |
 | `TMDB_API_KEY` | Phase 6 | TMDB metadata API key. |
+| `GOOGLE_BOOKS_API_KEY` | Phase 6 | Google Books API key. |
 | `RAWG_API_KEY` | Phase 6 | RAWG games API key. |
+| `TWITCH_IGDB_CLIENT_ID` / `TWITCH_IGDB_CLIENT_SECRET` | Phase 6 | Twitch application credentials for IGDB. |
+| `THETVDB_API_KEY` / `THETVDB_USER_PIN` | Phase 6 | TheTVDB project API key and optional subscriber PIN. |
+| `GUARDIAN_API_KEY` | Phase 6 | Guardian Open Platform API key. |
+| `NEWSAPI_KEY` | Phase 6 | NewsAPI.org key. |
+| `OPENSUBTITLES_API_KEY` | Phase 6 | OpenSubtitles.com API key. |
+| `YOUTUBE_API_KEY` | Phase 6 | YouTube Data API v3 key. |
 | `OPEN_LIBRARY_CONTACT_EMAIL` | Phase 6 | Contact email included in Open Library User-Agent/config. |
 | `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET` | Phase 2 | OAuth provider credentials. |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Phase 2 | GitHub OAuth app credentials. Preferred over generic OAuth names for the first provider. |
